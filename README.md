@@ -1,3 +1,4 @@
+本仓库基于 [go-admin-core](https://github.com/go-admin-team/go-admin-core) 修改，原项目遵循 Apache 2.0 协议
 # go-admin-team 公共代码库
 
 ### 功能
