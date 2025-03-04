@@ -8,7 +8,7 @@ require (
 	github.com/casbin/casbin/v2 v2.54.0
 	github.com/chanxuehong/wechat v0.0.0-20201110083048-0180211b69fd
 	github.com/gin-gonic/gin v1.7.7
-	github.com/ChenBigdata421/jxt-core v1.3.12-0.20221121065133-27b7dbe27a8f
+	github.com/ChenBigdata421/jxt-core v1.0.0
 	github.com/ChenBigdata421/jxt-core/plugins/logger/zap v0.0.0-20210610020726-2db73adb505d
 	github.com/go-admin-team/gorm-adapter/v3 v3.2.1-0.20210902112335-4148cb356a24
 	github.com/go-admin-team/redis-watcher/v2 v2.0.0-20221121052608-058cebff72c2
