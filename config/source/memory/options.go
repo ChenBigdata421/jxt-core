@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 
-	"github.com/go-admin-team/go-admin-core/config/source"
+	"github.com/ChenBigdata421/jxt-core/config/source"
 )
 
 type changeSetKey struct{}

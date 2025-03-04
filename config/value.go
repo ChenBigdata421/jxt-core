@@ -3,7 +3,7 @@ package config
 import (
 	"time"
 
-	"github.com/go-admin-team/go-admin-core/config/reader"
+	"github.com/ChenBigdata421/jxt-core/config/reader"
 )
 
 type value struct{}

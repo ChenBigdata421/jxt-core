@@ -4,7 +4,7 @@ package reader
 import (
 	"time"
 
-	"github.com/go-admin-team/go-admin-core/config/source"
+	"github.com/ChenBigdata421/jxt-core/config/source"
 )
 
 // Reader is an interface for merging changesets

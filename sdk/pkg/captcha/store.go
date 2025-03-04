@@ -1,7 +1,7 @@
 package captcha
 
 import (
-	"github.com/go-admin-team/go-admin-core/storage"
+	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/mojocn/base64Captcha"
 )
 
@@ -38,7 +38,7 @@ func (e *cacheStore) Get(id string, clear bool) string {
 	return ""
 }
 
-//Verify captcha's answer directly
+// Verify captcha's answer directly
 func (e *cacheStore) Verify(id, answer string, clear bool) bool {
 	return e.Get(id, clear) == answer
 }

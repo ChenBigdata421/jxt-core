@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-admin-team/go-admin-core/config/loader"
-	"github.com/go-admin-team/go-admin-core/config/reader"
-	"github.com/go-admin-team/go-admin-core/config/reader/json"
-	"github.com/go-admin-team/go-admin-core/config/source"
+	"github.com/ChenBigdata421/jxt-core/config/loader"
+	"github.com/ChenBigdata421/jxt-core/config/reader"
+	"github.com/ChenBigdata421/jxt-core/config/reader/json"
+	"github.com/ChenBigdata421/jxt-core/config/source"
 )
 
 type memory struct {

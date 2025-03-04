@@ -3,7 +3,7 @@ package logrus
 import (
 	"github.com/sirupsen/logrus"
 
-	"github.com/go-admin-team/go-admin-core/logger"
+	"github.com/ChenBigdata421/jxt-core/logger"
 )
 
 type Options struct {

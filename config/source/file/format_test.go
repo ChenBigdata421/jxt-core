@@ -3,7 +3,7 @@ package file
 import (
 	"testing"
 
-	"github.com/go-admin-team/go-admin-core/config/source"
+	"github.com/ChenBigdata421/jxt-core/config/source"
 )
 
 func TestFormat(t *testing.T) {

@@ -12,8 +12,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/go-admin-team/go-admin-core/server/grpc/interceptors/logging/ctxlog"
-	"github.com/go-admin-team/go-admin-core/tools/utils"
+	"github.com/ChenBigdata421/jxt-core/server/grpc/interceptors/logging/ctxlog"
+	"github.com/ChenBigdata421/jxt-core/tools/utils"
 	middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"google.golang.org/grpc"
 )

@@ -11,8 +11,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-admin-team/go-admin-core/logger"
-	"github.com/go-admin-team/go-admin-core/server/grpc/interceptors/logging/ctxlog"
+	"github.com/ChenBigdata421/jxt-core/logger"
+	"github.com/ChenBigdata421/jxt-core/server/grpc/interceptors/logging/ctxlog"
 	grpc_logging "github.com/grpc-ecosystem/go-grpc-middleware/logging"
 	"google.golang.org/grpc/codes"
 )

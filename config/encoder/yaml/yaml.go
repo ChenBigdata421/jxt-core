@@ -1,8 +1,8 @@
 package yaml
 
 import (
+	"github.com/ChenBigdata421/jxt-core/config/encoder"
 	"github.com/ghodss/yaml"
-	"github.com/go-admin-team/go-admin-core/config/encoder"
 )
 
 type yamlEncoder struct{}
