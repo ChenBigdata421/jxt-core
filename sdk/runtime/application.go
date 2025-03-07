@@ -16,6 +16,7 @@ import (
 
 type Application struct {
 	dbs         map[string]*gorm.DB
+	queryDBs    map[string]*gorm.DB // 记录查询的db，jiyuanjie add for CQRS 2025-03-07
 	casbins     map[string]*casbin.SyncedEnforcer
 	engine      http.Handler
 	crontab     map[string]*cron.Cron
@@ -47,11 +48,25 @@ func (e *Application) SetDb(key string, db *gorm.DB) {
 	e.dbs[key] = db
 }
 
+// SetQueryDb 设置对应key的db
+func (e *Application) SetQueryDb(key string, db *gorm.DB) {
+	e.mux.Lock()
+	defer e.mux.Unlock()
+	e.queryDBs[key] = db
+}
+
 // GetDb 获取所有map里的db数据
 func (e *Application) GetDb() map[string]*gorm.DB {
 	e.mux.Lock()
 	defer e.mux.Unlock()
 	return e.dbs
+}
+
+// GetQueryDb 获取所有map里的db数据
+func (e *Application) GetQueryDb() map[string]*gorm.DB {
+	e.mux.Lock()
+	defer e.mux.Unlock()
+	return e.queryDBs
 }
 
 // GetDbByKey 根据key获取db
@@ -64,6 +79,17 @@ func (e *Application) GetDbByKey(key string) *gorm.DB {
 	return e.dbs[key]
 }
 
+// GetQueryDbByKey 根据key获取db
+func (e *Application) GetQueryDbByKey(key string) *gorm.DB {
+	e.mux.Lock()
+	defer e.mux.Unlock()
+	if db, ok := e.queryDBs["*"]; ok {
+		return db
+	}
+	return e.queryDBs[key]
+}
+
+// SetCasbin 设置对应key的casbin
 func (e *Application) SetCasbin(key string, enforcer *casbin.SyncedEnforcer) {
 	e.mux.Lock()
 	defer e.mux.Unlock()
@@ -125,6 +151,7 @@ func (e *Application) GetLogger() logger.Logger {
 func NewConfig() *Application {
 	return &Application{
 		dbs:         make(map[string]*gorm.DB),
+		queryDBs:    make(map[string]*gorm.DB), // 记录查询的db，jiyuanjie add for CQRS 2025-03-07
 		casbins:     make(map[string]*casbin.SyncedEnforcer),
 		crontab:     make(map[string]*cron.Cron),
 		middlewares: make(map[string]interface{}),
