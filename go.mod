@@ -1,6 +1,6 @@
 module github.com/ChenBigdata421/jxt-core
 
-go 1.21
+go 1.18
 
 require (
 	github.com/BurntSushi/toml v0.3.1
