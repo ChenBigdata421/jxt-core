@@ -118,3 +118,6 @@ require (
 	gorm.io/driver/sqlite v1.4.3 // indirect
 	gorm.io/driver/sqlserver v1.4.1 // indirect
 )
+
+// 解决模块冲突
+replace github.com/ChenBigdata421/jxt-core/sdk => ./sdk
