@@ -36,7 +36,7 @@ func (e *Settings) Init() {
 }
 
 func (e *Settings) init() {
-	e.Settings.Logger.Setup()
+	e.Settings.Logger.Setup() // 原代码待删除 by jiyuanjje
 	e.Settings.multiDatabase()
 	e.runCallback()
 }
@@ -57,7 +57,7 @@ type Config struct {
 	Extend      interface{}           `yaml:"extend"`
 }
 
-// 多db改造
+// 多db改造，如果多db配置不存在，则默认使用单个db配置，并以*为key
 func (e *Config) multiDatabase() {
 	if len(*e.Databases) == 0 {
 		*e.Databases = map[string]*Database{
