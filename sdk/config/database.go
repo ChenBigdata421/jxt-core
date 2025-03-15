@@ -1,6 +1,11 @@
 package config
 
-type Database struct {
+type Database struct { //jiyuanjie 添加 为了支持CQRS（主从库可以是完全不同类型数据库）
+	CommandDB DBConfig
+	QueryDB   DBConfig
+}
+
+type DBConfig struct {
 	Driver          string
 	Source          string
 	ConnMaxIdleTime int

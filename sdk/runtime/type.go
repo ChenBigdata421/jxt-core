@@ -18,6 +18,10 @@ type Runtime interface {
 	GetDb() map[string]*gorm.DB
 	GetDbByKey(key string) *gorm.DB
 
+	SetQueryDb(key string, db *gorm.DB)
+	GetQueryDb() map[string]*gorm.DB
+	GetQueryDbByKey(key string) *gorm.DB
+
 	SetCasbin(key string, enforcer *casbin.SyncedEnforcer)
 	GetCasbin() map[string]*casbin.SyncedEnforcer
 	GetCasbinKey(key string) *casbin.SyncedEnforcer
