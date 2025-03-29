@@ -15,8 +15,9 @@ import (
 )
 
 type Application struct {
-	dbs         map[string]*gorm.DB
-	queryDBs    map[string]*gorm.DB // 记录查询的db，jiyuanjie add for CQRS 2025-03-07
+	dbs         map[string]*gorm.DB // 非CQRS时，记录db
+	commandDBs  map[string]*gorm.DB // CQRS时，记录命令的db，jiyuanjie add for CQRS 2025-03-29
+	queryDBs    map[string]*gorm.DB // CQRS时，记录查询的db，jiyuanjie add for CQRS 2025-03-07
 	casbins     map[string]*casbin.SyncedEnforcer
 	engine      http.Handler
 	crontab     map[string]*cron.Cron
@@ -41,14 +42,21 @@ type Routers struct {
 	List []Router
 }
 
-// SetDb 设置对应key的db
+// SetDb 非CQRS时，设置对应key的db
 func (e *Application) SetDb(key string, db *gorm.DB) {
 	e.mux.Lock()
 	defer e.mux.Unlock()
 	e.dbs[key] = db
 }
 
-// SetQueryDb 设置对应key的db
+// SetCommandDb CQRS时，设置对应key的db
+func (e *Application) SetCommandDb(key string, db *gorm.DB) {
+	e.mux.Lock()
+	defer e.mux.Unlock()
+	e.commandDBs[key] = db
+}
+
+// SetQueryDb CQRS时，设置对应key的db
 func (e *Application) SetQueryDb(key string, db *gorm.DB) {
 	e.mux.Lock()
 	defer e.mux.Unlock()
@@ -62,6 +70,13 @@ func (e *Application) GetDb() map[string]*gorm.DB {
 	return e.dbs
 }
 
+// GetCommandDb 获取所有map里的db数据
+func (e *Application) GetCommandDb() map[string]*gorm.DB {
+	e.mux.Lock()
+	defer e.mux.Unlock()
+	return e.commandDBs
+}
+
 // GetQueryDb 获取所有map里的db数据
 func (e *Application) GetQueryDb() map[string]*gorm.DB {
 	e.mux.Lock()
@@ -69,7 +84,7 @@ func (e *Application) GetQueryDb() map[string]*gorm.DB {
 	return e.queryDBs
 }
 
-// GetDbByKey 根据key获取db
+// GetDbByKey 非CQRS时，根据key获取db
 func (e *Application) GetDbByKey(key string) *gorm.DB {
 	e.mux.Lock()
 	defer e.mux.Unlock()
@@ -79,7 +94,17 @@ func (e *Application) GetDbByKey(key string) *gorm.DB {
 	return e.dbs[key]
 }
 
-// GetQueryDbByKey 根据key获取db
+// GetCommandDbByKey CQRS时，根据key获取db
+func (e *Application) GetCommandDbByKey(key string) *gorm.DB {
+	e.mux.Lock()
+	defer e.mux.Unlock()
+	if db, ok := e.commandDBs["*"]; ok {
+		return db
+	}
+	return e.commandDBs[key]
+}
+
+// GetQueryDbByKey CQRS时，根据key获取db
 func (e *Application) GetQueryDbByKey(key string) *gorm.DB {
 	e.mux.Lock()
 	defer e.mux.Unlock()
@@ -150,8 +175,9 @@ func (e *Application) GetLogger() logger.Logger {
 // NewConfig 默认值
 func NewConfig() *Application {
 	return &Application{
-		dbs:         make(map[string]*gorm.DB),
-		queryDBs:    make(map[string]*gorm.DB), // 记录查询的db，jiyuanjie add for CQRS 2025-03-07
+		dbs:         make(map[string]*gorm.DB), // 非CQRS时，记录db
+		commandDBs:  make(map[string]*gorm.DB), // CQRS时，记录命令的db，jiyuanjie add for CQRS 2025-03-29
+		queryDBs:    make(map[string]*gorm.DB), // CQRS时，记录查询的db，jiyuanjie add for CQRS 2025-03-07
 		casbins:     make(map[string]*casbin.SyncedEnforcer),
 		crontab:     make(map[string]*cron.Cron),
 		middlewares: make(map[string]interface{}),

@@ -13,11 +13,17 @@ import (
 )
 
 type Runtime interface {
-	// SetDb 多db设置，⚠️SetDbs不允许并发,可以根据自己的业务，例如app分库、host分库
+	// SetDb 非CQRS时，多db设置，⚠️SetDbs不允许并发,可以根据自己的业务，例如app分库、host分库
 	SetDb(key string, db *gorm.DB)
 	GetDb() map[string]*gorm.DB
 	GetDbByKey(key string) *gorm.DB
 
+	// SetCommandDb CQRS时，设置对应key的db
+	SetCommandDb(key string, db *gorm.DB)
+	GetCommandDb() map[string]*gorm.DB
+	GetCommandDbByKey(key string) *gorm.DB
+
+	// SetQueryDb CQRS时，设置对应key的db
 	SetQueryDb(key string, db *gorm.DB)
 	GetQueryDb() map[string]*gorm.DB
 	GetQueryDbByKey(key string) *gorm.DB

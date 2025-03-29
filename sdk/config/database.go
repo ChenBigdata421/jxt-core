@@ -1,8 +1,9 @@
 package config
 
-type Database struct { //jiyuanjie 添加 为了支持CQRS（主从库可以是完全不同类型数据库）
-	CommandDB DBConfig
-	QueryDB   DBConfig
+type Database struct { // jiyuanjie 添加 为了支持CQRS（主从库可以是完全不同类型数据库）
+	MasterDB  DBConfig // 非CQRS时，db配置
+	CommandDB DBConfig // CQRS时，命令db配置
+	QueryDB   DBConfig // CQRS时，查询db配置
 }
 
 type DBConfig struct {
