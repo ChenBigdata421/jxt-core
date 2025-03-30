@@ -3,8 +3,6 @@ package mycasbin
 import (
 	"sync"
 
-	"github.com/ChenBigdata421/jxt-core/logger"
-	"github.com/ChenBigdata421/jxt-core/sdk"
 	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/log"
@@ -13,6 +11,7 @@ import (
 	"github.com/go-redis/redis/v9"
 	"gorm.io/gorm"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	gormAdapter "github.com/go-admin-team/gorm-adapter/v3"
 )
 
@@ -87,10 +86,10 @@ func Setup(db *gorm.DB, _ string) *casbin.SyncedEnforcer {
 }
 
 func updateCallback(msg string) {
-	l := logger.NewHelper(sdk.Runtime.GetLogger())
-	l.Infof("casbin updateCallback msg: %v", msg)
+	//l := logger.NewHelper(sdk.Runtime.GetLogger())//废弃原有logger
+	logger.Infof("casbin updateCallback msg: %v", msg) //使用sdk/pkg/logger
 	err := enforcer.LoadPolicy()
 	if err != nil {
-		l.Errorf("casbin LoadPolicy err: %v", err)
+		logger.Errorf("casbin LoadPolicy err: %v", err) //使用sdk/pkg/logger
 	}
 }

@@ -1,7 +1,5 @@
 package config
 
-import "github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
-
 type Logger struct {
 	//Type            string // zap，logrus，或自研，无用删除by jiyuanjje
 	Path   string // 日志文件路径
@@ -14,17 +12,6 @@ type Logger struct {
 	MaxBackups      int  // 日志文件保留个数，一般设置20个 add by jiyuanjje
 	EnabledDB       bool // 是否启用数据库日志(true：启用，false：不启用)
 	GormLoggerLevel int  // 数据库日志打印级别（4：Info，3 Warn，2 Error，1 Silent）add by jiyuanjje
-}
-
-// Setup 设置logger
-func (e Logger) Setup() {
-	logger.SetupLogger(
-		logger.WithType(""),
-		logger.WithPath(e.Path),
-		logger.WithLevel(e.Level),
-		logger.WithStdout(""),
-		logger.WithCap(10),
-	)
 }
 
 var LoggerConfig = new(Logger)

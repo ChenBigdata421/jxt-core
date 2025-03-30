@@ -36,7 +36,7 @@ func (e *Settings) Init() {
 }
 
 func (e *Settings) init() {
-	e.Settings.Logger.Setup() // 原代码待删除 by jiyuanjje
+	//e.Settings.Logger.Setup() // 原代码待删除 by jiyuanjje
 	e.Settings.multiDatabase()
 	e.runCallback()
 }
