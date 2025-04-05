@@ -1,10 +1,10 @@
 package config
 
-type Ssl struct {
-	KeyStr string
-	Pem    string
-	Enable bool
-	Domain string
+type SSL struct {
+	KeyStr string `mapstructure:"key_str"`
+	Pem    string `mapstructure:"pem"`
+	Enable bool   `mapstructure:"enable"`
+	Domain string `mapstructure:"domain"`
 }
 
-var SslConfig = new(Ssl)
+var SslConfig = new(SSL)

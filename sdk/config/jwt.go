@@ -1,8 +1,9 @@
 package config
 
-type Jwt struct {
-	Secret  string
-	Timeout int64
+// JWT JWT配置
+type JWT struct {
+	Secret  string `mapstructure:"secret"`
+	Timeout int    `mapstructure:"timeout"`
 }
 
-var JwtConfig = new(Jwt)
+var JwtConfig = new(JWT)

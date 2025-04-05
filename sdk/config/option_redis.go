@@ -26,20 +26,20 @@ func SetRedisClient(c *redis.Client) {
 }
 
 type RedisConnectOptions struct {
-	Network    string `yaml:"network" json:"network"`
-	Addr       string `yaml:"addr" json:"addr"`
-	Username   string `yaml:"username" json:"username"`
-	Password   string `yaml:"password" json:"password"`
-	DB         int    `yaml:"db" json:"db"`
-	PoolSize   int    `yaml:"pool_size" json:"pool_size"`
-	Tls        *Tls   `yaml:"tls" json:"tls"`
-	MaxRetries int    `yaml:"max_retries" json:"max_retries"`
+	Network    string `mapstructure:"network" json:"network"`
+	Addr       string `mapstructure:"addr" json:"addr"`
+	Username   string `mapstructure:"username" json:"username"`
+	Password   string `mapstructure:"password" json:"password"`
+	DB         int    `mapstructure:"db" json:"db"`
+	PoolSize   int    `mapstructure:"pool_size" json:"pool_size"`
+	Tls        *Tls   `mapstructure:"tls" json:"tls"`
+	MaxRetries int    `mapstructure:"max_retries" json:"max_retries"`
 }
 
 type Tls struct {
-	Cert string `yaml:"cert" json:"cert"`
-	Key  string `yaml:"key" json:"key"`
-	Ca   string `yaml:"ca" json:"ca"`
+	Cert string `mapstructure:"cert" json:"cert"`
+	Key  string `mapstructure:"key" json:"key"`
+	Ca   string `mapstructure:"ca" json:"ca"`
 }
 
 func (e RedisConnectOptions) GetRedisOptions() (*redis.Options, error) {

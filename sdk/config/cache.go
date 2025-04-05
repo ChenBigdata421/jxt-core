@@ -10,7 +10,13 @@ type Cache struct {
 	Memory interface{}
 }
 
-// CacheConfig cache配置
+// Redis Redis配置
+type Redis struct {
+	Addr     string `mapstructure:"addr"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
+}
+
 var CacheConfig = new(Cache)
 
 // Setup 构造cache 顺序 redis > 其他 > memory

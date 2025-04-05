@@ -1,60 +1,17 @@
 package config
 
-import (
-	"fmt"
-	"log"
-
-	"github.com/ChenBigdata421/jxt-core/config"
-	"github.com/ChenBigdata421/jxt-core/config/source"
-)
-
-var (
-	ExtendConfig interface{}
-	_cfg         *Settings
-)
-
-// Settings 兼容原先的配置结构
-type Settings struct {
-	Settings  Config `yaml:"settings"`
-	callbacks []func()
-}
-
-func (e *Settings) runCallback() {
-	for i := range e.callbacks {
-		e.callbacks[i]()
-	}
-}
-
-func (e *Settings) OnChange() {
-	e.init()
-	log.Println("config change and reload")
-}
-
-func (e *Settings) Init() {
-	e.init()
-	log.Println("config init")
-}
-
-func (e *Settings) init() {
-	//e.Settings.Logger.Setup() // 原代码待删除 by jiyuanjje
-	e.Settings.multiDatabase()
-	e.runCallback()
-}
-
-// Config 配置集合
+// Config 顶层配置结构
 type Config struct {
-	Application *Application          `yaml:"application"`
-	Ssl         *Ssl                  `yaml:"ssl"`
-	Logger      *Logger               `yaml:"logger"`
-	Jwt         *Jwt                  `yaml:"jwt"`
-	Database    *Database             `yaml:"database"`
-	Databases   *map[string]*Database `yaml:"databases"`
-	Gen         *Gen                  `yaml:"gen"`
-	Cache       *Cache                `yaml:"cache"`
-	Queue       *Queue                `yaml:"queue"`
-	Locker      *Locker               `yaml:"locker"`
-	EventBus    *EventBus             `yaml:"eventbus"`
-	Extend      interface{}           `yaml:"extend"`
+	Application *Application          `mapstructure:"application"`
+	Logger      *Logger               `mapstructure:"logger"`
+	SSL         *SSL                  `mapstructure:"ssl"`
+	JWT         *JWT                  `mapstructure:"jwt"`
+	Database    *Database             `mapstructure:"database"`
+	Databases   *map[string]*Database `mapstructure:"databases"`
+	Cache       *Cache                `mapstructure:"cache"`
+	Queue       *Queue                `mapstructure:"queue"`
+	EventBus    *EventBus             `mapstructure:"eventBus"`
+	Locker      *Locker               `mapstructure:"locker"`
 }
 
 // 多db改造，如果多db配置不存在，则默认使用单个db配置，并以*为key
@@ -67,33 +24,15 @@ func (e *Config) multiDatabase() {
 	}
 }
 
-// Setup 载入配置文件
-func Setup(s source.Source,
-	fs ...func()) {
-	_cfg = &Settings{
-		Settings: Config{
-			Application: ApplicationConfig,
-			Ssl:         SslConfig,
-			Logger:      LoggerConfig,
-			Jwt:         JwtConfig,
-			Database:    DatabaseConfig,
-			Databases:   &DatabasesConfig,
-			Gen:         GenConfig,
-			Cache:       CacheConfig,
-			Queue:       QueueConfig,
-			Locker:      LockerConfig,
-			EventBus:    EventBusConfig,
-			Extend:      ExtendConfig,
-		},
-		callbacks: fs,
-	}
-	var err error
-	config.DefaultConfig, err = config.NewConfig(
-		config.WithSource(s),
-		config.WithEntity(_cfg),
-	)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("New config object fail: %s", err.Error()))
-	}
-	_cfg.Init()
+var AppConfig = &Config{
+	Application: ApplicationConfig,
+	SSL:         SslConfig,
+	Logger:      LoggerConfig,
+	JWT:         JwtConfig,
+	Database:    DatabaseConfig,
+	Databases:   &DatabasesConfig,
+	Cache:       CacheConfig,
+	Queue:       QueueConfig,
+	Locker:      LockerConfig,
+	EventBus:    EventBusConfig,
 }

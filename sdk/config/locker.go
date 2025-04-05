@@ -6,11 +6,12 @@ import (
 	"github.com/go-redis/redis/v9"
 )
 
-var LockerConfig = new(Locker)
-
+// Locker 锁配置
 type Locker struct {
-	Redis *RedisConnectOptions
+	Redis *RedisConnectOptions `mapstructure:"redis"`
 }
+
+var LockerConfig = new(Locker)
 
 // Empty 空设置
 func (e Locker) Empty() bool {

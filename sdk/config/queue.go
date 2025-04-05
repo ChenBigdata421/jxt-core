@@ -9,10 +9,11 @@ import (
 	"github.com/go-redis/redis/v9"
 )
 
+// Queue 队列配置
 type Queue struct {
-	Redis  *QueueRedis
-	Memory *QueueMemory
-	NSQ    *QueueNSQ `json:"nsq" yaml:"nsq"`
+	Redis  *QueueRedis  `mapstructure:"redis"`
+	Memory *QueueMemory `mapstructure:"memory"`
+	NSQ    *QueueNSQ    `mapstructure:"nsq" json:"nsq"`
 }
 
 type QueueRedis struct {

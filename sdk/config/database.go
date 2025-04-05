@@ -1,26 +1,28 @@
 package config
 
-type Database struct { // jiyuanjie 添加 为了支持CQRS（主从库可以是完全不同类型数据库）
-	MasterDB  DBConfig // 非CQRS时，db配置
-	CommandDB DBConfig // CQRS时，命令db配置
-	QueryDB   DBConfig // CQRS时，查询db配置
+// Database 数据库配置
+type Database struct {
+	MasterDB  DBConfig `mapstructure:"masterDB"`
+	CommandDB DBConfig `mapstructure:"commandDB"`
+	QueryDB   DBConfig `mapstructure:"queryDB"`
 }
 
+// DBConfig 数据库具体配置
 type DBConfig struct {
-	Driver          string
-	Source          string
-	ConnMaxIdleTime int
-	ConnMaxLifeTime int
-	MaxIdleConns    int
-	MaxOpenConns    int
-	Registers       []DBResolverConfig
+	Driver          string     `mapstructure:"driver"`
+	Source          string     `mapstructure:"source"`
+	ConnMaxIdleTime int        `mapstructure:"connmaxidletime"`
+	ConnMaxLifeTime int        `mapstructure:"connmaxlifetime"`
+	MaxIdleConns    int        `mapstructure:"maxidleconns"`
+	MaxOpenConns    int        `mapstructure:"maxopenconns"`
+	Registers       []Register `mapstructure:"registers"`
 }
 
-type DBResolverConfig struct {
-	Sources  []string
-	Replicas []string
-	Policy   string
-	Tables   []string
+type Register struct {
+	Sources  []string `mapstructure:"sources"`
+	Replicas []string `mapstructure:"replicas"`
+	Policy   string   `mapstructure:"policy"`
+	Tables   []string `mapstructure:"tables"`
 }
 
 var (
