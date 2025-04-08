@@ -20,6 +20,7 @@ type Config struct {
 	Queue       *Queue                `mapstructure:"queue"`
 	EventBus    *EventBus             `mapstructure:"eventBus"`
 	Locker      *Locker               `mapstructure:"locker"`
+	Tenants     *Tenants              `mapstructure:"tenants"`
 }
 
 // 多db改造，如果多db配置不存在，则默认使用单个db配置，并以*为key
@@ -34,16 +35,16 @@ func (e *Config) multiDatabase() {
 
 var AppConfig = &Config{
 	Application: ApplicationConfig,
+	Logger:      LoggerConfig,
 	HTTP:        HttpConfig,
 	RPC:         RpcConfig,
-	Logger:      LoggerConfig,
 	JWT:         JwtConfig,
 	Database:    DatabaseConfig,
-	Databases:   &DatabasesConfig,
 	Cache:       CacheConfig,
 	Queue:       QueueConfig,
 	Locker:      LockerConfig,
 	EventBus:    EventBusConfig,
+	Tenants:     TenantsConfig,
 }
 
 func Setup(configYml string) error {

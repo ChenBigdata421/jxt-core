@@ -9,10 +9,10 @@ import (
 	"github.com/ChenBigdata421/jxt-core/sdk/service"
 	vd "github.com/bytedance/go-tagexpr/v2/validator"
 	"github.com/gin-gonic/gin/binding"
+	"go.uber.org/zap"
 
-	"github.com/ChenBigdata421/jxt-core/logger"
-	"github.com/ChenBigdata421/jxt-core/sdk/api"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/response/antd"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -20,14 +20,14 @@ import (
 
 type Api struct {
 	Context *gin.Context
-	Logger  *logger.Helper
+	Logger  *zap.Logger
 	Orm     *gorm.DB
 	Errors  error
 }
 
 // GetLogger 获取上下文提供的日志
-func (e Api) GetLogger() *logger.Helper {
-	return api.GetRequestLogger(e.Context)
+func (e Api) GetLogger() *zap.Logger {
+	return logger.GetRequestLogger(e.Context)
 }
 
 // GetOrm 获取Orm DB
@@ -71,7 +71,7 @@ func (e *Api) Custom(data gin.H) {
 // MakeContext 设置http上下文
 func (e *Api) MakeContext(c *gin.Context) *Api {
 	e.Context = c
-	e.Logger = api.GetRequestLogger(c)
+	e.Logger = logger.GetRequestLogger(c)
 	return e
 }
 
@@ -113,7 +113,7 @@ func (e *Api) MakeOrm() *Api {
 	}
 	db, err := pkg.GetOrm(e.Context)
 	if err != nil {
-		e.Logger.Error(http.StatusInternalServerError, err, "数据库连接获取失败")
+		e.Logger.Error(err.Error(), zap.String("数据库连接获取失败", err.Error()))
 		e.AddError(err)
 	}
 	e.Orm = db
@@ -130,7 +130,7 @@ func (e *Api) AddError(err error) {
 	if e.Errors == nil {
 		e.Errors = err
 	} else if err != nil {
-		e.Logger.Error(err)
+		e.Logger.Error(err.Error())
 		e.Errors = fmt.Errorf("%v; %w", e.Error, err)
 	}
 }

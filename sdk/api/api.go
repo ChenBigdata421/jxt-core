@@ -4,11 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"net/http"
-
-	"github.com/ChenBigdata421/jxt-core/logger"
 	"github.com/ChenBigdata421/jxt-core/sdk"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/response"
 	"github.com/ChenBigdata421/jxt-core/sdk/service"
 	"github.com/ChenBigdata421/jxt-core/storage"
@@ -16,6 +14,7 @@ import (
 	vd "github.com/bytedance/go-tagexpr/v2/validator"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -23,7 +22,7 @@ var DefaultLanguage = "zh-CN"
 
 type Api struct {
 	Context *gin.Context
-	Logger  *logger.Helper
+	Logger  *zap.Logger
 	Orm     *gorm.DB
 	Errors  error
 	Cache   storage.AdapterCache
@@ -33,7 +32,7 @@ func (e *Api) AddError(err error) {
 	if e.Errors == nil {
 		e.Errors = err
 	} else if err != nil {
-		e.Logger.Error(err)
+		e.Logger.Error(err.Error())
 		e.Errors = fmt.Errorf("%v; %w", e.Errors, err)
 	}
 }
@@ -41,13 +40,13 @@ func (e *Api) AddError(err error) {
 // MakeContext 设置http上下文
 func (e *Api) MakeContext(c *gin.Context) *Api {
 	e.Context = c
-	e.Logger = GetRequestLogger(c)
+	e.Logger = logger.GetRequestLogger(c)
 	return e
 }
 
 // GetLogger 获取上下文提供的日志
-func (e Api) GetLogger() *logger.Helper {
-	return GetRequestLogger(e.Context)
+func (e Api) GetLogger() *zap.Logger {
+	return logger.GetRequestLogger(e.Context)
 }
 
 // Bind 参数校验
@@ -85,7 +84,7 @@ func (e *Api) Bind(d interface{}, bindings ...binding.Binding) *Api {
 func (e Api) GetOrm() (*gorm.DB, error) {
 	db, err := pkg.GetOrm(e.Context)
 	if err != nil {
-		e.Logger.Error(http.StatusInternalServerError, err, "数据库连接获取失败")
+		e.Logger.Error(err.Error(), zap.String("数据库连接获取失败", err.Error()))
 		return nil, err
 	}
 	return db, nil
@@ -101,7 +100,7 @@ func (e *Api) MakeOrm() *Api {
 	}
 	db, err := pkg.GetOrm(e.Context)
 	if err != nil {
-		e.Logger.Error(http.StatusInternalServerError, err, "数据库连接获取失败")
+		e.Logger.Error(err.Error(), zap.String("数据库连接获取失败", err.Error()))
 		e.AddError(err)
 	}
 	e.Orm = db
