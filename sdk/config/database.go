@@ -26,6 +26,5 @@ type Register struct {
 }
 
 var (
-	DatabaseConfig  = new(Database)
-	DatabasesConfig = make(map[string]*Database)
+	DatabaseConfig = new(Database)
 )

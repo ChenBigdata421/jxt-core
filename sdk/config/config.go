@@ -23,16 +23,6 @@ type Config struct {
 	Tenants     *Tenants              `mapstructure:"tenants"`
 }
 
-// 多db改造，如果多db配置不存在，则默认使用单个db配置，并以*为key
-func (e *Config) multiDatabase() {
-	if len(*e.Databases) == 0 {
-		*e.Databases = map[string]*Database{
-			"*": e.Database,
-		}
-
-	}
-}
-
 var AppConfig = &Config{
 	Application: ApplicationConfig,
 	Logger:      LoggerConfig,
@@ -60,6 +50,5 @@ func Setup(configYml string) error {
 		panic(fmt.Sprintf("解析配置文件失败: %v", err))
 	}
 
-	AppConfig.multiDatabase()
 	return nil
 }
