@@ -32,9 +32,12 @@ type Runtime interface {
 	GetTenantQueryDB(tenantID string) *gorm.DB
 	GetTenantQueryDBs(fn func(tenantID string, db *gorm.DB) bool)
 
-	SetCasbin(key string, enforcer *casbin.SyncedEnforcer)
-	GetCasbin() map[string]*casbin.SyncedEnforcer
-	GetCasbinKey(key string) *casbin.SyncedEnforcer
+	// SetTenantCasbin 设置对应租户的casbin
+	SetTenantCasbin(tenantID string, enforcer *casbin.SyncedEnforcer)
+	// GetTenantCasbin 根据租户id获取casbin
+	GetTenantCasbin(tenantID string) *casbin.SyncedEnforcer
+	// GetCasbins 获取所有casbin
+	GetCasbins(fn func(tenantID string, enforcer *casbin.SyncedEnforcer) bool)
 
 	// SetEngine 使用的路由
 	SetEngine(engine http.Handler)
@@ -47,9 +50,9 @@ type Runtime interface {
 	GetLogger() *zap.Logger
 
 	// SetCrontab crontab
-	SetCrontab(key string, crontab *cron.Cron)
-	GetCrontab() map[string]*cron.Cron
-	GetCrontabKey(key string) *cron.Cron
+	SetTenantCrontab(tenantID string, crontab *cron.Cron)
+	GetTenantCrontab(tenantID string) *cron.Cron
+	GetCrontabs(fn func(tenantID string, crontab *cron.Cron) bool)
 
 	// SetMiddleware middleware
 	SetMiddleware(string, interface{})

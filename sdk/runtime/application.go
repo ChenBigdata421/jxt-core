@@ -20,9 +20,9 @@ type Application struct {
 	tenantDBs        sync.Map                                                        //租户数据库连接，非CQRS
 	tenantCommandDBs sync.Map                                                        //租户命令数据库连接，CQRS
 	tenantQueryDBs   sync.Map                                                        //租户查询数据库连接，CQRS
-	casbins          map[string]*casbin.SyncedEnforcer                               //casbin
+	casbins          sync.Map                                                        //casbin
 	engine           http.Handler                                                    //路由引擎
-	crontab          map[string]*cron.Cron                                           //crontab
+	crontabs         sync.Map                                                        //crontab
 	mux              sync.RWMutex                                                    //互斥锁
 	middlewares      map[string]interface{}                                          //中间件
 	cache            storage.AdapterCache                                            //缓存
@@ -132,26 +132,28 @@ func (e *Application) GetTenantQueryDBs(fn func(tenantID string, db *gorm.DB) bo
 	})
 }
 
-// GetCasbin 获取所有casbin
-func (e *Application) GetCasbin() map[string]*casbin.SyncedEnforcer {
-	return e.casbins
+// SetTenantCasbin 设置对应租户的casbin
+func (e *Application) SetTenantCasbin(tenantID string, enforcer *casbin.SyncedEnforcer) {
+	e.casbins.Store(tenantID, enforcer)
 }
 
-// SetCasbin 设置对应key的casbin
-func (e *Application) SetCasbin(key string, enforcer *casbin.SyncedEnforcer) {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	e.casbins[key] = enforcer
-}
-
-// GetCasbinKey 根据key获取casbin
-func (e *Application) GetCasbinKey(key string) *casbin.SyncedEnforcer {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	if e, ok := e.casbins["*"]; ok {
-		return e
+// GetTenantCasbin 根据租户id获取casbin
+func (e *Application) GetTenantCasbin(tenantID string) *casbin.SyncedEnforcer {
+	// 如果存在租户id为*，则返回默认的casbin，表示没有租户
+	if value, ok := e.casbins.Load("*"); ok {
+		return value.(*casbin.SyncedEnforcer)
 	}
-	return e.casbins[key]
+	if value, ok := e.casbins.Load(tenantID); ok {
+		return value.(*casbin.SyncedEnforcer)
+	}
+	return nil
+}
+
+// GetCasbins 遍历所有租户casbin
+func (e *Application) GetCasbins(fn func(tenantID string, enforcer *casbin.SyncedEnforcer) bool) {
+	e.casbins.Range(func(key, value interface{}) bool {
+		return fn(key.(string), value.(*casbin.SyncedEnforcer))
+	})
 }
 
 // SetEngine 设置路由引擎
@@ -198,8 +200,8 @@ func NewConfig() *Application {
 		tenantDBs:        sync.Map{},
 		tenantCommandDBs: sync.Map{},
 		tenantQueryDBs:   sync.Map{},
-		casbins:          make(map[string]*casbin.SyncedEnforcer),
-		crontab:          make(map[string]*cron.Cron),
+		casbins:          sync.Map{},
+		crontabs:         sync.Map{},
 		middlewares:      make(map[string]interface{}),
 		memoryQueue:      queue.NewMemory(10000),
 		handler:          make(map[string][]func(r *gin.RouterGroup, hand ...*gin.HandlerFunc)),
@@ -209,27 +211,27 @@ func NewConfig() *Application {
 }
 
 // SetCrontab 设置对应key的crontab
-func (e *Application) SetCrontab(key string, crontab *cron.Cron) {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	e.crontab[key] = crontab
-}
-
-// GetCrontab 获取所有map里的crontab数据
-func (e *Application) GetCrontab() map[string]*cron.Cron {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	return e.crontab
+func (e *Application) SetTenantCrontab(tenantID string, crontab *cron.Cron) {
+	e.crontabs.Store(tenantID, crontab)
 }
 
 // GetCrontabKey 根据key获取crontab
-func (e *Application) GetCrontabKey(key string) *cron.Cron {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	if e, ok := e.crontab["*"]; ok {
-		return e
+func (e *Application) GetTenantCrontab(tenantID string) *cron.Cron {
+	// 如果存在租户id为*，则返回默认的crontab，表示没有租户
+	if value, ok := e.crontabs.Load("*"); ok {
+		return value.(*cron.Cron)
 	}
-	return e.crontab[key]
+	if value, ok := e.crontabs.Load(tenantID); ok {
+		return value.(*cron.Cron)
+	}
+	return nil
+}
+
+// GetCrontab 获取所有map里的crontab数据
+func (e *Application) GetCrontabs(fn func(tenantID string, crontab *cron.Cron) bool) {
+	e.crontabs.Range(func(key, value interface{}) bool {
+		return fn(key.(string), value.(*cron.Cron))
+	})
 }
 
 // SetMiddleware 设置中间件
