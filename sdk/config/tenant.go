@@ -1,8 +1,6 @@
 package config
 
-var (
-	TenantsConfig = new(Tenants)
-)
+var TenantsConfig = new(Tenants)
 
 type Tenants struct {
 	Enabled bool `mapstructure:"enabled"` //是否启用租户配置

@@ -10,7 +10,8 @@ import (
 type Config struct {
 	Application *Application `mapstructure:"application"`
 	HTTP        *HTTPConfig  `mapstructure:"http" json:"http"`
-	RPC         *RPCConfig   `mapstructure:"rpc" json:"rpc"`
+	GRPC        *GRPCConfig  `mapstructure:"grpc" json:"grpc"`
+	Etcd        *ETCDConfig  `mapstructure:"etcd" json:"etcd"`
 	Logger      *Logger      `mapstructure:"logger"`
 	SSL         *SSL         `mapstructure:"ssl"`
 	JWT         *JWTConfig   `mapstructure:"jwt"`
@@ -26,7 +27,8 @@ var AppConfig = &Config{
 	Application: ApplicationConfig,
 	Logger:      LoggerConfig,
 	HTTP:        HttpConfig,
-	RPC:         RpcConfig,
+	GRPC:        GrpcConfig,
+	Etcd:        EtcdConfig,
 	JWT:         JwtConfig,
 	Database:    DatabaseConfig,
 	Cache:       CacheConfig,
