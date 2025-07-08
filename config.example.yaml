@@ -1,0 +1,119 @@
+# 应用配置示例
+application:
+  name: "jxt-evidence-system"
+  mode: "dev"
+  version: "1.0.0"
+
+# ETCD配置 - 作为公共基础设施
+etcd:
+  enabled: true
+  hosts:
+    - "localhost:2379"           # 开发环境单节点配置
+    # - "localhost:2380"         # 生产环境可添加更多节点
+  username: ""
+  password: ""
+  namespace: "jxt/"              # 命名空间前缀，用于隔离不同环境
+  dialTimeout: 5                 # 连接超时(秒)
+  timeout: 3                     # 操作超时(秒)
+  tls:
+    enabled: false               # 开发环境可关闭TLS
+
+# gRPC配置
+grpc:
+  server:
+    enabled: true
+    listenOn: ":9000"
+    serviceKey: "jxt.grpc.server"         # 服务发现键名
+    timeout: 2000                         # 超时时间(毫秒)
+    auth: false                           # 是否启用认证
+    cpuThreshold: 900                     # CPU阈值[0-1000]
+    strictControl: false                  # 严格控制模式
+    maxRecvMsgSize: 4194304               # 最大接收消息大小(4MB)
+    maxSendMsgSize: 4194304               # 最大发送消息大小(4MB)
+    
+    # TLS配置
+    tls:
+      enabled: false                      # 是否启用TLS
+      # keyStr: ""                        # 私钥内容
+      # pem: ""                           # 证书内容  
+      # domain: ""                        # 证书域名
+    
+    # KeepAlive配置
+    keepAlive:
+      time: 7200                          # 保活时间(秒)
+      timeout: 20                         # 保活超时(秒)
+      permitWithoutStream: false          # 允许无流保活
+    
+    # 中间件配置
+    middlewares:
+      trace: true                         # 链路跟踪
+      recover: true                       # 异常恢复
+      stat: true                          # 统计
+      prometheus: true                    # Prometheus监控
+      breaker: true                       # 熔断器
+    
+    # 自定义服务配置
+    services:
+      user:
+        enabled: true
+        interceptors: ["auth", "logging"]
+      org:
+        enabled: true
+        interceptors: ["auth", "logging", "audit"]
+  
+  client:
+    enabled: true
+    serviceKey: "jxt.grpc.server"         # 服务发现键名
+    timeout: 2000                         # 超时时间(毫秒)
+    keepaliveTime: "20s"                  # Keepalive时间
+    useDiscovery: true                    # 使用服务发现
+    retries: 3                            # 重试次数
+    nonBlock: false                       # 非阻塞模式
+    maxRecvMsgSize: 4194304               # 最大接收消息大小(4MB)
+    maxSendMsgSize: 4194304               # 最大发送消息大小(4MB)
+    
+    # 连接配置 (三选一)
+    # endpoints: ["localhost:9000"]       # 直连模式
+    # target: "dns:///localhost:9000"     # Target模式
+    # useDiscovery: true                  # 服务发现模式(默认)
+    
+    # 认证配置
+    # app: "my-app"                       # 应用名称
+    # token: "secret-token"               # 认证Token
+    
+    # 中间件配置
+    middlewares:
+      trace: true                         # 链路跟踪
+      duration: true                      # 持续时间统计
+      prometheus: true                    # Prometheus监控
+      breaker: true                       # 熔断器
+
+# HTTP配置
+http:
+  host: "0.0.0.0"
+  port: 8080
+
+# 数据库配置
+database:
+  masterDB:
+    driver: "mysql"
+    source: "user:pass@tcp(localhost:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
+
+# 缓存配置
+cache:
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 0
+
+# 队列配置
+queue:
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 1
+
+# 日志配置
+logger:
+  level: "info"
+  format: "json" 

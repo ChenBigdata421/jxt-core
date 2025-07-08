@@ -5,8 +5,9 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
-	"github.com/ChenBigdata421/jxt-core/logger"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/ChenBigdata421/jxt-core/storage/queue"
 	"github.com/casbin/casbin/v2"
@@ -15,23 +16,23 @@ import (
 )
 
 type Application struct {
-	dbs         map[string]*gorm.DB // 非CQRS时，记录db
-	commandDBs  map[string]*gorm.DB // CQRS时，记录命令的db，jiyuanjie add for CQRS 2025-03-29
-	queryDBs    map[string]*gorm.DB // CQRS时，记录查询的db，jiyuanjie add for CQRS 2025-03-07
-	casbins     map[string]*casbin.SyncedEnforcer
-	engine      http.Handler
-	crontab     map[string]*cron.Cron
-	mux         sync.RWMutex
-	middlewares map[string]interface{}
-	cache       storage.AdapterCache
-	queue       storage.AdapterQueue
-	locker      storage.AdapterLocker
-	memoryQueue storage.AdapterQueue
-	handler     map[string][]func(r *gin.RouterGroup, hand ...*gin.HandlerFunc)
-	routers     []Router
-	configs     map[string]interface{} // 系统参数
-	appRouters  []func()               // app路由
-
+	tenantResolver   *TenantResolver                                                 //租户解析器
+	tenantDBs        sync.Map                                                        //租户数据库连接，非CQRS
+	tenantCommandDBs sync.Map                                                        //租户命令数据库连接，CQRS
+	tenantQueryDBs   sync.Map                                                        //租户查询数据库连接，CQRS
+	casbins          sync.Map                                                        //casbin
+	engine           http.Handler                                                    //路由引擎
+	crontabs         sync.Map                                                        //crontab
+	mux              sync.RWMutex                                                    //互斥锁
+	middlewares      map[string]interface{}                                          //中间件
+	cache            storage.AdapterCache                                            //缓存
+	queue            storage.AdapterQueue                                            //队列
+	locker           storage.AdapterLocker                                           //分布式锁
+	memoryQueue      storage.AdapterQueue                                            //内存队列
+	handler          map[string][]func(r *gin.RouterGroup, hand ...*gin.HandlerFunc) //handler
+	routers          []Router                                                        //路由
+	configs          map[string]interface{}                                          // 系统参数
+	appRouters       []func()                                                        // app路由
 }
 
 type Router struct {
@@ -42,97 +43,117 @@ type Routers struct {
 	List []Router
 }
 
-// SetDb 非CQRS时，设置对应key的db
-func (e *Application) SetDb(key string, db *gorm.DB) {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	e.dbs[key] = db
+// SetTenantMapping 添加或更新域名到租户ID的映射
+func (e *Application) SetTenantMapping(host, tenantID string) {
+	e.tenantResolver.SetTenantMapping(host, tenantID)
 }
 
-// SetCommandDb CQRS时，设置对应key的db
-func (e *Application) SetCommandDb(key string, db *gorm.DB) {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	e.commandDBs[key] = db
-}
-
-// SetQueryDb CQRS时，设置对应key的db
-func (e *Application) SetQueryDb(key string, db *gorm.DB) {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	e.queryDBs[key] = db
-}
-
-// GetDb 获取所有map里的db数据
-func (e *Application) GetDb() map[string]*gorm.DB {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	return e.dbs
-}
-
-// GetCommandDb 获取所有map里的db数据
-func (e *Application) GetCommandDb() map[string]*gorm.DB {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	return e.commandDBs
-}
-
-// GetQueryDb 获取所有map里的db数据
-func (e *Application) GetQueryDb() map[string]*gorm.DB {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	return e.queryDBs
-}
-
-// GetDbByKey 非CQRS时，根据key获取db
-func (e *Application) GetDbByKey(key string) *gorm.DB {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	if db, ok := e.dbs["*"]; ok {
-		return db
+// GetTenantID 获取租户id
+func (e *Application) GetTenantID(host string) string {
+	tenantID, ok := e.tenantResolver.GetTenantID(host)
+	if !ok {
+		return ""
 	}
-	return e.dbs[key]
+	return tenantID
 }
 
-// GetCommandDbByKey CQRS时，根据key获取db
-func (e *Application) GetCommandDbByKey(key string) *gorm.DB {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	if db, ok := e.commandDBs["*"]; ok {
-		return db
+// SetTenantDB 非CQRS时，设置租户数据库连接
+func (e *Application) SetTenantDB(tenantID string, db *gorm.DB) {
+	e.tenantDBs.Store(tenantID, db)
+}
+
+// GetTenantDB 非CQRS时，根据租户id获取db
+func (e *Application) GetTenantDB(tenantID string) *gorm.DB {
+	// 如果存在租户id为*，则返回默认的db，表示没有租户
+	if db, ok := e.tenantDBs.Load("*"); ok {
+		return db.(*gorm.DB)
 	}
-	return e.commandDBs[key]
-}
-
-// GetQueryDbByKey CQRS时，根据key获取db
-func (e *Application) GetQueryDbByKey(key string) *gorm.DB {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	if db, ok := e.queryDBs["*"]; ok {
-		return db
+	if db, ok := e.tenantDBs.Load(tenantID); ok {
+		return db.(*gorm.DB)
 	}
-	return e.queryDBs[key]
+	return nil
 }
 
-// SetCasbin 设置对应key的casbin
-func (e *Application) SetCasbin(key string, enforcer *casbin.SyncedEnforcer) {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	e.casbins[key] = enforcer
+// SetTenantCommandDB CQRS时，设置租户的CommandDB
+func (e *Application) SetTenantCommandDB(tenantID string, db *gorm.DB) {
+	e.tenantCommandDBs.Store(tenantID, db)
 }
 
-func (e *Application) GetCasbin() map[string]*casbin.SyncedEnforcer {
-	return e.casbins
-}
-
-// GetCasbinKey 根据key获取casbin
-func (e *Application) GetCasbinKey(key string) *casbin.SyncedEnforcer {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	if e, ok := e.casbins["*"]; ok {
-		return e
+// GetTenantCommandDB CQRS时，根据租户id获取CommandDB
+func (e *Application) GetTenantCommandDB(tenantID string) *gorm.DB {
+	if db, ok := e.tenantCommandDBs.Load(tenantID); ok {
+		return db.(*gorm.DB)
 	}
-	return e.casbins[key]
+	return nil
+}
+
+// SetTenantQueryDB CQRS时，设置租户的QueryDB
+func (e *Application) SetTenantQueryDB(tenantID string, db *gorm.DB) {
+	e.tenantQueryDBs.Store(tenantID, db)
+}
+
+// GetTenantQueryDB CQRS时，根据租户id获取QueryDB
+func (e *Application) GetTenantQueryDB(tenantID string) *gorm.DB {
+	if db, ok := e.tenantQueryDBs.Load(tenantID); ok {
+		return db.(*gorm.DB)
+	}
+	return nil
+}
+
+// GetTenantDBs 遍历所有租户数据库连接
+// 使用举例，统计活跃的数据库连接数
+// count := 0
+//
+//	app.GetTenantDBs(func(tenantID string, db *gorm.DB) bool {
+//	    if db != nil {
+//	        count++
+//	    }
+//	    return true
+//	})
+//
+// fmt.Printf("活跃租户数量: %d\n", count)
+func (e *Application) GetTenantDBs(fn func(tenantID string, db *gorm.DB) bool) {
+	e.tenantDBs.Range(func(key, value interface{}) bool {
+		return fn(key.(string), value.(*gorm.DB))
+	})
+}
+
+// GetTenantCommandDBs 遍历所有租户命令数据库连接
+func (e *Application) GetTenantCommandDBs(fn func(tenantID string, db *gorm.DB) bool) {
+	e.tenantCommandDBs.Range(func(key, value interface{}) bool {
+		return fn(key.(string), value.(*gorm.DB))
+	})
+}
+
+// GetTenantQueryDBs 遍历所有租户查询数据库连接
+func (e *Application) GetTenantQueryDBs(fn func(tenantID string, db *gorm.DB) bool) {
+	e.tenantQueryDBs.Range(func(key, value interface{}) bool {
+		return fn(key.(string), value.(*gorm.DB))
+	})
+}
+
+// SetTenantCasbin 设置对应租户的casbin
+func (e *Application) SetTenantCasbin(tenantID string, enforcer *casbin.SyncedEnforcer) {
+	e.casbins.Store(tenantID, enforcer)
+}
+
+// GetTenantCasbin 根据租户id获取casbin
+func (e *Application) GetTenantCasbin(tenantID string) *casbin.SyncedEnforcer {
+	// 如果存在租户id为*，则返回默认的casbin，表示没有租户
+	if value, ok := e.casbins.Load("*"); ok {
+		return value.(*casbin.SyncedEnforcer)
+	}
+	if value, ok := e.casbins.Load(tenantID); ok {
+		return value.(*casbin.SyncedEnforcer)
+	}
+	return nil
+}
+
+// GetCasbins 遍历所有租户casbin
+func (e *Application) GetCasbins(fn func(tenantID string, enforcer *casbin.SyncedEnforcer) bool) {
+	e.casbins.Range(func(key, value interface{}) bool {
+		return fn(key.(string), value.(*casbin.SyncedEnforcer))
+	})
 }
 
 // SetEngine 设置路由引擎
@@ -163,53 +184,54 @@ func (e *Application) setRouter() []Router {
 }
 
 // SetLogger 设置日志组件
-func (e *Application) SetLogger(l logger.Logger) {
-	logger.DefaultLogger = l
+func (e *Application) SetLogger(l *zap.Logger) {
+	logger.Logger = l
 }
 
 // GetLogger 获取日志组件
-func (e *Application) GetLogger() logger.Logger {
-	return logger.DefaultLogger
+func (e *Application) GetLogger() *zap.Logger {
+	return logger.Logger
 }
 
 // NewConfig 默认值
 func NewConfig() *Application {
 	return &Application{
-		dbs:         make(map[string]*gorm.DB), // 非CQRS时，记录db
-		commandDBs:  make(map[string]*gorm.DB), // CQRS时，记录命令的db，jiyuanjie add for CQRS 2025-03-29
-		queryDBs:    make(map[string]*gorm.DB), // CQRS时，记录查询的db，jiyuanjie add for CQRS 2025-03-07
-		casbins:     make(map[string]*casbin.SyncedEnforcer),
-		crontab:     make(map[string]*cron.Cron),
-		middlewares: make(map[string]interface{}),
-		memoryQueue: queue.NewMemory(10000),
-		handler:     make(map[string][]func(r *gin.RouterGroup, hand ...*gin.HandlerFunc)),
-		routers:     make([]Router, 0),
-		configs:     make(map[string]interface{}),
+		tenantResolver:   NewTenantResolver(),
+		tenantDBs:        sync.Map{},
+		tenantCommandDBs: sync.Map{},
+		tenantQueryDBs:   sync.Map{},
+		casbins:          sync.Map{},
+		crontabs:         sync.Map{},
+		middlewares:      make(map[string]interface{}),
+		memoryQueue:      queue.NewMemory(10000),
+		handler:          make(map[string][]func(r *gin.RouterGroup, hand ...*gin.HandlerFunc)),
+		routers:          make([]Router, 0),
+		configs:          make(map[string]interface{}),
 	}
 }
 
 // SetCrontab 设置对应key的crontab
-func (e *Application) SetCrontab(key string, crontab *cron.Cron) {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	e.crontab[key] = crontab
-}
-
-// GetCrontab 获取所有map里的crontab数据
-func (e *Application) GetCrontab() map[string]*cron.Cron {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	return e.crontab
+func (e *Application) SetTenantCrontab(tenantID string, crontab *cron.Cron) {
+	e.crontabs.Store(tenantID, crontab)
 }
 
 // GetCrontabKey 根据key获取crontab
-func (e *Application) GetCrontabKey(key string) *cron.Cron {
-	e.mux.Lock()
-	defer e.mux.Unlock()
-	if e, ok := e.crontab["*"]; ok {
-		return e
+func (e *Application) GetTenantCrontab(tenantID string) *cron.Cron {
+	// 如果存在租户id为*，则返回默认的crontab，表示没有租户
+	if value, ok := e.crontabs.Load("*"); ok {
+		return value.(*cron.Cron)
 	}
-	return e.crontab[key]
+	if value, ok := e.crontabs.Load(tenantID); ok {
+		return value.(*cron.Cron)
+	}
+	return nil
+}
+
+// GetCrontab 获取所有map里的crontab数据
+func (e *Application) GetCrontabs(fn func(tenantID string, crontab *cron.Cron) bool) {
+	e.crontabs.Range(func(key, value interface{}) bool {
+		return fn(key.(string), value.(*cron.Cron))
+	})
 }
 
 // SetMiddleware 设置中间件

@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
-	"github.com/ChenBigdata421/jxt-core/logger"
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/casbin/casbin/v2"
 	"github.com/robfig/cron/v3"
@@ -13,24 +13,31 @@ import (
 )
 
 type Runtime interface {
-	// SetDb 非CQRS时，多db设置，⚠️SetDbs不允许并发,可以根据自己的业务，例如app分库、host分库
-	SetDb(key string, db *gorm.DB)
-	GetDb() map[string]*gorm.DB
-	GetDbByKey(key string) *gorm.DB
+	// GetTenantID 获取租户id
+	SetTenantMapping(host, tenantID string)
+	GetTenantID(host string) string
 
-	// SetCommandDb CQRS时，设置对应key的db
-	SetCommandDb(key string, db *gorm.DB)
-	GetCommandDb() map[string]*gorm.DB
-	GetCommandDbByKey(key string) *gorm.DB
+	// SetDb 非CQRS时，多db设置，⚠️SetDbs不允许并发,可以根据自己的业务，例如app分库（用分表分库，或不同微服务实现）、host分库（多租户）
+	SetTenantDB(tenantID string, db *gorm.DB)
+	GetTenantDB(tenantID string) *gorm.DB
+	GetTenantDBs(fn func(tenantID string, db *gorm.DB) bool)
 
-	// SetQueryDb CQRS时，设置对应key的db
-	SetQueryDb(key string, db *gorm.DB)
-	GetQueryDb() map[string]*gorm.DB
-	GetQueryDbByKey(key string) *gorm.DB
+	// SetTenantCommandDB CQRS时，设置对应租户的Command db
+	SetTenantCommandDB(tenantID string, db *gorm.DB)
+	GetTenantCommandDB(tenantID string) *gorm.DB
+	GetTenantCommandDBs(fn func(tenantID string, db *gorm.DB) bool)
 
-	SetCasbin(key string, enforcer *casbin.SyncedEnforcer)
-	GetCasbin() map[string]*casbin.SyncedEnforcer
-	GetCasbinKey(key string) *casbin.SyncedEnforcer
+	// SetTenantQueryDB CQRS时，设置对应租户的Query db
+	SetTenantQueryDB(tenantID string, db *gorm.DB)
+	GetTenantQueryDB(tenantID string) *gorm.DB
+	GetTenantQueryDBs(fn func(tenantID string, db *gorm.DB) bool)
+
+	// SetTenantCasbin 设置对应租户的casbin
+	SetTenantCasbin(tenantID string, enforcer *casbin.SyncedEnforcer)
+	// GetTenantCasbin 根据租户id获取casbin
+	GetTenantCasbin(tenantID string) *casbin.SyncedEnforcer
+	// GetCasbins 获取所有casbin
+	GetCasbins(fn func(tenantID string, enforcer *casbin.SyncedEnforcer) bool)
 
 	// SetEngine 使用的路由
 	SetEngine(engine http.Handler)
@@ -38,14 +45,14 @@ type Runtime interface {
 
 	GetRouter() []Router
 
-	// SetLogger 使用go-admin定义的logger，参考来源go-micro
-	SetLogger(logger logger.Logger)
-	GetLogger() logger.Logger
+	// SetLogger 使用zap
+	SetLogger(logger *zap.Logger)
+	GetLogger() *zap.Logger
 
 	// SetCrontab crontab
-	SetCrontab(key string, crontab *cron.Cron)
-	GetCrontab() map[string]*cron.Cron
-	GetCrontabKey(key string) *cron.Cron
+	SetTenantCrontab(tenantID string, crontab *cron.Cron)
+	GetTenantCrontab(tenantID string) *cron.Cron
+	GetCrontabs(fn func(tenantID string, crontab *cron.Cron) bool)
 
 	// SetMiddleware middleware
 	SetMiddleware(string, interface{})
