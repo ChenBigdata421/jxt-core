@@ -31,25 +31,30 @@ m = r.sub == p.sub && (keyMatch2(r.obj, p.obj) || keyMatch(r.obj, p.obj)) && (r.
 `
 
 var (
-	enforcer *casbin.SyncedEnforcer
+	enforcer *casbin.SyncedEnforcer //策略执行器实例
 	once     sync.Once
 )
 
+// 表名前缀为sys
+// 策略表名为casbin_rule
+// sys_casbin_rule存放访问控制策略
 func Setup(db *gorm.DB, _ string) *casbin.SyncedEnforcer {
 	once.Do(func() {
 		Apter, err := gormAdapter.NewAdapterByDBUseTableName(db, "sys", "casbin_rule")
 		if err != nil && err.Error() != "invalid DDL" {
 			panic(err)
 		}
-
+		//权限模型加载
 		m, err := model.NewModelFromString(text)
 		if err != nil {
 			panic(err)
 		}
+		//创建支持并发的执行器实例
 		enforcer, err = casbin.NewSyncedEnforcer(m, Apter)
 		if err != nil {
 			panic(err)
 		}
+		//加载数据库中的策略到内存
 		err = enforcer.LoadPolicy()
 		if err != nil {
 			panic(err)
