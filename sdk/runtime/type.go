@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/casbin/casbin/v2"
 	"github.com/robfig/cron/v3"
@@ -85,4 +86,9 @@ type Runtime interface {
 	// SetAppRouters set AppRouter
 	SetAppRouters(appRouters func())
 	GetAppRouters() []func()
+
+	// SetEventBus 设置事件总线
+	SetEventBus(eventbus.EventBus)
+	// GetEventBus 获取事件总线
+	GetEventBus() eventbus.EventBus
 }

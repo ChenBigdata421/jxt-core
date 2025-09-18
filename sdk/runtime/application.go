@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/ChenBigdata421/jxt-core/storage/queue"
@@ -29,6 +30,7 @@ type Application struct {
 	queue            storage.AdapterQueue                                            //队列
 	locker           storage.AdapterLocker                                           //分布式锁
 	memoryQueue      storage.AdapterQueue                                            //内存队列
+	eventBus         eventbus.EventBus                                               //事件总线
 	handler          map[string][]func(r *gin.RouterGroup, hand ...*gin.HandlerFunc) //handler
 	routers          []Router                                                        //路由
 	configs          map[string]interface{}                                          // 系统参数
@@ -350,4 +352,18 @@ func (e *Application) SetAppRouters(appRouters func()) {
 // GetAppRouters 获取app的路由
 func (e *Application) GetAppRouters() []func() {
 	return e.appRouters
+}
+
+// SetEventBus 设置事件总线
+func (e *Application) SetEventBus(eb eventbus.EventBus) {
+	e.mux.Lock()
+	defer e.mux.Unlock()
+	e.eventBus = eb
+}
+
+// GetEventBus 获取事件总线
+func (e *Application) GetEventBus() eventbus.EventBus {
+	e.mux.RLock()
+	defer e.mux.RUnlock()
+	return e.eventBus
 }
