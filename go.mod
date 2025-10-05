@@ -35,6 +35,7 @@ require (
 	github.com/smartystreets/goconvey v1.6.4
 	github.com/spf13/cast v1.7.1
 	github.com/spf13/viper v1.20.1
+	github.com/stretchr/testify v1.11.0
 	github.com/xuri/excelize/v2 v2.6.1
 	go.uber.org/zap v1.13.0
 	golang.org/x/crypto v0.41.0
@@ -109,6 +110,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
@@ -120,7 +122,6 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tsuyoshiwada/go-gitcmd v0.0.0-20180205145712-5f1f5f9475df // indirect
 	github.com/ugorji/go/codec v1.1.7 // indirect

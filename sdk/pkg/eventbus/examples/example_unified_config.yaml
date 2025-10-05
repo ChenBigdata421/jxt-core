@@ -1,0 +1,228 @@
+# 统一 EventBus 配置示例
+# 展示如何根据业务需要灵活启用企业特性
+
+# 基础配置
+type: kafka  # kafka, nats, memory
+
+# Kafka 配置
+kafka:
+  brokers:
+    - "localhost:9092"
+  healthCheckInterval: 30s
+  producer:
+    requiredAcks: 1
+    compression: "snappy"
+    flushFrequency: 100ms
+    flushMessages: 100
+    retryMax: 3
+    timeout: 30s
+    batchSize: 16384
+    bufferSize: 33554432
+  consumer:
+    groupId: "my-service"
+    autoOffsetReset: "latest"
+    sessionTimeout: 30s
+    heartbeatInterval: 3s
+    maxProcessingTime: 60s
+    fetchMinBytes: 1
+    fetchMaxBytes: 1048576
+    fetchMaxWait: 500ms
+  security:
+    enabled: false
+
+# 企业特性配置
+enterprise:
+  # 发布端企业特性
+  publisher:
+    # 消息格式化器
+    messageFormatter:
+      enabled: true
+      type: "json"
+    
+    # 发布回调
+    publishCallback:
+      enabled: true
+    
+    # 重试策略
+    retryPolicy:
+      enabled: true
+      maxRetries: 3
+      initialInterval: 1s
+      maxInterval: 30s
+      multiplier: 2.0
+
+  # 订阅端企业特性
+  subscriber:
+    # 积压检测（适用于高吞吐量场景）
+    backlogDetection:
+      enabled: true
+      checkInterval: 30s
+      lagThreshold: 1000
+      timeThreshold: 5m
+      recoveryThreshold: 100
+    
+    # Keyed-Worker 池（确保同一聚合的事件顺序处理）
+    keyedWorkerPool:
+      enabled: true
+      workerCount: 256
+      queueSize: 1000
+      waitTimeout: 200ms
+    
+    # 流量控制（防止系统过载）
+    rateLimit:
+      enabled: true
+      rateLimit: 1000.0  # 每秒1000条消息
+      burst: 2000        # 突发2000条
+
+    # 死信队列（处理失败消息）
+    deadLetter:
+      enabled: true
+      topic: "dead-letter-queue"
+      maxRetries: 3
+    
+    # 消息路由（负载均衡）
+    messageRouter:
+      enabled: true
+      type: "hash"  # hash, round_robin, custom
+    
+    # 错误处理
+    errorHandler:
+      enabled: true
+      type: "retry"  # retry, deadletter, skip, fail
+
+  # 统一企业特性
+  healthCheck:
+    enabled: true
+    interval: 30s
+    timeout: 10s
+  
+  monitoring:
+    enabled: true
+    metricsInterval: 60s
+    exportEndpoint: "http://localhost:8080/metrics"
+
+# 监控配置
+metrics:
+  enabled: true
+  collectInterval: 60s
+  exportEndpoint: "http://localhost:8080/metrics"
+
+# 链路追踪配置
+tracing:
+  enabled: true
+  serviceName: "my-service"
+  endpoint: "http://localhost:14268/api/traces"
+  sampleRate: 0.1
+
+---
+# 简化配置示例 - 只启用基础功能
+type: kafka
+
+kafka:
+  brokers:
+    - "localhost:9092"
+  consumer:
+    groupId: "simple-service"
+
+# 企业特性全部禁用（默认值）
+enterprise:
+  publisher:
+    messageFormatter:
+      enabled: false
+    publishCallback:
+      enabled: false
+    retryPolicy:
+      enabled: false
+  
+  subscriber:
+    backlogDetection:
+      enabled: false
+    keyedWorkerPool:
+      enabled: false
+    rateLimit:
+      enabled: false
+    deadLetter:
+      enabled: false
+    messageRouter:
+      enabled: false
+    errorHandler:
+      enabled: false
+  
+  healthCheck:
+    enabled: false
+  monitoring:
+    enabled: false
+
+---
+# 高性能场景配置 - 启用性能相关特性
+type: kafka
+
+kafka:
+  brokers:
+    - "localhost:9092"
+  consumer:
+    groupId: "high-performance-service"
+
+enterprise:
+  subscriber:
+    # 启用 Keyed-Worker 池确保顺序
+    keyedWorkerPool:
+      enabled: true
+      workerCount: 512
+      queueSize: 2000
+      waitTimeout: 200ms
+    
+    # 启用流量控制防止过载
+    rateLimit:
+      enabled: true
+      rateLimit: 5000.0
+      burst: 10000
+    
+    # 启用积压检测
+    backlogDetection:
+      enabled: true
+      checkInterval: 10s
+      lagThreshold: 5000
+
+---
+# 可靠性场景配置 - 启用可靠性相关特性
+type: kafka
+
+kafka:
+  brokers:
+    - "localhost:9092"
+  consumer:
+    groupId: "reliable-service"
+
+enterprise:
+  publisher:
+    # 启用重试策略
+    retryPolicy:
+      enabled: true
+      maxRetries: 5
+      initialInterval: 2s
+      maxInterval: 60s
+      multiplier: 2.0
+  
+  subscriber:
+    # 启用死信队列
+    deadLetter:
+      enabled: true
+      topic: "reliable-service-dlq"
+      maxRetries: 3
+    
+    # 启用错误处理
+    errorHandler:
+      enabled: true
+      type: "deadletter"
+  
+  # 启用健康检查
+  healthCheck:
+    enabled: true
+    interval: 15s
+    timeout: 5s
+  
+  # 启用监控
+  monitoring:
+    enabled: true
+    metricsInterval: 30s

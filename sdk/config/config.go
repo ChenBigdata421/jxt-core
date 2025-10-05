@@ -8,19 +8,19 @@ import (
 
 // Config 顶层配置结构
 type Config struct {
-	Application *Application `mapstructure:"application"`
-	HTTP        *HTTPConfig  `mapstructure:"http" json:"http"`
-	GRPC        *GRPCConfig  `mapstructure:"grpc" json:"grpc"`
-	Etcd        *ETCDConfig  `mapstructure:"etcd" json:"etcd"`
-	Logger      *Logger      `mapstructure:"logger"`
-	SSL         *SSL         `mapstructure:"ssl"`
-	JWT         *JWTConfig   `mapstructure:"jwt"`
-	Database    *Database    `mapstructure:"database"`
-	Cache       *Cache       `mapstructure:"cache"`
-	Queue       *Queue       `mapstructure:"queue"`
-	EventBus    *EventBus    `mapstructure:"eventBus"`
-	Locker      *Locker      `mapstructure:"locker"`
-	Tenants     *Tenants     `mapstructure:"tenants"`
+	Application *Application    `mapstructure:"application"`
+	HTTP        *HTTPConfig     `mapstructure:"http" json:"http"`
+	GRPC        *GRPCConfig     `mapstructure:"grpc" json:"grpc"`
+	Etcd        *ETCDConfig     `mapstructure:"etcd" json:"etcd"`
+	Logger      *Logger         `mapstructure:"logger"`
+	SSL         *SSL            `mapstructure:"ssl"`
+	JWT         *JWTConfig      `mapstructure:"jwt"`
+	Database    *Database       `mapstructure:"database"`
+	Cache       *Cache          `mapstructure:"cache"`
+	Queue       *Queue          `mapstructure:"queue"`
+	EventBus    *EventBusConfig `mapstructure:"eventBus"`
+	Locker      *Locker         `mapstructure:"locker"`
+	Tenants     *Tenants        `mapstructure:"tenants"`
 }
 
 var AppConfig = &Config{
@@ -34,7 +34,7 @@ var AppConfig = &Config{
 	Cache:       CacheConfig,
 	Queue:       QueueConfig,
 	Locker:      LockerConfig,
-	EventBus:    EventBusConfig,
+	EventBus:    nil, // 需要在运行时配置
 	Tenants:     TenantsConfig,
 }
 

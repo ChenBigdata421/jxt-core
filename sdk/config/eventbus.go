@@ -1,93 +1,130 @@
 package config
 
 import (
+	"fmt"
 	"time"
 )
 
-// EventBus 基础事件总线配置
-type EventBus struct {
-	Type    string        `mapstructure:"type"` // kafka, nats, memory
-	Kafka   KafkaConfig   `mapstructure:"kafka"`
-	NATS    NATSConfig    `mapstructure:"nats"`
-	Metrics MetricsConfig `mapstructure:"metrics"`
-	Tracing TracingConfig `mapstructure:"tracing"`
-}
+// ==========================================================================
+// 核心配置结构 - 统一的EventBus配置入口
+// ==========================================================================
 
-// AdvancedEventBusConfig 高级事件总线配置
-type AdvancedEventBusConfig struct {
-	EventBus    `mapstructure:",squash"`
+// EventBusConfig 事件总线配置
+type EventBusConfig struct {
+	// 基础配置
+	Type        string `mapstructure:"type"`        // kafka, nats, memory
 	ServiceName string `mapstructure:"serviceName"` // 微服务名称
 
-	// 统一健康检查配置
-	HealthCheck HealthCheckConfig `mapstructure:"healthCheck"`
+	// 统一特性配置（适用于所有EventBus类型）
+	HealthCheck HealthCheckConfig `mapstructure:"healthCheck"` // 健康检查
+	Monitoring  MetricsConfig     `mapstructure:"monitoring"`  // 监控（复用现有的MetricsConfig）
+	Security    SecurityConfig    `mapstructure:"security"`    // 安全
 
 	// 发布端配置
 	Publisher PublisherConfig `mapstructure:"publisher"`
 
 	// 订阅端配置
 	Subscriber SubscriberConfig `mapstructure:"subscriber"`
+
+	// 具体实现配置
+	Kafka  KafkaConfig  `mapstructure:"kafka"`  // Kafka配置
+	NATS   NATSConfig   `mapstructure:"nats"`   // NATS配置
+	Memory MemoryConfig `mapstructure:"memory"` // Memory配置
 }
+
+// ==========================================================================
+// 特定实现配置 - 只包含各实现特有的配置
+// ==========================================================================
+
+// KafkaConfig Kafka配置
+type KafkaConfig struct {
+	Brokers  []string       `mapstructure:"brokers"`  // Kafka集群地址
+	Producer ProducerConfig `mapstructure:"producer"` // 生产者配置
+	Consumer ConsumerConfig `mapstructure:"consumer"` // 消费者配置
+	Net      NetConfig      `mapstructure:"net"`      // 网络配置
+}
+
+// NATSConfig NATS配置
+type NATSConfig struct {
+	URLs              []string           `mapstructure:"urls"`              // NATS服务器地址
+	ClientID          string             `mapstructure:"clientId"`          // 客户端ID
+	MaxReconnects     int                `mapstructure:"maxReconnects"`     // 最大重连次数
+	ReconnectWait     time.Duration      `mapstructure:"reconnectWait"`     // 重连等待时间
+	ConnectionTimeout time.Duration      `mapstructure:"connectionTimeout"` // 连接超时
+	JetStream         JetStreamConfig    `mapstructure:"jetstream"`         // JetStream配置
+	Security          NATSSecurityConfig `mapstructure:"security"`          // NATS安全配置
+}
+
+// MemoryConfig Memory配置
+type MemoryConfig struct {
+	MaxChannelSize int `mapstructure:"maxChannelSize"` // 最大通道大小
+	BufferSize     int `mapstructure:"bufferSize"`     // 缓冲区大小
+}
+
+// ==========================================================================
+// 统一特性配置 - 适用于所有EventBus类型
+// ==========================================================================
 
 // HealthCheckConfig 统一健康检查配置
 type HealthCheckConfig struct {
-	Enabled          bool          `mapstructure:"enabled"`
-	Topic            string        `mapstructure:"topic"`            // 健康检查主题（可选，默认使用统一主题）
-	Interval         time.Duration `mapstructure:"interval"`         // 检查间隔
-	Timeout          time.Duration `mapstructure:"timeout"`          // 检查超时
-	FailureThreshold int           `mapstructure:"failureThreshold"` // 失败阈值
-	MessageTTL       time.Duration `mapstructure:"messageTTL"`       // 消息存活时间
+	// 基础配置
+	Enabled bool `mapstructure:"enabled"` // 是否启用健康检查
+
+	// 发布器配置
+	Publisher HealthCheckPublisherConfig `mapstructure:"publisher"`
+
+	// 订阅监控器配置
+	Subscriber HealthCheckSubscriberConfig `mapstructure:"subscriber"`
 }
+
+// HealthCheckPublisherConfig 健康检查发布器配置
+type HealthCheckPublisherConfig struct {
+	Topic            string        `mapstructure:"topic"`            // 健康检查发布主题（可选，默认自动生成）
+	Interval         time.Duration `mapstructure:"interval"`         // 发布间隔（默认2分钟）
+	Timeout          time.Duration `mapstructure:"timeout"`          // 发布超时（默认10秒）
+	FailureThreshold int           `mapstructure:"failureThreshold"` // 连续失败阈值，触发重连（默认3次）
+	MessageTTL       time.Duration `mapstructure:"messageTTL"`       // 消息存活时间（默认5分钟）
+}
+
+// HealthCheckSubscriberConfig 健康检查订阅监控器配置
+type HealthCheckSubscriberConfig struct {
+	Topic             string        `mapstructure:"topic"`             // 健康检查订阅主题（可选，默认自动生成）
+	MonitorInterval   time.Duration `mapstructure:"monitorInterval"`   // 监控检查间隔（默认30秒）
+	WarningThreshold  int           `mapstructure:"warningThreshold"`  // 警告阈值（默认3次）
+	ErrorThreshold    int           `mapstructure:"errorThreshold"`    // 错误阈值（默认5次）
+	CriticalThreshold int           `mapstructure:"criticalThreshold"` // 严重阈值（默认10次）
+}
+
+// ==========================================================================
+// 发布端和订阅端配置
+// ==========================================================================
 
 // PublisherConfig 发布端配置
 type PublisherConfig struct {
-	MaxReconnectAttempts int           `mapstructure:"maxReconnectAttempts"`
-	MaxBackoff           time.Duration `mapstructure:"maxBackoff"`
-	InitialBackoff       time.Duration `mapstructure:"initialBackoff"`
-	PublishTimeout       time.Duration `mapstructure:"publishTimeout"`
+	// 重连配置
+	MaxReconnectAttempts int           `mapstructure:"maxReconnectAttempts"` // 最大重连尝试次数（默认5次）
+	InitialBackoff       time.Duration `mapstructure:"initialBackoff"`       // 初始退避时间（默认1秒）
+	MaxBackoff           time.Duration `mapstructure:"maxBackoff"`           // 最大退避时间（默认30秒）
+
+	// 发布配置
+	PublishTimeout time.Duration `mapstructure:"publishTimeout"` // 发布超时（默认10秒）
+
+	// 企业特性
+	BacklogDetection PublisherBacklogDetectionConfig `mapstructure:"backlogDetection"` // 发送端积压检测
+	RateLimit        RateLimitConfig                 `mapstructure:"rateLimit"`        // 流量控制
+	ErrorHandling    ErrorHandlingConfig             `mapstructure:"errorHandling"`    // 错误处理
 }
 
 // SubscriberConfig 订阅端配置
 type SubscriberConfig struct {
-	// 恢复模式配置
-	RecoveryMode RecoveryModeConfig `mapstructure:"recoveryMode"`
+	// 消费配置
+	MaxConcurrency int           `mapstructure:"maxConcurrency"` // 最大并发数（默认10）
+	ProcessTimeout time.Duration `mapstructure:"processTimeout"` // 处理超时（默认30秒）
 
-	// 积压检测配置
-	BacklogDetection BacklogDetectionConfig `mapstructure:"backlogDetection"`
-
-	// 聚合处理器配置
-	AggregateProcessor AggregateProcessorConfig `mapstructure:"aggregateProcessor"`
-
-	// 流量控制配置
-	RateLimit RateLimitConfig `mapstructure:"rateLimit"`
-}
-
-// RecoveryModeConfig 恢复模式配置
-type RecoveryModeConfig struct {
-	Enabled             bool `mapstructure:"enabled"`
-	AutoDetection       bool `mapstructure:"autoDetection"`       // 自动检测是否进入恢复模式
-	TransitionThreshold int  `mapstructure:"transitionThreshold"` // 进入恢复模式的阈值
-}
-
-// AggregateProcessorConfig 聚合处理器配置
-type AggregateProcessorConfig struct {
-	Enabled     bool          `mapstructure:"enabled"`
-	CacheSize   int           `mapstructure:"cacheSize"`   // LRU缓存大小
-	IdleTimeout time.Duration `mapstructure:"idleTimeout"` // 空闲超时时间
-}
-
-// KafkaConfig Kafka配置
-type KafkaConfig struct {
-	Brokers             []string       `mapstructure:"brokers"`
-	HealthCheckInterval time.Duration  `mapstructure:"healthCheckInterval"`
-	Producer            ProducerConfig `mapstructure:"producer"`
-	Consumer            ConsumerConfig `mapstructure:"consumer"`
-	Security            SecurityConfig `mapstructure:"security"`
-	Net                 NetConfig      `mapstructure:"net"`
-
-	// 企业级特性配置
-	BacklogDetection BacklogDetectionConfig `mapstructure:"backlogDetection"`
-	RateLimit        RateLimitConfig        `mapstructure:"rateLimit"`
-	ErrorHandling    ErrorHandlingConfig    `mapstructure:"errorHandling"`
+	// 企业特性
+	BacklogDetection SubscriberBacklogDetectionConfig `mapstructure:"backlogDetection"` // 订阅端积压检测
+	RateLimit        RateLimitConfig                  `mapstructure:"rateLimit"`        // 流量控制
+	ErrorHandling    ErrorHandlingConfig              `mapstructure:"errorHandling"`    // 错误处理
 }
 
 // NetConfig 网络配置
@@ -97,7 +134,24 @@ type NetConfig struct {
 	WriteTimeout time.Duration `mapstructure:"writeTimeout"`
 }
 
-// BacklogDetectionConfig 积压检测配置
+// PublisherBacklogDetectionConfig 发送端积压检测配置
+type PublisherBacklogDetectionConfig struct {
+	Enabled           bool          `mapstructure:"enabled"`
+	MaxQueueDepth     int64         `mapstructure:"maxQueueDepth"`     // 最大队列深度
+	MaxPublishLatency time.Duration `mapstructure:"maxPublishLatency"` // 最大发送延迟
+	RateThreshold     float64       `mapstructure:"rateThreshold"`     // 发送速率阈值 (msg/sec)
+	CheckInterval     time.Duration `mapstructure:"checkInterval"`     // 检测间隔
+}
+
+// SubscriberBacklogDetectionConfig 订阅端积压检测配置
+type SubscriberBacklogDetectionConfig struct {
+	Enabled          bool          `mapstructure:"enabled"`
+	MaxLagThreshold  int64         `mapstructure:"maxLagThreshold"`  // 最大消息积压数量
+	MaxTimeThreshold time.Duration `mapstructure:"maxTimeThreshold"` // 最大积压时间
+	CheckInterval    time.Duration `mapstructure:"checkInterval"`    // 检测间隔
+}
+
+// BacklogDetectionConfig 通用积压检测配置（向后兼容）
 type BacklogDetectionConfig struct {
 	Enabled          bool          `mapstructure:"enabled"`
 	MaxLagThreshold  int64         `mapstructure:"maxLagThreshold"`
@@ -162,22 +216,6 @@ type SecurityConfig struct {
 	CertFile string `mapstructure:"certFile"`
 	KeyFile  string `mapstructure:"keyFile"`
 	CAFile   string `mapstructure:"caFile"`
-}
-
-// NATSConfig NATS JetStream配置
-type NATSConfig struct {
-	URLs                []string      `mapstructure:"urls"`
-	ClientID            string        `mapstructure:"clientId"`
-	MaxReconnects       int           `mapstructure:"maxReconnects"`
-	ReconnectWait       time.Duration `mapstructure:"reconnectWait"`
-	ConnectionTimeout   time.Duration `mapstructure:"connectionTimeout"`
-	HealthCheckInterval time.Duration `mapstructure:"healthCheckInterval"`
-
-	// JetStream配置
-	JetStream JetStreamConfig `mapstructure:"jetstream"`
-
-	// 安全配置
-	Security NATSSecurityConfig `mapstructure:"security"`
 }
 
 // JetStreamConfig JetStream配置
@@ -250,4 +288,91 @@ type TracingConfig struct {
 	SampleRate  float64 `mapstructure:"sampleRate"`
 }
 
-var EventBusConfig = new(EventBus)
+// ==========================================================================
+// 配置验证和默认值设置
+// ==========================================================================
+
+// SetDefaults 为EventBusConfig设置默认值
+func (c *EventBusConfig) SetDefaults() {
+	// 健康检查默认值
+	if c.HealthCheck.Enabled {
+		if c.HealthCheck.Publisher.Interval == 0 {
+			c.HealthCheck.Publisher.Interval = 2 * time.Minute
+		}
+		if c.HealthCheck.Publisher.Timeout == 0 {
+			c.HealthCheck.Publisher.Timeout = 10 * time.Second
+		}
+		if c.HealthCheck.Publisher.FailureThreshold == 0 {
+			c.HealthCheck.Publisher.FailureThreshold = 3
+		}
+		if c.HealthCheck.Publisher.MessageTTL == 0 {
+			c.HealthCheck.Publisher.MessageTTL = 5 * time.Minute
+		}
+
+		// 订阅监控器默认值
+		if c.HealthCheck.Subscriber.MonitorInterval == 0 {
+			c.HealthCheck.Subscriber.MonitorInterval = 30 * time.Second
+		}
+		if c.HealthCheck.Subscriber.WarningThreshold == 0 {
+			c.HealthCheck.Subscriber.WarningThreshold = 3
+		}
+		if c.HealthCheck.Subscriber.ErrorThreshold == 0 {
+			c.HealthCheck.Subscriber.ErrorThreshold = 5
+		}
+		if c.HealthCheck.Subscriber.CriticalThreshold == 0 {
+			c.HealthCheck.Subscriber.CriticalThreshold = 10
+		}
+	}
+
+	// 发布端默认值
+	if c.Publisher.MaxReconnectAttempts == 0 {
+		c.Publisher.MaxReconnectAttempts = 5
+	}
+	if c.Publisher.InitialBackoff == 0 {
+		c.Publisher.InitialBackoff = 1 * time.Second
+	}
+	if c.Publisher.MaxBackoff == 0 {
+		c.Publisher.MaxBackoff = 30 * time.Second
+	}
+	if c.Publisher.PublishTimeout == 0 {
+		c.Publisher.PublishTimeout = 10 * time.Second
+	}
+
+	// 订阅端默认值
+	if c.Subscriber.MaxConcurrency == 0 {
+		c.Subscriber.MaxConcurrency = 10
+	}
+	if c.Subscriber.ProcessTimeout == 0 {
+		c.Subscriber.ProcessTimeout = 30 * time.Second
+	}
+}
+
+// Validate 验证EventBusConfig配置
+func (c *EventBusConfig) Validate() error {
+	if c.Type == "" {
+		return fmt.Errorf("eventbus type is required")
+	}
+
+	if c.Type != "kafka" && c.Type != "nats" && c.Type != "memory" {
+		return fmt.Errorf("unsupported eventbus type: %s", c.Type)
+	}
+
+	if c.ServiceName == "" {
+		return fmt.Errorf("service name is required")
+	}
+
+	// 验证健康检查配置
+	if c.HealthCheck.Enabled {
+		if c.HealthCheck.Publisher.Interval <= 0 {
+			return fmt.Errorf("health check publisher interval must be positive")
+		}
+		if c.HealthCheck.Publisher.Timeout <= 0 {
+			return fmt.Errorf("health check publisher timeout must be positive")
+		}
+		if c.HealthCheck.Subscriber.MonitorInterval <= 0 {
+			return fmt.Errorf("health check subscriber monitor interval must be positive")
+		}
+	}
+
+	return nil
+}

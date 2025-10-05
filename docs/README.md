@@ -83,19 +83,12 @@
 ### 📖 业务使用指南
 
 #### [业务微服务使用指南](./business-microservice-usage-guide.md) ⭐ **业务开发必读**
-完整的业务微服务使用 AdvancedEventBus 指南，包括：
+完整的业务微服务使用统一 EventBus 指南，包括：
 - **发布侧使用示例**：创建业务发布器、事件发布、消息格式化
 - **订阅侧使用示例**：创建业务订阅器、事件处理器、回调管理
-- **高级使用场景**：Outbox 模式、事件版本管理、分布式追踪、事件重放
+- **企业特性配置**：灵活启用/禁用高级功能
 - **最佳实践**：错误处理策略、性能优化、监控告警、配置管理
 - **完整示例**：从配置到启动的完整业务服务代码
-
-#### [AdvancedSubscriber 设计说明](./advanced-subscriber-design.md)
-解释为什么添加 AdvancedSubscriber 的设计文档，包括：
-- 架构对称性分析
-- 统一监控和统计功能
-- 事件驱动通知机制
-- 与现有组件的协作关系
 
 ### 🔧 技术参考
 
@@ -139,12 +132,32 @@ err = bus.Subscribe(context.Background(), "my-topic", func(ctx context.Context, 
 ```go
 import "jxt-core/sdk/pkg/eventbus"
 
-// 创建高级事件总线
-config := eventbus.GetDefaultAdvancedEventBusConfig()
-config.ServiceName = "user-service"
-config.Type = "kafka"
+// 创建统一事件总线
+config := &eventbus.EventBusConfig{
+    Type: "kafka",
+    Kafka: eventbus.KafkaConfig{
+        Brokers: []string{"localhost:9092"},
+    },
+    Enterprise: eventbus.EnterpriseConfig{
+        Publisher: eventbus.PublisherEnterpriseConfig{
+            RetryPolicy: eventbus.RetryPolicyConfig{
+                Enabled: true,
+                MaxRetries: 3,
+            },
+        },
+        Subscriber: eventbus.SubscriberEnterpriseConfig{
+            AggregateProcessor: eventbus.AggregateProcessorConfig{
+                Enabled: true,
+            },
+            RateLimit: eventbus.RateLimitConfig{
+                Enabled: true,
+                RateLimit: 100,
+            },
+        },
+    },
+}
 
-bus, err := eventbus.CreateAdvancedEventBus(&config)
+bus, err := eventbus.NewEventBus(config)
 if err != nil {
     log.Fatal(err)
 }
@@ -167,42 +180,14 @@ subscribeOpts := eventbus.SubscribeOptions{
 }
 err = bus.SubscribeWithOptions(ctx, "user-events", handleUserEvent, subscribeOpts)
 
-// 监控订阅状态
-subscriber := bus.GetAdvancedSubscriber()
-stats := subscriber.GetStats()
-log.Printf("Messages processed: %d", stats.MessagesProcessed)
+// 监控状态
+metrics := bus.GetMetrics()
+log.Printf("Messages processed: %d", metrics.MessagesConsumed)
 ```
 
 **📖 详细使用方法**：[业务微服务使用指南](./business-microservice-usage-guide.md)
 
-### 3. 高级事件总线使用
 
-```go
-import "jxt-core/sdk/pkg/eventbus"
-
-// 创建高级事件总线
-config := config.GetDefaultAdvancedEventBusConfig()
-config.ServiceName = "my-service" // 设置服务名
-bus, err := eventbus.NewKafkaAdvancedEventBus(config)
-if err != nil {
-    log.Fatal(err)
-}
-
-// 设置业务组件
-bus.SetMessageRouter(&MyMessageRouter{})
-bus.SetErrorHandler(&MyErrorHandler{})
-bus.SetMessageFormatter(&MyMessageFormatter{})
-
-// 注册回调
-bus.RegisterBacklogCallback(handleBacklogChange)
-bus.RegisterRecoveryModeCallback(handleRecoveryModeChange)
-bus.RegisterHealthCheckCallback(handleHealthCheck)
-
-// 启动统一健康检查
-err = bus.StartHealthCheck(context.Background())
-if err != nil {
-    log.Fatal(err)
-}
 
 // 高级订阅
 subscribeOpts := eventbus.SubscribeOptions{

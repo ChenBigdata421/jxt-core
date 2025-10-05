@@ -1,0 +1,1008 @@
+2025-10-05T13:47:09.727+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:09.727+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopicorders.eventstotalSubscribers1
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicorders.eventssubscribers1
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published successfullytopicorders.eventssize185
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicorders.eventssubscribers1
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published successfullytopicorders.eventssize185
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicorders.eventssubscribers1
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published successfullytopicorders.eventssize185
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicorders.eventssubscribers1
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published successfullytopicorders.eventssize185
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicorders.eventssubscribers1
+2025-10-05T13:47:09.828+0800	DEBUG	logger/logger.go:64	Message published successfullytopicorders.eventssize185
+2025-10-05T13:47:10.329+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:10.329+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:10.329+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:10.329+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:10.330+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictopic1totalSubscribers1
+2025-10-05T13:47:10.330+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictopic1
+2025-10-05T13:47:10.330+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictopic2totalSubscribers1
+2025-10-05T13:47:10.330+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictopic2
+2025-10-05T13:47:10.330+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictopic3totalSubscribers1
+2025-10-05T13:47:10.330+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictopic3
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic1subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic1size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic1subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic1size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic1subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic1size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic2subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic2size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic2subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic2size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic2subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic2size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic3subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic3size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic1size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic3subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic3size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic3size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic2size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictopic3subscribers1
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic3size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic2size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message published successfullytopictopic3size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic1size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic3size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic1size9
+2025-10-05T13:47:10.430+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictopic2size9
+2025-10-05T13:47:10.931+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:10.931+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:10.931+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:10.931+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:10.931+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopicconcurrent.testtotalSubscribers1
+2025-10-05T13:47:10.931+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopicconcurrent.test
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicconcurrent.testsubscribers1
+2025-10-05T13:47:11.032+0800	DEBUG	logger/logger.go:64	Message published successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:11.034+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicconcurrent.testsize7
+2025-10-05T13:47:13.034+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:13.034+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:13.034+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:13.034+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:13.034+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopicerror.recoverytotalSubscribers1
+2025-10-05T13:47:13.034+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopicerror.recovery
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicerror.recoverysubscribers1
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published successfullytopicerror.recoverysize9
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicerror.recoverysubscribers1
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published successfullytopicerror.recoverysize9
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicerror.recoverysubscribers1
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published successfullytopicerror.recoverysize9
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicerror.recoverysubscribers1
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published successfullytopicerror.recoverysize9
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicerror.recoverysubscribers1
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message published successfullytopicerror.recoverysize9
+2025-10-05T13:47:13.135+0800	ERROR	logger/logger.go:80	Message handler failedtopicerror.recoveryerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).Subscribe.func1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:130
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:93
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicerror.recoverysize9
+2025-10-05T13:47:13.135+0800	ERROR	logger/logger.go:80	Message handler failedtopicerror.recoveryerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:94
+2025-10-05T13:47:13.135+0800	ERROR	logger/logger.go:80	Message handler failedtopicerror.recoveryerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).Subscribe.func1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:130
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:93
+2025-10-05T13:47:13.135+0800	ERROR	logger/logger.go:80	Message handler failedtopicerror.recoveryerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:94
+2025-10-05T13:47:13.135+0800	ERROR	logger/logger.go:80	Message handler failedtopicerror.recoveryerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).Subscribe.func1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:130
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:93
+2025-10-05T13:47:13.135+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicerror.recoverysize9
+2025-10-05T13:47:13.135+0800	ERROR	logger/logger.go:80	Message handler failedtopicerror.recoveryerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:94
+2025-10-05T13:47:13.636+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:13.636+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:13.636+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:13.636+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:13.636+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopiccontext.canceltotalSubscribers1
+2025-10-05T13:47:13.636+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopiccontext.cancel
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopiccontext.cancelsubscribers1
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message published successfullytopiccontext.cancelsize9
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopiccontext.cancelsubscribers1
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message published successfullytopiccontext.cancelsize9
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopiccontext.cancelsubscribers1
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message published successfullytopiccontext.cancelsize9
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message processed successfullytopiccontext.cancelsize9
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message processed successfullytopiccontext.cancelsize9
+2025-10-05T13:47:13.737+0800	DEBUG	logger/logger.go:64	Message processed successfullytopiccontext.cancelsize9
+2025-10-05T13:47:13.938+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopiccontext.cancelsubscribers1
+2025-10-05T13:47:13.938+0800	DEBUG	logger/logger.go:64	Message published successfullytopiccontext.cancelsize20
+2025-10-05T13:47:13.938+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:13.938+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:13.938+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:13.938+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:13.938+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopicmetrics.testtotalSubscribers1
+2025-10-05T13:47:13.938+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopicmetrics.test
+2025-10-05T13:47:13.938+0800	DEBUG	logger/logger.go:64	Message processed successfullytopiccontext.cancelsize20
+2025-10-05T13:47:14.038+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicmetrics.testsubscribers1
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message published successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.039+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicmetrics.testsize9
+2025-10-05T13:47:14.539+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.539+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.539+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Publisher backlog monitoring started for eventbus manager (not available)
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Publisher backlog monitoring stopped for eventbus manager (not available)
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	All backlog monitoring started for eventbus manager
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	All backlog monitoring stopped for eventbus manager
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Message router set for eventbus manager
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Error handler set for eventbus manager
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Subscription callback registered for eventbus manager
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.544+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.544+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.544+0800	WARN	logger/logger.go:72	StartHealthCheck is deprecated, use StartHealthCheckPublisher instead
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Warn
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:72
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).StartHealthCheck
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:728
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.TestEventBusManager_StartHealthCheck
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus_advanced_features_test.go:149
+testing.tRunner
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792
+2025-10-05T13:47:14.545+0800	INFO	logger/logger.go:48	Health checker startedsourcememory-eventbuseventBusTypememorytopicjxt-core-health-checkinterval2m0s
+2025-10-05T13:47:14.545+0800	INFO	logger/logger.go:48	Health check publisher started for memory eventbus
+2025-10-05T13:47:14.545+0800	DEBUG	logger/logger.go:64	Stopping health check publisher before closing EventBus
+2025-10-05T13:47:14.545+0800	ERROR	logger/logger.go:80	Health check failedsourcememory-eventbuserrorhealth check publish failed: eventbus is closedconsecutiveFailures1duration755.72µs
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).recordFailure
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:202
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).performHealthCheck
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:159
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).healthCheckLoop
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:122
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health checker stoppedsourcememory-eventbus
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.546+0800	WARN	logger/logger.go:72	StopHealthCheck is deprecated, use StopHealthCheckPublisher instead
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Warn
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:72
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).StopHealthCheck
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:734
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.TestEventBusManager_StopHealthCheck
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus_advanced_features_test.go:162
+testing.tRunner
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health checker startedsourcememory-eventbuseventBusTypememorytopicjxt-core-health-checkinterval2m0s
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health check publisher started for memory eventbus
+2025-10-05T13:47:14.546+0800	WARN	logger/logger.go:72	RegisterHealthCheckCallback is deprecated, use RegisterHealthCheckPublisherCallback instead
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Warn
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:72
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).RegisterHealthCheckCallback
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:740
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.TestEventBusManager_RegisterHealthCheckCallback
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus_advanced_features_test.go:185
+testing.tRunner
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Stopping health check publisher before closing EventBus
+2025-10-05T13:47:14.546+0800	ERROR	logger/logger.go:80	Health check failedsourcememory-eventbuserrorhealth check publish failed: eventbus is closedconsecutiveFailures1duration35.553µs
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).recordFailure
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:202
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).performHealthCheck
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:159
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).healthCheckLoop
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:122
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health checker stoppedsourcememory-eventbus
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health checker startedsourcememory-eventbuseventBusTypememorytopicjxt-core-health-checkinterval2m0s
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health check publisher started for memory eventbus
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopicjxt-core-health-checktotalSubscribers1
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopicjxt-core-health-check
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health check subscriber startedsourcememory-eventbuseventBusTypememorytopicjxt-core-health-checkexpectedInterval2m0s
+2025-10-05T13:47:14.546+0800	INFO	logger/logger.go:48	Health check subscriber started for memory eventbus
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Stopping health check publisher before closing EventBus
+2025-10-05T13:47:14.546+0800	DEBUG	logger/logger.go:64	Health check monitoring loop startedsourcememory-eventbusmonitorInterval30sexpectedInterval2m0s
+2025-10-05T13:47:14.546+0800	ERROR	logger/logger.go:80	Health check failedsourcememory-eventbuserrorhealth check publish failed: eventbus is closedconsecutiveFailures1duration24.442µs
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).recordFailure
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:202
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).performHealthCheck
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:159
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthChecker).healthCheckLoop
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_checker.go:122
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Health checker stoppedsourcememory-eventbus
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Stopping health check subscriber before closing EventBus
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Health check monitoring loop stoppedsourcememory-eventbus
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Health check subscriber stoppedsourcememory-eventbuseventBusTypememory
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher topic config strategy updatedstrategycreate_or_update
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber topic config strategy updatedstrategycreate_or_update
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Topic config strategy updatedstrategycreate_or_update
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher topic config strategy updatedstrategycreate_only
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber topic config strategy updatedstrategycreate_only
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Topic config strategy updatedstrategycreate_only
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher topic config strategy updatedstrategyverify_only
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber topic config strategy updatedstrategyverify_only
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Topic config strategy updatedstrategyverify_only
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher topic config strategy updatedstrategyskip
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber topic config strategy updatedstrategyskip
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Topic config strategy updatedstrategyskip
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-topictotalSubscribers1
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.547+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.547+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health checker startedsourcememory-eventbuseventBusTypememorytopicjxt-core-health-checkinterval2m0s
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health check publisher started for memory eventbus
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopicjxt-core-health-checktotalSubscribers1
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopicjxt-core-health-check
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health check subscriber startedsourcememory-eventbuseventBusTypememorytopicjxt-core-health-checkexpectedInterval2m0s
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health check subscriber started for memory eventbus
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	All backlog monitoring started for eventbus manager
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Health check monitoring loop startedsourcememory-eventbusmonitorInterval30sexpectedInterval2m0s
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopicjxt-core-health-checksubscribers1
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message published successfullytopicjxt-core-health-checksize251
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Health check succeededsourcememory-eventbusduration30.132µstopicjxt-core-health-check
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health checker stoppedsourcememory-eventbus
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health check publisher stopped for memory eventbus
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Health check monitoring loop stoppedsourcememory-eventbus
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health check subscriber stoppedsourcememory-eventbuseventBusTypememory
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Health check subscriber stopped for memory eventbus
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	All backlog monitoring stopped for eventbus manager
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Received health check messagesourcememory-eventbusmessageSourcememory-eventbusmessageIdhc-1759643234548291630-d9922b2541281bdaeventBusTypememorytimestamp2025-10-05 13:47:14.54829507 +0800 CST
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message processed successfullytopicjxt-core-health-checksize251
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize12
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-topictotalSubscribers1
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-topic
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-topicsubscribers1
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize12
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-topicsize12
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.548+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.548+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Reconnect callback registered
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Topic configured for memory eventbustopictest-topicpersistenceModepersistentnoteMemory EventBus does not support true persistence
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Topic configured for memory eventbustopictest-topicpersistenceModepersistentnoteMemory EventBus does not support true persistence
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Topic configured for memory eventbustopictest-topicpersistenceModepersistentnoteMemory EventBus does not support true persistence
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Topic configuration removed from memory eventbustopictest-topic
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-topictotalSubscribers1
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-topic
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-topicsubscribers1
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.549+0800	ERROR	logger/logger.go:80	Message handler failedtopictest-topicerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).Subscribe.func1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:130
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:93
+2025-10-05T13:47:14.549+0800	ERROR	logger/logger.go:80	Message handler failedtopictest-topicerrorassert.AnError general error for testing
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*memoryEventBus).Publish.func1.1
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:94
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.549+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.549+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.550+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.550+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-topictotalSubscribers1
+2025-10-05T13:47:14.550+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-topic
+2025-10-05T13:47:14.550+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-topictotalSubscribers2
+2025-10-05T13:47:14.550+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-topicsubscribers2
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.550+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.550+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.550+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.551+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.551+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	No subscribers for topictopictest-topic
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-topicsize4
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.551+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.551+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	Reconnect callback registered
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-05T13:47:14.552+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-05T13:47:14.552+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+panic: test timed out after 1m40s
+	running tests:
+		TestEventBusManager_HealthCheck_Infrastructure (1m35s)
+
+goroutine 381 [running]:
+testing.(*M).startAlarm.func1()
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2484 +0x394
+created by time.goFunc
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc000483500, {0xf559f1?, 0xc000159b30?}, 0xf76528)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1859 +0x431
+testing.runTests.func1(0xc000483500)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2279 +0x37
+testing.tRunner(0xc000483500, 0xc000159c70)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792 +0xf4
+testing.runTests(0xc000128150, {0x1733200, 0x21c, 0x21c}, {0x173c160?, 0x7?, 0x173a660?})
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2277 +0x4b4
+testing.(*M).Run(0xc00012c1e0)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2142 +0x64a
+main.main()
+	_testmain.go:1151 +0x9b
+
+goroutine 458 [sync.RWMutex.RLock]:
+sync.runtime_SemacquireRWMutexR(0x5f?, 0x0?, 0x0?)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/sema.go:100 +0x25
+sync.(*RWMutex).RLock(...)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/sync/rwmutex.go:74
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).checkConnection(0xc0001368f0, {0x1087088, 0x175df40})
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:257 +0x5d
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).checkInfrastructureHealth(0xc0001368f0, {0x1087088, 0x175df40})
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:234 +0x93
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).performFullHealthCheck(0xc0001368f0, {0x1087088, 0x175df40})
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:185 +0x2ad
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).performHealthCheck(0x10821d8?, {0x1087088?, 0x175df40?})
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:150 +0x25
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.TestEventBusManager_HealthCheck_Infrastructure(0xc0004e6c40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus_coverage_boost_test.go:92 +0xc5
+testing.tRunner(0xc0004e6c40, 0xf76528)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 1
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1851 +0x413
+FAIL	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus	100.046s
+FAIL

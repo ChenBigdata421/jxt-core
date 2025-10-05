@@ -19,12 +19,16 @@ type memoryEventBus struct {
 
 // memoryPublisher 内存发布器
 type memoryPublisher struct {
-	eventBus *memoryEventBus
+	eventBus              *memoryEventBus
+	topicConfigStrategy   TopicConfigStrategy
+	topicConfigStrategyMu sync.RWMutex
 }
 
 // memorySubscriber 内存订阅器
 type memorySubscriber struct {
-	eventBus *memoryEventBus
+	eventBus              *memoryEventBus
+	topicConfigStrategy   TopicConfigStrategy
+	topicConfigStrategyMu sync.RWMutex
 }
 
 // NewMemoryEventBus 创建内存事件总线
@@ -38,14 +42,24 @@ func NewMemoryEventBus() EventBus {
 	}
 
 	return &eventBusManager{
-		publisher:  &memoryPublisher{eventBus: bus},
-		subscriber: &memorySubscriber{eventBus: bus},
-		metrics:    bus.metrics,
+		publisher: &memoryPublisher{
+			eventBus:            bus,
+			topicConfigStrategy: StrategyCreateOrUpdate, // 默认策略
+		},
+		subscriber: &memorySubscriber{
+			eventBus:            bus,
+			topicConfigStrategy: StrategyCreateOrUpdate, // 默认策略
+		},
+		metrics: bus.metrics,
 		healthStatus: &HealthStatus{
-			Status:    "healthy",
-			LastCheck: time.Now(),
-			Metrics:   *bus.metrics,
-			Details:   make(map[string]interface{}),
+			Overall:   "healthy",
+			Timestamp: time.Now(),
+			Infrastructure: InfrastructureHealth{
+				EventBus: EventBusHealthMetrics{
+					ConnectionStatus: "connected",
+				},
+			},
+			Details: make(map[string]interface{}),
 		},
 	}
 }
@@ -183,16 +197,56 @@ func (m *eventBusManager) initMemory() (EventBus, error) {
 		},
 	}
 
-	m.publisher = &memoryPublisher{eventBus: bus}
-	m.subscriber = &memorySubscriber{eventBus: bus}
+	m.publisher = &memoryPublisher{
+		eventBus:            bus,
+		topicConfigStrategy: StrategyCreateOrUpdate, // 默认策略
+	}
+	m.subscriber = &memorySubscriber{
+		eventBus:            bus,
+		topicConfigStrategy: StrategyCreateOrUpdate, // 默认策略
+	}
 	m.metrics = bus.metrics
 	m.healthStatus = &HealthStatus{
-		Status:    "healthy",
-		LastCheck: time.Now(),
-		Metrics:   *bus.metrics,
-		Details:   map[string]interface{}{"type": "memory"},
+		Overall:   "healthy",
+		Timestamp: time.Now(),
+		Infrastructure: InfrastructureHealth{
+			EventBus: EventBusHealthMetrics{
+				ConnectionStatus: "connected",
+			},
+		},
+		Details: map[string]interface{}{"type": "memory"},
 	}
 
 	logger.Info("Memory eventbus initialized successfully")
 	return m, nil
+}
+
+// SetTopicConfigStrategy 设置主题配置策略（memoryPublisher）
+func (m *memoryPublisher) SetTopicConfigStrategy(strategy TopicConfigStrategy) {
+	m.topicConfigStrategyMu.Lock()
+	defer m.topicConfigStrategyMu.Unlock()
+	m.topicConfigStrategy = strategy
+	logger.Debug("Memory publisher topic config strategy updated", "strategy", string(strategy))
+}
+
+// GetTopicConfigStrategy 获取主题配置策略（memoryPublisher）
+func (m *memoryPublisher) GetTopicConfigStrategy() TopicConfigStrategy {
+	m.topicConfigStrategyMu.RLock()
+	defer m.topicConfigStrategyMu.RUnlock()
+	return m.topicConfigStrategy
+}
+
+// SetTopicConfigStrategy 设置主题配置策略（memorySubscriber）
+func (m *memorySubscriber) SetTopicConfigStrategy(strategy TopicConfigStrategy) {
+	m.topicConfigStrategyMu.Lock()
+	defer m.topicConfigStrategyMu.Unlock()
+	m.topicConfigStrategy = strategy
+	logger.Debug("Memory subscriber topic config strategy updated", "strategy", string(strategy))
+}
+
+// GetTopicConfigStrategy 获取主题配置策略（memorySubscriber）
+func (m *memorySubscriber) GetTopicConfigStrategy() TopicConfigStrategy {
+	m.topicConfigStrategyMu.RLock()
+	defer m.topicConfigStrategyMu.RUnlock()
+	return m.topicConfigStrategy
 }

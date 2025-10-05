@@ -1,0 +1,342 @@
+# 跨Docker环境双NATS EventBus生产配置
+# 业务A：NATS JetStream (持久化 + Envelope + Keyed-Worker池)
+# 业务B：NATS Core (跨Docker + 高性能 + 并发处理)
+
+# ========== NATS服务器集群配置 ==========
+nats_cluster:
+  # NATS服务器配置
+  servers:
+    - name: "nats-1"
+      host: "nats-server-1"
+      port: 4222
+      cluster_port: 6222
+      
+    - name: "nats-2" 
+      host: "nats-server-2"
+      port: 4222
+      cluster_port: 6222
+      
+    - name: "nats-3"
+      host: "nats-server-3" 
+      port: 4222
+      cluster_port: 6222
+
+  # JetStream配置
+  jetstream:
+    enabled: true
+    store_dir: "/data/jetstream"
+    max_memory: "8Gi"
+    max_file: "100Gi"
+    
+  # 集群配置
+  cluster:
+    name: "nats-cluster"
+    routes:
+      - "nats://nats-server-1:6222"
+      - "nats://nats-server-2:6222" 
+      - "nats://nats-server-3:6222"
+
+# ========== 业务A：领域事件EventBus配置 ==========
+domain_events_eventbus:
+  type: nats
+  
+  # NATS连接配置
+  nats:
+    urls: 
+      - "nats://nats-server-1:4222"
+      - "nats://nats-server-2:4222"
+      - "nats://nats-server-3:4222"
+    
+    # 连接选项
+    connection:
+      name: "domain-events-client"
+      timeout: "10s"
+      reconnect_wait: "2s"
+      max_reconnects: -1  # 无限重连
+      
+    # JetStream配置（启用持久化）
+    jetstream:
+      enabled: true
+      
+      # 领域事件流配置
+      stream:
+        name: "domain-events-stream"
+        description: "Domain events persistent stream"
+        
+        # 主题配置
+        subjects:
+          - "domain.orders.events"      # 订单领域事件
+          - "domain.users.events"       # 用户领域事件
+          - "domain.payments.events"    # 支付领域事件
+          - "domain.inventory.events"   # 库存领域事件
+          
+        # 持久化策略
+        retention: "limits"             # 基于限制保留
+        storage: "file"                 # 文件存储
+        replicas: 3                     # 3副本高可用
+        
+        # 存储限制
+        max_age: "7d"                   # 保留7天
+        max_bytes: "50Gi"               # 最大50GB
+        max_msgs: 50000000             # 最大5000万条消息
+        discard: "old"                  # 超限丢弃旧消息
+        
+        # 性能优化
+        duplicate_window: "2m"          # 2分钟去重
+        max_msg_size: "1Mi"            # 最大消息1MB
+        
+    # 消费者配置
+    consumer:
+      durable_name: "domain-events-processor"
+      description: "Domain events processor"
+      
+      # 确认策略
+      ack_policy: "explicit"          # 显式确认
+      ack_wait: "30s"                # 30秒确认超时
+      max_deliver: 3                 # 最大重试3次
+      
+      # 重放策略
+      replay_policy: "instant"        # 立即重放
+      deliver_policy: "all"          # 传递所有消息
+      
+      # 性能配置
+      max_ack_pending: 1000          # 最大待确认1000条
+      max_waiting: 512               # 最大等待512个请求
+      
+    # 安全配置
+    security:
+      enabled: true
+      creds_file: "/etc/nats/domain-events.creds"
+      
+  # 企业特性配置
+  enterprise:
+    # 健康检查
+    health_check:
+      enabled: true
+      interval: "30s"
+      timeout: "10s"
+      
+    # 监控
+    monitoring:
+      enabled: true
+      metrics_interval: "10s"
+      export_endpoint: "http://prometheus:9090/metrics"
+
+# ========== 业务B：简单消息EventBus配置 ==========
+simple_messages_eventbus:
+  type: nats
+  
+  # NATS连接配置（同一集群，不同用途）
+  nats:
+    urls:
+      - "nats://nats-server-1:4222"
+      - "nats://nats-server-2:4222" 
+      - "nats://nats-server-3:4222"
+      
+    # 连接选项（优化性能）
+    connection:
+      name: "simple-messages-client"
+      timeout: "5s"
+      reconnect_wait: "1s"
+      max_reconnects: -1
+      
+    # 关闭JetStream（使用NATS Core）
+    jetstream:
+      enabled: false  # 使用NATS Core，无持久化
+      
+  # 企业特性配置（轻量级）
+  enterprise:
+    # 流量控制
+    subscriber:
+      rate_limit:
+        enabled: true
+        rate_limit: 20000.0    # 每秒2万条消息
+        burst: 50000           # 突发5万条
+        
+    # 简单监控
+    monitoring:
+      enabled: true
+      metrics_interval: "30s"
+
+# ========== Docker Compose配置示例 ==========
+version: '3.8'
+
+services:
+  # NATS服务器集群
+  nats-server-1:
+    image: nats:2.10-alpine
+    container_name: nats-server-1
+    ports:
+      - "4222:4222"
+      - "6222:6222"
+      - "8222:8222"
+    volumes:
+      - nats1-data:/data
+    command: >
+      --name nats-server-1
+      --cluster_name nats-cluster
+      --cluster nats://0.0.0.0:6222
+      --routes nats://nats-server-2:6222,nats://nats-server-3:6222
+      --jetstream
+      --store_dir /data/jetstream
+      --max_memory 8G
+      --max_file 100G
+      
+  nats-server-2:
+    image: nats:2.10-alpine
+    container_name: nats-server-2
+    ports:
+      - "4223:4222"
+      - "6223:6222"
+      - "8223:8222"
+    volumes:
+      - nats2-data:/data
+    command: >
+      --name nats-server-2
+      --cluster_name nats-cluster
+      --cluster nats://0.0.0.0:6222
+      --routes nats://nats-server-1:6222,nats://nats-server-3:6222
+      --jetstream
+      --store_dir /data/jetstream
+      --max_memory 8G
+      --max_file 100G
+      
+  nats-server-3:
+    image: nats:2.10-alpine
+    container_name: nats-server-3
+    ports:
+      - "4224:4222"
+      - "6224:6222"
+      - "8224:8222"
+    volumes:
+      - nats3-data:/data
+    command: >
+      --name nats-server-3
+      --cluster_name nats-cluster
+      --cluster nats://0.0.0.0:6222
+      --routes nats://nats-server-1:6222,nats://nats-server-2:6222
+      --jetstream
+      --store_dir /data/jetstream
+      --max_memory 8G
+      --max_file 100G
+
+  # 业务服务A（领域事件）
+  order-service:
+    image: order-service:latest
+    container_name: order-service
+    environment:
+      - DOMAIN_EVENTS_NATS_URLS=nats://nats-server-1:4222,nats://nats-server-2:4222,nats://nats-server-3:4222
+      - SIMPLE_MESSAGES_NATS_URLS=nats://nats-server-1:4222,nats://nats-server-2:4222,nats://nats-server-3:4222
+    depends_on:
+      - nats-server-1
+      - nats-server-2
+      - nats-server-3
+      
+  # 业务服务B（简单消息）
+  notification-service:
+    image: notification-service:latest
+    container_name: notification-service
+    environment:
+      - SIMPLE_MESSAGES_NATS_URLS=nats://nats-server-1:4222,nats://nats-server-2:4222,nats://nats-server-3:4222
+    depends_on:
+      - nats-server-1
+      - nats-server-2
+      - nats-server-3
+
+volumes:
+  nats1-data:
+  nats2-data:
+  nats3-data:
+
+# ========== Kubernetes配置示例 ==========
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventbus-config
+data:
+  domain-events-config.yaml: |
+    type: nats
+    nats:
+      urls: ["nats://nats-cluster:4222"]
+      jetstream:
+        enabled: true
+        stream:
+          name: "domain-events-stream"
+          subjects: ["domain.*.events"]
+          retention: "limits"
+          storage: "file"
+          replicas: 3
+          
+  simple-messages-config.yaml: |
+    type: nats
+    nats:
+      urls: ["nats://nats-cluster:4222"]
+      jetstream:
+        enabled: false  # NATS Core
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+      - name: order-service
+        image: order-service:latest
+        env:
+        - name: DOMAIN_EVENTS_CONFIG
+          value: "/config/domain-events-config.yaml"
+        - name: SIMPLE_MESSAGES_CONFIG
+          value: "/config/simple-messages-config.yaml"
+        volumeMounts:
+        - name: config
+          mountPath: /config
+      volumes:
+      - name: config
+        configMap:
+          name: eventbus-config
+
+# ========== 监控配置 ==========
+monitoring:
+  prometheus:
+    scrape_configs:
+      # NATS JetStream监控
+      - job_name: 'nats-jetstream'
+        static_configs:
+          - targets: ['nats-server-1:8222', 'nats-server-2:8222', 'nats-server-3:8222']
+        metrics_path: '/metrics'
+        
+      # 领域事件监控
+      - job_name: 'domain-events'
+        static_configs:
+          - targets: ['order-service:8080']
+        metrics_path: '/metrics'
+        
+      # 简单消息监控
+      - job_name: 'simple-messages'
+        static_configs:
+          - targets: ['notification-service:8080']
+        metrics_path: '/metrics'
+
+  grafana:
+    dashboards:
+      - name: "NATS JetStream Dashboard"
+        panels:
+          - "jetstream_stream_messages"
+          - "jetstream_stream_bytes"
+          - "jetstream_consumer_ack_pending"
+          
+      - name: "EventBus Performance Dashboard"
+        panels:
+          - "eventbus_messages_published_total"
+          - "eventbus_messages_processed_total"
+          - "eventbus_processing_duration_seconds"

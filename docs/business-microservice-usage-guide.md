@@ -1,61 +1,75 @@
-# 业务微服务使用 jxt-core AdvancedEventBus 指南
+# 业务微服务使用 jxt-core 统一 EventBus 指南
 
 ## 📋 概述
 
-本文档以 **evidence-management** 项目为例，详细说明业务微服务如何使用 jxt-core 的 AdvancedEventBus 进行事件发布和订阅。通过具体的代码示例，展示如何在 evidence-management 的 command 模块和 query 模块中集成和使用 jxt-core 的高级事件总线功能。
+本文档以 **evidence-management** 项目为例，展示如何使用 jxt-core 的**统一 EventBus 接口**。新的设计将基础功能和企业特性合并为一个 EventBus 接口，业务微服务可以根据实际需要灵活启用企业特性。
 
-## 🏗️ 使用 jxt-core AdvancedEventBus 的架构
+### 🔄 设计理念
+
+- **统一接口**：基础功能和企业特性合并为一个 EventBus 接口
+- **灵活配置**：企业特性通过配置文件灵活启用/禁用
+- **渐进式增强**：从基础功能开始，按需启用企业特性
+- **向后兼容**：现有代码可以平滑迁移到新接口
+
+## 🏗️ 使用 jxt-core 统一 EventBus 的架构
 
 ```
-evidence-management 使用 jxt-core AdvancedEventBus 架构
+evidence-management 使用 jxt-core 统一 EventBus 架构
 ├── command 模块：事件发布侧
 │   ├── 聚合根：生成领域事件
 │   ├── 应用服务：使用 Outbox 模式
-│   └── EventPublisher 适配器 → jxt-core AdvancedEventBus → Kafka
+│   ├── Domain 层：EventPublisher 接口定义
+│   └── Infrastructure 层：EventPublisher 实现 → jxt-core EventBus → Kafka
 ├── query 模块：事件订阅侧
 │   ├── 事件处理器：处理领域事件
 │   ├── 读模型更新：更新查询数据库
-│   └── EventSubscriber 适配器 → jxt-core AdvancedEventBus → Kafka
-└── shared 模块：jxt-core AdvancedEventBus 初始化和配置
+│   ├── Domain 层：EventSubscriber 接口定义
+│   └── Infrastructure 层：EventSubscriber 实现 → jxt-core EventBus → Kafka
+└── shared 模块：jxt-core EventBus 初始化和配置 + 领域事件定义
 ```
 
 ## 🚀 快速开始
 
-### 1. 项目结构
+### 项目结构概览
 
-evidence-management 项目使用 jxt-core AdvancedEventBus 的架构：
+evidence-management 项目使用 jxt-core 统一 EventBus 的架构：
 
 ```
 evidence-management/
 ├── command/                    # 命令侧（写操作）
-│   ├── cmd/api/server.go      # 服务启动，初始化 AdvancedEventBus
+│   ├── cmd/api/server.go      # 服务启动，初始化 EventBus
 │   ├── internal/
 │   │   ├── domain/
 │   │   │   ├── aggregate/     # 聚合根，生成领域事件
-│   │   │   └── event/         # 事件定义
+│   │   │   └── event/
+│   │   │       └── publisher/ # 发布接口定义（Domain 层）
 │   │   ├── application/
 │   │   │   └── service/       # 应用服务，使用 Outbox 模式
 │   │   └── infrastructure/
-│   │       └── eventbus/      # AdvancedEventBus 适配器
+│   │       └── eventbus/      # 发布器实现（Infrastructure 层）
 ├── query/                     # 查询侧（读操作）
-│   ├── cmd/api/server.go      # 服务启动，初始化 AdvancedEventBus
+│   ├── cmd/api/server.go      # 服务启动，初始化 EventBus
 │   ├── internal/
 │   │   ├── application/
-│   │   │   └── eventhandler/  # 事件处理器
+│   │   │   └── eventhandler/  # 事件处理器 + 订阅接口定义
 │   │   └── infrastructure/
-│   │       └── eventbus/      # AdvancedEventBus 适配器
+│   │       └── eventbus/      # 订阅器实现（Infrastructure 层）
 └── shared/                    # 共享模块
-    ├── common/eventbus/       # AdvancedEventBus 初始化和配置
-    └── domain/event/          # 领域事件定义
+    ├── common/eventbus/       # EventBus 初始化和配置
+    └── domain/event/          # 领域事件定义（Event 接口和实现）
 ```
 
-### 2. AdvancedEventBus 配置
+---
+
+## 📤 一、Shared 模块（共享组件）
+
+### 1. EventBus 配置
 
 #### Command 模块配置（仅发布端）
 
 <augment_code_snippet path="evidence-management/command/config/eventbus.yaml" mode="EXCERPT">
 ````yaml
-# Command 模块 AdvancedEventBus 配置（仅发布端）
+# Command 模块 EventBus 配置（仅发布端）
 eventbus:
   serviceName: "evidence-management-command"
   type: "kafka"
@@ -96,7 +110,7 @@ eventbus:
 
 <augment_code_snippet path="evidence-management/query/config/eventbus.yaml" mode="EXCERPT">
 ````yaml
-# Query 模块 AdvancedEventBus 配置（仅订阅端）
+# Query 模块 EventBus 配置（仅订阅端）
 eventbus:
   serviceName: "evidence-management-query"
   type: "kafka"
@@ -137,11 +151,9 @@ eventbus:
 ````
 </augment_code_snippet>
 
-## 📤 发布侧使用示例（Command 模块）
+### 2. 初始化 jxt-core EventBus
 
-### 1. 初始化 jxt-core AdvancedEventBus
-
-<augment_code_snippet path="evidence-management/shared/common/eventbus/advanced_setup.go" mode="EXCERPT">
+<augment_code_snippet path="evidence-management/shared/common/eventbus/eventbus_setup.go" mode="EXCERPT">
 ````go
 package eventbus
 
@@ -153,28 +165,51 @@ import (
     "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 )
 
-// SetupAdvancedEventBusForCommand 为 Command 模块初始化 jxt-core 高级事件总线（仅发布端）
-func SetupAdvancedEventBusForCommand() (eventbus.AdvancedEventBus, error) {
-    // 加载配置
-    cfg := config.GetDefaultAdvancedEventBusConfig()
-    cfg.ServiceName = "evidence-management-command"
-    cfg.Type = "kafka"
-    cfg.Kafka.Brokers = []string{"localhost:9092"}
+// SetupEventBusForCommand 为 Command 模块初始化 jxt-core 事件总线（仅发布端）
+func SetupEventBusForCommand() (eventbus.EventBus, error) {
+    // 创建配置
+    cfg := &eventbus.EventBusConfig{
+        Type: "kafka",
+        Kafka: eventbus.KafkaConfig{
+            Brokers: []string{"localhost:9092"},
+        },
+        Enterprise: eventbus.EnterpriseConfig{
+            // 启用发布端企业特性
+            Publisher: eventbus.PublisherEnterpriseConfig{
+                RetryPolicy: eventbus.RetryPolicyConfig{
+                    Enabled: true,
+                    MaxRetries: 3,
+                },
+                PublishCallback: eventbus.PublishCallbackConfig{
+                    Enabled: true,
+                },
+                MessageFormatter: eventbus.MessageFormatterConfig{
+                    Enabled: true,
+                    Type: "json",
+                },
+            },
+            // Command 模块不需要订阅功能，禁用订阅端配置
+            Subscriber: eventbus.SubscriberEnterpriseConfig{
+                BacklogDetection: eventbus.BacklogDetectionConfig{
+                    Enabled: false,
+                },
+                AggregateProcessor: eventbus.AggregateProcessorConfig{
+                    Enabled: false,
+                },
+                RateLimit: eventbus.RateLimitConfig{
+                    Enabled: false,
+                },
+            },
+            // 统一企业特性
+            HealthCheck: eventbus.HealthCheckConfig{
+                Enabled: true,
+                Interval: 30 * time.Second,
+            },
+        },
+    }
 
-    // 启用发布端高级功能
-    cfg.Publisher.HealthCheck.Enabled = true
-    cfg.Publisher.HealthCheck.Interval = 1 * time.Minute
-    cfg.Publisher.Reconnect.Enabled = true
-    cfg.Publisher.Reconnect.MaxRetries = 5
-    cfg.Publisher.Reconnect.BackoffInterval = 5 * time.Second
-
-    // Command 模块不需要订阅功能，禁用订阅端配置
-    cfg.Subscriber.BacklogDetection.Enabled = false
-    cfg.Subscriber.AggregateProcessor.Enabled = false
-    cfg.Subscriber.RateLimit.Enabled = false
-
-    // 创建高级事件总线
-    bus, err := eventbus.NewKafkaAdvancedEventBus(cfg)
+    // 创建事件总线
+    bus, err := eventbus.NewEventBus(cfg)
     if err != nil {
         return nil, err
     }
@@ -190,33 +225,56 @@ func SetupAdvancedEventBusForCommand() (eventbus.AdvancedEventBus, error) {
     return bus, nil
 }
 
-// SetupAdvancedEventBusForQuery 为 Query 模块初始化 jxt-core 高级事件总线（仅订阅端）
-func SetupAdvancedEventBusForQuery() (eventbus.AdvancedEventBus, error) {
-    // 加载配置
-    cfg := config.GetDefaultAdvancedEventBusConfig()
-    cfg.ServiceName = "evidence-management-query"
-    cfg.Type = "kafka"
-    cfg.Kafka.Brokers = []string{"localhost:9092"}
+// SetupEventBusForQuery 为 Query 模块初始化 jxt-core 事件总线（仅订阅端）
+func SetupEventBusForQuery() (eventbus.EventBus, error) {
+    // 创建配置
+    cfg := &eventbus.EventBusConfig{
+        Type: "kafka",
+        Kafka: eventbus.KafkaConfig{
+            Brokers: []string{"localhost:9092"},
+        },
+        Enterprise: eventbus.EnterpriseConfig{
+            // Query 模块不需要发布功能，禁用发布端配置
+            Publisher: eventbus.PublisherEnterpriseConfig{
+                RetryPolicy: eventbus.RetryPolicyConfig{
+                    Enabled: false,
+                },
+                PublishCallback: eventbus.PublishCallbackConfig{
+                    Enabled: false,
+                },
+            },
+            // 启用订阅端企业特性
+            Subscriber: eventbus.SubscriberEnterpriseConfig{
+                BacklogDetection: eventbus.BacklogDetectionConfig{
+                    Enabled: true,
+                    MaxLagThreshold: 100,
+                    CheckInterval: 30 * time.Second,
+                },
+                AggregateProcessor: eventbus.AggregateProcessorConfig{
+                    Enabled: true,
+                    MaxWorkers: 10,
+                    BufferSize: 500,
+                },
+                RateLimit: eventbus.RateLimitConfig{
+                    Enabled: true,
+                    RateLimit: 1000,
+                    BurstSize: 1000,
+                },
+                RecoveryMode: eventbus.RecoveryModeConfig{
+                    Enabled: true,
+                    AutoEnable: true,
+                },
+            },
+            // 统一企业特性
+            HealthCheck: eventbus.HealthCheckConfig{
+                Enabled: true,
+                Interval: 30 * time.Second,
+            },
+        },
+    }
 
-    // Query 模块不需要发布功能，禁用发布端配置
-    cfg.Publisher.HealthCheck.Enabled = false
-    cfg.Publisher.Reconnect.Enabled = false
-
-    // 启用订阅端高级功能
-    cfg.Subscriber.BacklogDetection.Enabled = true
-    cfg.Subscriber.BacklogDetection.MaxLagThreshold = 100
-    cfg.Subscriber.BacklogDetection.CheckInterval = 30 * time.Second
-    cfg.Subscriber.AggregateProcessor.Enabled = true
-    cfg.Subscriber.AggregateProcessor.CacheSize = 500
-    cfg.Subscriber.AggregateProcessor.MaxConcurrency = 10
-    cfg.Subscriber.RateLimit.Enabled = true
-    cfg.Subscriber.RateLimit.Limit = 1000
-    cfg.Subscriber.RateLimit.Burst = 1000
-    cfg.Subscriber.RecoveryMode.Enabled = true
-    cfg.Subscriber.RecoveryMode.AutoDetection = true
-
-    // 创建高级事件总线
-    bus, err := eventbus.NewKafkaAdvancedEventBus(cfg)
+    // 创建事件总线
+    bus, err := eventbus.NewEventBus(cfg)
     if err != nil {
         return nil, err
     }
@@ -226,7 +284,6 @@ func SetupAdvancedEventBusForQuery() (eventbus.AdvancedEventBus, error) {
 
     // 注册订阅端相关回调
     bus.RegisterBacklogCallback(handleBacklogChange)
-    bus.RegisterRecoveryModeCallback(handleRecoveryModeChange)
     bus.RegisterHealthCheckCallback(handleSubscriberHealthCheck)
 
     return bus, nil
@@ -247,116 +304,6 @@ func (h *EvidenceErrorHandler) HandleError(ctx context.Context, err error, topic
     log.Printf("Evidence management error in topic %s: %v", topic, err)
     // 业务特定的错误处理逻辑
     return nil
-}
-````
-</augment_code_snippet>
-
-### 2. Command 服务启动
-
-<augment_code_snippet path="evidence-management/command/cmd/api/server.go" mode="EXCERPT">
-````go
-func init() {
-    // 初始化基础组件
-    logger.Setup()            // 初始化zaplogger
-    database.MasterDbSetup()  // 初始化主数据库
-    database.CommandDbSetup() // 初始化命令数据库
-    storage.Setup()           // 添加内存队列的创建
-
-    // 初始化 jxt-core AdvancedEventBus（仅发布端）
-    bus, err := eventbus.SetupAdvancedEventBusForCommand()
-    if err != nil {
-        log.Fatal("Failed to setup AdvancedEventBus for Command:", err)
-    }
-
-    // 启动事件总线
-    ctx := context.Background()
-    if err := bus.Start(ctx); err != nil {
-        log.Fatal("Failed to start AdvancedEventBus:", err)
-    }
-
-    // 启动健康检查
-    if err := bus.StartHealthCheck(ctx); err != nil {
-        log.Fatal("Failed to start health check:", err)
-    }
-
-    // 注册到依赖注入容器
-    di.Provide(func() eventbus.AdvancedEventBus {
-        return bus
-    })
-}
-````
-</augment_code_snippet>
-
-### 3. AdvancedEventBus 适配器
-
-<augment_code_snippet path="evidence-management/command/internal/infrastructure/eventbus/advanced_publisher.go" mode="EXCERPT">
-````go
-package eventbus
-
-import (
-    "context"
-    "fmt"
-    "time"
-    "jxt-evidence-system/evidence-management/command/internal/domain/event/publisher"
-    "jxt-evidence-system/evidence-management/shared/common/di"
-    "jxt-evidence-system/evidence-management/shared/domain/event"
-    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
-    "github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
-)
-
-// 依赖注入注册
-func init() {
-    registrations = append(registrations, registerAdvancedEventPublisherDependencies)
-}
-
-func registerAdvancedEventPublisherDependencies() {
-    if err := di.Provide(func(bus eventbus.AdvancedEventBus) publisher.EventPublisher {
-        return NewAdvancedEventPublisher(bus)
-    }); err != nil {
-        logger.Fatalf("failed to provide AdvancedEventPublisher: %v", err)
-    }
-}
-
-// AdvancedEventPublisher 使用 jxt-core AdvancedEventBus 的事件发布器
-type AdvancedEventPublisher struct {
-    advancedBus eventbus.AdvancedEventBus
-}
-
-func NewAdvancedEventPublisher(bus eventbus.AdvancedEventBus) *AdvancedEventPublisher {
-    return &AdvancedEventPublisher{
-        advancedBus: bus,
-    }
-}
-
-// Publish 发布事件到 Kafka
-func (p *AdvancedEventPublisher) Publish(ctx context.Context, topic string, event event.Event) error {
-    if event == nil {
-        return fmt.Errorf("event cannot be nil")
-    }
-
-    payload, err := event.MarshalJSON()
-    if err != nil {
-        return fmt.Errorf("failed to marshal event: %w", err)
-    }
-
-    // 使用 AdvancedEventBus 的高级发布功能
-    opts := eventbus.PublishOptions{
-        AggregateID: event.GetAggregateID(),
-        Metadata: map[string]string{
-            "eventType":   event.GetEventType(),
-            "tenantId":    event.GetTenantId(),
-            "contentType": "application/json",
-            "version":     event.GetVersion(),
-        },
-        Timeout: 30 * time.Second,
-    }
-
-    return p.advancedBus.PublishWithOptions(ctx, topic, payload, opts)
-}
-
-// RegisterReconnectCallback 注册重连回调
-func (p *AdvancedEventPublisher) RegisterReconnectCallback(callback func(ctx context.Context) error) error {
-    return p.advancedBus.RegisterReconnectCallback(callback)
 }
 ````
 </augment_code_snippet>
@@ -407,7 +354,148 @@ const (
 ````
 </augment_code_snippet>
 
-### 5. 聚合根中生成事件
+---
+
+## 📤 二、Command 模块（发布端）
+
+### 1. 服务启动和初始化
+
+<augment_code_snippet path="evidence-management/command/cmd/api/server.go" mode="EXCERPT">
+````go
+func init() {
+    // 初始化基础组件
+    logger.Setup()            // 初始化zaplogger
+    database.MasterDbSetup()  // 初始化主数据库
+    database.CommandDbSetup() // 初始化命令数据库
+    storage.Setup()           // 添加内存队列的创建
+
+    // 初始化 jxt-core EventBus（仅发布端）
+    bus, err := eventbus.SetupEventBusForCommand()
+    if err != nil {
+        log.Fatal("Failed to setup EventBus for Command:", err)
+    }
+
+    // 启动事件总线
+    ctx := context.Background()
+    if err := bus.Start(ctx); err != nil {
+        log.Fatal("Failed to start EventBus:", err)
+    }
+
+    // 启动健康检查
+    if err := bus.StartHealthCheck(ctx); err != nil {
+        log.Fatal("Failed to start health check:", err)
+    }
+
+    // 注册到依赖注入容器
+    di.Provide(func() eventbus.EventBus {
+        return bus
+    })
+}
+````
+</augment_code_snippet>
+
+### 2. Domain 层接口定义
+
+#### 2.1 发布接口定义（Domain 层）
+
+<augment_code_snippet path="evidence-management/command/internal/domain/event/publisher/publisher.go" mode="EXCERPT">
+````go
+package publisher
+
+import (
+    "context"
+    "jxt-evidence-system/evidence-management/shared/domain/event"
+)
+
+// EventPublisher 定义领域事件发布的接口（Domain 层）
+type EventPublisher interface {
+    Publish(ctx context.Context, topic string, event event.Event) error
+    RegisterReconnectCallback(callback func(ctx context.Context) error) error
+}
+````
+</augment_code_snippet>
+
+### 3. Infrastructure 层实现
+
+#### 3.1 发布器实现（Infrastructure 层）
+
+<augment_code_snippet path="evidence-management/command/internal/infrastructure/eventbus/eventbus_publisher.go" mode="EXCERPT">
+````go
+package eventbus
+
+import (
+    "context"
+    "fmt"
+    "time"
+    "jxt-evidence-system/evidence-management/command/internal/domain/event/publisher"
+    "jxt-evidence-system/evidence-management/shared/common/di"
+    "jxt-evidence-system/evidence-management/shared/domain/event"
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
+)
+
+// 依赖注入注册
+func init() {
+    registrations = append(registrations, registerEventPublisherDependencies)
+}
+
+func registerEventPublisherDependencies() {
+    if err := di.Provide(func(bus eventbus.EventBus) publisher.EventPublisher {
+        return NewEventPublisher(bus)
+    }); err != nil {
+        logger.Fatalf("failed to provide EventPublisher: %v", err)
+    }
+}
+
+// EventPublisher Infrastructure 层实现，使用 jxt-core EventBus
+type EventPublisher struct {
+    eventBus eventbus.EventBus
+}
+
+func NewEventPublisher(bus eventbus.EventBus) *EventPublisher {
+    return &EventPublisher{
+        eventBus: bus,
+    }
+}
+
+// Publish 实现 Domain 接口：发布事件到 EventBus
+func (p *EventPublisher) Publish(ctx context.Context, topic string, event event.Event) error {
+    if event == nil {
+        return fmt.Errorf("event cannot be nil")
+    }
+
+    payload, err := event.MarshalJSON()
+    if err != nil {
+        return fmt.Errorf("failed to marshal event: %w", err)
+    }
+
+    // 使用 jxt-core EventBus 的企业发布功能
+    opts := eventbus.PublishOptions{
+        AggregateID: event.GetAggregateID(),
+        Metadata: map[string]string{
+            "eventType":   event.GetEventType(),
+            "tenantId":    event.GetTenantId(),
+            "contentType": "application/json",
+            "version":     event.GetVersion(),
+        },
+        Timeout: 30 * time.Second,
+    }
+
+    return p.eventBus.PublishWithOptions(ctx, topic, payload, opts)
+}
+
+// RegisterReconnectCallback 实现 Domain 接口：注册重连回调
+func (p *EventPublisher) RegisterReconnectCallback(callback func(ctx context.Context) error) error {
+    return p.eventBus.RegisterReconnectCallback(callback)
+}
+````
+</augment_code_snippet>
+
+
+
+
+
+### 4. 聚合根中生成事件
 
 <augment_code_snippet path="evidence-management/command/internal/domain/aggregate/media/media.go" mode="EXCERPT">
 ````go
@@ -450,7 +538,7 @@ func (e *Media) ClearEvents() {
 ````
 </augment_code_snippet>
 
-### 6. 具体事件载荷定义
+### 5. 具体事件载荷定义
 
 <augment_code_snippet path="evidence-management/shared/domain/event/media_events.go" mode="EXCERPT">
 ````go
@@ -475,7 +563,7 @@ type MediaUploadedPayload struct {
 ````
 </augment_code_snippet>
 
-### 7. 应用服务中使用 Outbox 模式
+### 6. 应用服务中使用 Outbox 模式
 
 <augment_code_snippet path="evidence-management/command/internal/application/service/media.go" mode="EXCERPT">
 ````go
@@ -523,9 +611,11 @@ func (e *MediaApplicationService) CreateMedia(ctx context.Context, cmd *command.
 ````
 </augment_code_snippet>
 
-## 📥 订阅侧使用示例（Query 模块）
+---
 
-### 1. Query 服务启动
+## 📥 三、Query 模块（订阅端）
+
+### 1. 服务启动和初始化
 
 <augment_code_snippet path="evidence-management/query/cmd/api/server.go" mode="EXCERPT">
 ````go
@@ -537,16 +627,16 @@ func init() {
     database.QueryDbSetup()    // 初始化查询数据库
     storage.Setup()            // 内存队列的创建
 
-    // 初始化 jxt-core AdvancedEventBus（仅订阅端）
-    bus, err := eventbus.SetupAdvancedEventBusForQuery()
+    // 初始化 jxt-core EventBus（仅订阅端）
+    bus, err := eventbus.SetupEventBusForQuery()
     if err != nil {
-        log.Fatal("Failed to setup AdvancedEventBus for Query:", err)
+        log.Fatal("Failed to setup EventBus for Query:", err)
     }
 
     // 启动事件总线
     ctx := context.Background()
     if err := bus.Start(ctx); err != nil {
-        log.Fatal("Failed to start AdvancedEventBus:", err)
+        log.Fatal("Failed to start EventBus:", err)
     }
 
     // 启动积压监控
@@ -555,7 +645,7 @@ func init() {
     }
 
     // 注册到依赖注入容器
-    di.Provide(func() eventbus.AdvancedEventBus {
+    di.Provide(func() eventbus.EventBus {
         return bus
     })
 
@@ -565,30 +655,30 @@ func init() {
 
 func setupEventSubscriptions() error {
     // 订阅 Media 领域事件
-    err := di.Invoke(func(mediaHandler *eventhandler.MediaEventHandler, bus eventbus.AdvancedEventBus) {
+    err := di.Invoke(func(mediaHandler *eventhandler.MediaEventHandler, bus eventbus.EventBus) {
         if mediaHandler != nil {
-            // 使用 AdvancedEventBus 的高级订阅功能
-            if err := subscribeMediaEventsWithAdvancedBus(bus, mediaHandler); err != nil {
+            // 使用 EventBus 的企业订阅功能
+            if err := subscribeMediaEventsWithEventBus(bus, mediaHandler); err != nil {
                 log.Fatal("Failed to subscribe media events:", err)
             }
         }
     })
 
     // 订阅 EnforcementType 领域事件
-    err = di.Invoke(func(enforcementHandler *eventhandler.EnforcementTypeEventHandler, bus eventbus.AdvancedEventBus) {
+    err = di.Invoke(func(enforcementHandler *eventhandler.EnforcementTypeEventHandler, bus eventbus.EventBus) {
         if enforcementHandler != nil {
-            // 使用 AdvancedEventBus 的高级订阅功能
-            if err := subscribeEnforcementTypeEventsWithAdvancedBus(bus, enforcementHandler); err != nil {
+            // 使用 EventBus 的企业订阅功能
+            if err := subscribeEnforcementTypeEventsWithEventBus(bus, enforcementHandler); err != nil {
                 log.Fatal("Failed to subscribe enforcement type events:", err)
             }
         }
     })
 
     // 订阅 Archive 领域事件
-    err = di.Invoke(func(archiveHandler *eventhandler.ArchiveMediaRelationEventHandler, bus eventbus.AdvancedEventBus) {
+    err = di.Invoke(func(archiveHandler *eventhandler.ArchiveMediaRelationEventHandler, bus eventbus.EventBus) {
         if archiveHandler != nil {
-            // 使用 AdvancedEventBus 的高级订阅功能
-            if err := subscribeArchiveEventsWithAdvancedBus(bus, archiveHandler); err != nil {
+            // 使用 EventBus 的企业订阅功能
+            if err := subscribeArchiveEventsWithEventBus(bus, archiveHandler); err != nil {
                 log.Fatal("Failed to subscribe archive events:", err)
             }
         }
@@ -599,9 +689,31 @@ func setupEventSubscriptions() error {
 ````
 </augment_code_snippet>
 
-### 2. AdvancedEventBus 订阅适配器
+### 2. Domain 层接口定义
 
-<augment_code_snippet path="evidence-management/query/internal/infrastructure/eventbus/advanced_subscriber.go" mode="EXCERPT">
+#### 2.1 订阅接口定义（Domain 层）
+
+<augment_code_snippet path="evidence-management/query/internal/application/eventhandler/subscriber.go" mode="EXCERPT">
+````go
+package eventhandler
+
+import (
+    "time"
+    "github.com/ThreeDotsLabs/watermill/message"
+)
+
+// EventSubscriber 定义领域事件订阅的接口（Domain 层）
+type EventSubscriber interface {
+    Subscribe(topic string, handler func(msg *message.Message) error, timeout time.Duration) error
+}
+````
+</augment_code_snippet>
+
+### 3. Infrastructure 层实现
+
+#### 3.1 订阅器实现（Infrastructure 层）
+
+<augment_code_snippet path="evidence-management/query/internal/infrastructure/eventbus/eventbus_subscriber.go" mode="EXCERPT">
 ````go
 package eventbus
 
@@ -617,56 +729,56 @@ import (
 
 // 依赖注入注册
 func init() {
-    registrations = append(registrations, registerAdvancedEventSubscriberDependencies)
+    registrations = append(registrations, registerEventSubscriberDependencies)
 }
 
-func registerAdvancedEventSubscriberDependencies() {
-    if err := di.Provide(func(bus eventbus.AdvancedEventBus) eventhandler.EventSubscriber {
-        return NewAdvancedEventSubscriber(bus)
+func registerEventSubscriberDependencies() {
+    if err := di.Provide(func(bus eventbus.EventBus) eventhandler.EventSubscriber {
+        return NewEventSubscriber(bus)
     }); err != nil {
-        logger.Fatalf("failed to provide AdvancedEventSubscriber: %v", err)
+        logger.Fatalf("failed to provide EventSubscriber: %v", err)
     }
 }
 
-// AdvancedEventSubscriber 使用 jxt-core AdvancedEventBus 的事件订阅器
-type AdvancedEventSubscriber struct {
-    advancedBus eventbus.AdvancedEventBus
+// EventSubscriber 使用 jxt-core EventBus 的事件订阅器
+type EventSubscriber struct {
+    eventBus eventbus.EventBus
 }
 
-func NewAdvancedEventSubscriber(bus eventbus.AdvancedEventBus) *AdvancedEventSubscriber {
-    return &AdvancedEventSubscriber{
-        advancedBus: bus,
+func NewEventSubscriber(bus eventbus.EventBus) *EventSubscriber {
+    return &EventSubscriber{
+        eventBus: bus,
     }
 }
 
 // Subscribe 订阅事件（基础接口兼容）
-func (s *AdvancedEventSubscriber) Subscribe(topic string, handler func(msg *message.Message) error, timeout time.Duration) error {
-    // 包装处理器以适配 AdvancedEventBus
+func (s *EventSubscriber) Subscribe(topic string, handler func(msg *message.Message) error, timeout time.Duration) error {
+    // 包装处理器以适配 EventBus
     wrappedHandler := func(ctx context.Context, message []byte) error {
         msg := message.NewMessage("", message)
         return handler(msg)
     }
 
     // 使用基础订阅功能
-    return s.advancedBus.Subscribe(context.Background(), topic, wrappedHandler)
+    return s.eventBus.Subscribe(context.Background(), topic, wrappedHandler)
 }
 
-// SubscribeWithAdvancedOptions 使用高级选项订阅
-func (s *AdvancedEventSubscriber) SubscribeWithAdvancedOptions(ctx context.Context, topic string, handler func(ctx context.Context, message []byte) error, opts eventbus.SubscribeOptions) error {
-    return s.advancedBus.SubscribeWithOptions(ctx, topic, handler, opts)
+// SubscribeWithOptions 使用企业特性选项订阅
+func (s *EventSubscriber) SubscribeWithOptions(ctx context.Context, topic string, handler func(ctx context.Context, message []byte) error, opts eventbus.SubscribeOptions) error {
+    return s.eventBus.SubscribeWithOptions(ctx, topic, handler, opts)
 }
 ````
 </augment_code_snippet>
 
-### 3. 利用现有事件处理器与 AdvancedEventBus 集成
+### 4. 事件处理器与 EventBus 集成
 
-#### 3.1 Media 事件订阅集成
+#### 4.1 Media 事件订阅集成
 
 <augment_code_snippet path="evidence-management/query/internal/infrastructure/eventbus/media_subscription.go" mode="EXCERPT">
 ````go
-// subscribeMediaEventsWithAdvancedBus 使用 AdvancedEventBus 订阅媒体事件
-func subscribeMediaEventsWithAdvancedBus(bus eventbus.AdvancedEventBus, mediaHandler *eventhandler.MediaEventHandler) error {
-    // 配置媒体事件的高级订阅选项
+// subscribeMediaEventsWithEventBus 使用 EventBus 订阅媒体事件
+func subscribeMediaEventsWithEventBus(bus eventbus.EventBus, mediaHandler *eventhandler.MediaEventHandler) error {
+    // 配置媒体事件的企业订阅选项
     opts := eventbus.SubscribeOptions{
         UseAggregateProcessor: true,  // 启用聚合处理器，确保同一媒体的事件顺序处理
         ProcessingTimeout:     60 * time.Second,
@@ -694,13 +806,13 @@ func subscribeMediaEventsWithAdvancedBus(bus eventbus.AdvancedEventBus, mediaHan
 ````
 </augment_code_snippet>
 
-#### 3.2 EnforcementType 事件订阅集成
+#### 4.2 EnforcementType 事件订阅集成
 
 <augment_code_snippet path="evidence-management/query/internal/infrastructure/eventbus/enforcement_subscription.go" mode="EXCERPT">
 ````go
-// subscribeEnforcementTypeEventsWithAdvancedBus 使用 AdvancedEventBus 订阅执法类型事件
-func subscribeEnforcementTypeEventsWithAdvancedBus(bus eventbus.AdvancedEventBus, enforcementHandler *eventhandler.EnforcementTypeEventHandler) error {
-    // 配置执法类型事件的高级订阅选项
+// subscribeEnforcementTypeEventsWithEventBus 使用 EventBus 订阅执法类型事件
+func subscribeEnforcementTypeEventsWithEventBus(bus eventbus.EventBus, enforcementHandler *eventhandler.EnforcementTypeEventHandler) error {
+    // 配置执法类型事件的企业订阅选项
     opts := eventbus.SubscribeOptions{
         UseAggregateProcessor: true,  // 启用聚合处理器
         ProcessingTimeout:     30 * time.Second,
@@ -728,13 +840,13 @@ func subscribeEnforcementTypeEventsWithAdvancedBus(bus eventbus.AdvancedEventBus
 ````
 </augment_code_snippet>
 
-#### 3.3 Archive 事件订阅集成
+#### 4.3 Archive 事件订阅集成
 
 <augment_code_snippet path="evidence-management/query/internal/infrastructure/eventbus/archive_subscription.go" mode="EXCERPT">
 ````go
-// subscribeArchiveEventsWithAdvancedBus 使用 AdvancedEventBus 订阅档案事件
-func subscribeArchiveEventsWithAdvancedBus(bus eventbus.AdvancedEventBus, archiveHandler *eventhandler.ArchiveMediaRelationEventHandler) error {
-    // 配置档案事件的高级订阅选项
+// subscribeArchiveEventsWithEventBus 使用 EventBus 订阅档案事件
+func subscribeArchiveEventsWithEventBus(bus eventbus.EventBus, archiveHandler *eventhandler.ArchiveMediaRelationEventHandler) error {
+    // 配置档案事件的企业订阅选项
     opts := eventbus.SubscribeOptions{
         UseAggregateProcessor: true,  // 启用聚合处理器
         ProcessingTimeout:     45 * time.Second,
@@ -762,11 +874,11 @@ func subscribeArchiveEventsWithAdvancedBus(bus eventbus.AdvancedEventBus, archiv
 ````
 </augment_code_snippet>
 
-### 4. 现有事件处理器结构
+### 5. 现有事件处理器结构
 
-evidence-management 项目已经定义了完整的事件处理器，我们只需要将它们与 AdvancedEventBus 集成：
+evidence-management 项目已经定义了完整的事件处理器，我们只需要将它们与 EventBus 集成：
 
-#### 4.1 MediaEventHandler 结构
+#### 5.1 MediaEventHandler 结构
 
 <augment_code_snippet path="evidence-management/query/internal/application/eventhandler/media_event_handler.go" mode="EXCERPT">
 ````go
@@ -818,7 +930,7 @@ func (h *MediaEventHandler) handleMediaEvent(msg *message.Message) error {
 ````
 </augment_code_snippet>
 
-#### 4.2 EnforcementTypeEventHandler 结构
+#### 5.2 EnforcementTypeEventHandler 结构
 
 <augment_code_snippet path="evidence-management/query/internal/application/eventhandler/enforcement_type_event_handler.go" mode="EXCERPT">
 ````go
@@ -863,528 +975,33 @@ func (h *EnforcementTypeEventHandler) handleEnforcementTypeEvent(msg *message.Me
 ````
 </augment_code_snippet>
 
-### 5. 集成优势
+### 6. 集成优势
 
-通过将现有的事件处理器与 jxt-core AdvancedEventBus 集成，evidence-management 项目获得以下优势：
+通过将现有的事件处理器与 jxt-core EventBus 集成，evidence-management 项目获得以下优势：
 
-#### 5.1 保持业务逻辑不变
+#### 6.1 保持业务逻辑不变
 - **现有处理器复用**：MediaEventHandler、EnforcementTypeEventHandler 等处理器的业务逻辑完全保持不变
 - **接口兼容性**：通过适配器模式，现有的 `handleMediaEvent` 等方法可以直接使用
 - **零业务代码修改**：只需要修改基础设施层的订阅方式
 
-#### 5.2 获得企业级功能
+#### 6.2 获得企业级功能
 - **聚合处理器**：确保同一媒体/执法类型的事件按顺序处理，避免并发冲突
 - **积压检测**：自动检测消息积压，及时发现性能问题
 - **流量控制**：智能限流，防止系统过载
 - **死信队列**：自动处理失败消息，提高系统可靠性
 
-#### 5.3 差异化配置
+#### 6.3 差异化配置
 - **Media 事件**：高并发处理（500 msg/s），长超时（60s）
 - **EnforcementType 事件**：中等并发（200 msg/s），标准超时（30s）
 - **Archive 事件**：资源密集型处理（300 msg/s），中等超时（45s）
 
-#### 5.4 监控和可观测性
+#### 6.4 监控和可观测性
 - **统一监控**：所有事件处理的统计信息集中管理
 - **健康检查**：自动监控订阅器状态
 - **回调机制**：支持积压告警、恢复模式通知等
 
-### 4. 具体事件处理逻辑
 
-<augment_code_snippet path="evidence-management/query/internal/application/eventhandler/media_event_handler.go" mode="EXCERPT">
-````go
-// handleMediaUploadedEvent 处理媒体上传事件
-func (h *MediaEventHandler) handleMediaUploadedEvent(ctx context.Context, domainEvent *event.DomainEvent) error {
-    var payload event.MediaUploadedPayload
-    var json = jsoniter.ConfigCompatibleWithStandardLibrary
-
-    if err := json.Unmarshal(domainEvent.Payload, &payload); err != nil {
-        logger.Error("Error unmarshalling MediaUploadedPayload", "error", err)
-        return fmt.Errorf("error unmarshalling MediaUploadedPayload: %w", err)
-    }
-
-    // 转换为读模型
-    mediaReadModel := &models.MediaReadModel{
-        ID:                    uuid.MustParse(payload.MediaID),
-        MediaName:             payload.MediaName,
-        MediaCate:             payload.MediaCate,
-        IsNonEnforcementMedia: payload.IsNonEnforcementMedia,
-        IsLocked:              payload.IsLocked,
-        CreateBy:              payload.ControlBy.CreateBy,
-        UpdateBy:              payload.ControlBy.UpdateBy,
-        CreatedAt:             payload.ModelTime.CreatedAt,
-        UpdatedAt:             payload.ModelTime.UpdatedAt,
-    }
-
-    // 检查媒体是否已存在，避免覆盖已有的状态字段
-    existingMedia, err := h.repo.FindByID(ctx, mediaUUID)
-    if err != nil && err.Error() != "查看对象不存在或无权查看" {
-        logger.Error("查询现有媒体失败", "error", err)
-        return err
-    }
-
-    if existingMedia != nil {
-        // 媒体已存在，只更新非状态相关的字段
-        updates := map[string]interface{}{
-            "MediaName":  mediaReadModel.MediaName,
-            "MediaCate":  mediaReadModel.MediaCate,
-            "UpdateBy":   mediaReadModel.UpdateBy,
-            "UpdatedAt":  mediaReadModel.UpdatedAt,
-        }
-        err = h.repo.UpdateByID(ctx, mediaUUID, updates)
-    } else {
-        // 媒体不存在，创建新的读模型
-        err = h.repo.Create(ctx, mediaReadModel)
-    }
-
-    return err
-}
-````
-</augment_code_snippet>
-
-### 5. 执法类型事件处理器
-
-<augment_code_snippet path="evidence-management/query/internal/application/eventhandler/enforcement_type_event_handler.go" mode="EXCERPT">
-````go
-// EnforcementTypeEventHandler 执法类型事件处理器
-type EnforcementTypeEventHandler struct {
-    Subscriber EventSubscriber
-    repo       repository.EnforcementTypeReadModelRepository
-}
-
-func (h *EnforcementTypeEventHandler) ConsumeEvent(topic string) error {
-    if err := h.Subscriber.Subscribe(topic, h.handleEnforcementTypeEvent, time.Second*30); err != nil {
-        logger.Error("Failed to subscribe to topic", "topic", topic, "error", err)
-        return err
-    }
-    return nil
-}
-
-func (h *EnforcementTypeEventHandler) handleEnforcementTypeEvent(msg *message.Message) error {
-    // Step 1: 反序列化为领域事件结构体
-    domainEvent := &event.DomainEvent{}
-    err := domainEvent.UnmarshalJSON(msg.Payload)
-    if err != nil {
-        logger.Error("执法类型事件反序列化失败", "error", err, "messageID", msg.UUID)
-        return fmt.Errorf("failed to unmarshal enforcement type event: %w", err)
-    }
-
-    // Step 2: 取出领域事件的租户id
-    tenantID := domainEvent.GetTenantId()
-    if tenantID == "" {
-        logger.Error("执法类型事件租户ID为空", "eventID", domainEvent.GetEventID())
-        return fmt.Errorf("租户ID不能为空")
-    }
-
-    // Step 3: 把租户id记录到context，传给repo
-    ctx := context.WithValue(context.Background(), global.TenantIDKey, tenantID)
-
-    // Step 4: 根据事件类型进行处理
-    eventType := domainEvent.GetEventType()
-    switch eventType {
-    case event.EventTypeEnforcementTypeCreated:
-        return h.handleEnforcementTypeCreatedEvent(ctx, domainEvent)
-    case event.EventTypeEnforcementTypeUpdated:
-        return h.handleEnforcementTypeUpdatedEvent(ctx, domainEvent)
-    case event.EventTypeEnforcementTypeDeleted:
-        return h.handleEnforcementTypeDeletedEvent(ctx, domainEvent)
-    default:
-        logger.Error("未知的执法类型事件类型", "eventType", eventType)
-        return fmt.Errorf("unknown enforcement type event type: %s", eventType)
-    }
-}
-````
-</augment_code_snippet>
-
-### 6. 基础设施层初始化配置
-
-<augment_code_snippet path="evidence-management/shared/common/eventbus/initialize.go" mode="EXCERPT">
-````go
-// SetupPublisher 初始化发布器管理器
-func SetupPublisher() {
-    log.Printf("Kafka Brokers => %s \n", pkg.Green(strings.Join(toolsConfig.EventBusConfig.Kafka.Brokers, ", ")))
-
-    // 配置 watermill kafka 发布器
-    kafkaConfig := kafka.PublisherConfig{
-        Brokers:               toolsConfig.EventBusConfig.Kafka.Brokers,
-        Marshaler:             kafka.DefaultMarshaler{},
-        OverwriteSaramaConfig: kafka.DefaultSaramaSyncPublisherConfig(),
-    }
-
-    // 创建 KafkaPublisherManager 配置
-    config := DefaultKafkaPublisherManagerConfig()
-    config.KafkaPublisherConfig = kafkaConfig
-    config.HealthCheckInterval = time.Duration(healthCheckInterval) * time.Minute
-
-    // 创建并启动 KafkaPublisherManager
-    manager, err := NewKafkaPublisherManager(config)
-    if err != nil {
-        log.Fatal(pkg.Red("new kafka manager error: %v\n"), err)
-    }
-
-    if err := manager.Start(); err != nil {
-        log.Fatal(pkg.Red("Kafka publisher setup error: %v\n"), err)
-    } else {
-        log.Println(pkg.Green("Kafka publisher setup success!"))
-    }
-
-    // 设置全局默认管理器，供适配器使用
-    DefaultKafkaPublisherManager = manager
-}
-
-// SetupSubscriber 初始化订阅器管理器
-func SetupSubscriber() {
-    log.Printf("Kafka Subscriber Brokers => %s\n", pkg.Green(strings.Join(toolsConfig.EventBusConfig.Kafka.Brokers, ", ")))
-
-    // 配置 watermill kafka 订阅器
-    kafkaConfig := kafka.SubscriberConfig{
-        Brokers:               toolsConfig.EventBusConfig.Kafka.Brokers,
-        Unmarshaler:           kafka.DefaultMarshaler{},
-        OverwriteSaramaConfig: kafka.DefaultSaramaSyncPublisherConfig(),
-        ConsumerGroup:         "evidence-query-group", // 消费者组
-    }
-
-    // 创建 KafkaSubscriberManager 配置
-    config := DefaultKafkaSubscriberManagerConfig()
-    config.KafkaConfig = kafkaConfig
-    config.HealthCheckConfig.Interval = time.Duration(healthCheckInterval) * time.Minute
-    config.HealthCheckConfig.MaxMessageAge = time.Duration(healthCheckInterval) * 3 * time.Minute
-
-    // 创建并启动 KafkaSubscriberManager
-    manager, err := NewKafkaSubscriberManager(config)
-    if err != nil {
-        log.Fatal(pkg.Red("new kafka manager error: %v\n"), err)
-    }
-
-    if err := manager.Start(); err != nil {
-        log.Fatal(pkg.Red("Kafka subscriber setup error: %v\n"), err)
-    } else {
-        log.Printf(pkg.Green("Kafka subscriber setup success!"))
-    }
-
-    // 设置全局默认管理器，供适配器使用
-    DefaultKafkaSubscriberManager = manager
-}
-````
-</augment_code_snippet>
-
-### 7. 与 AdvancedEventBus 的关系
-
-evidence-management 项目目前使用的是**简化版的事件总线架构**，主要特点：
-
-1. **当前架构**：
-   - 使用 `KafkaPublisherManager` 和 `KafkaSubscriberManager` 作为底层基础设施
-   - 通过适配器模式提供业务层接口
-   - 具备基本的健康检查、重连、错误处理功能
-
-2. **与 AdvancedEventBus 的对比**：
-   - **相同点**：都基于 Kafka，都有健康检查和重连机制
-   - **不同点**：AdvancedEventBus 提供更多高级功能（积压检测、恢复模式、聚合处理器等）
-
-3. **升级路径**：
-   - 可以逐步迁移到 AdvancedEventBus
-   - 保持现有业务接口不变
-   - 获得更强大的监控和管理能力
-
-## 🔧 完整的业务服务示例
-
-### 1. Command 服务启动流程
-
-<augment_code_snippet path="evidence-management/command/cmd/api/server.go" mode="EXCERPT">
-````go
-func main() {
-    // 初始化基础组件
-    logger.Setup()            // 初始化zaplogger
-    database.MasterDbSetup()  // 初始化主数据库
-    database.CommandDbSetup() // 初始化命令数据库
-    storage.Setup()           // 内存队列的创建
-    eventbus.SetupPublisher() // 初始化KafkaPublisherManager
-
-    usageStr := `starting evidence management command api server...`
-    log.Println(usageStr)
-
-    // 启动HTTP服务器
-    // ...
-}
-````
-</augment_code_snippet>
-
-### 2. Query 服务启动流程
-
-<augment_code_snippet path="evidence-management/query/cmd/api/server.go" mode="EXCERPT">
-````go
-func main() {
-    // 初始化基础组件
-    logger.Setup()             // 初始化zaplogger
-    database.MasterDbSetup()   // 初始化主数据库
-    database.CommandDbSetup()  // 初始化命令数据库
-    database.QueryDbSetup()    // 初始化查询数据库
-    storage.Setup()            // 内存队列的创建
-    eventbus.SetupSubscriber() // 初始化eventbus
-
-    // 设置事件订阅
-    if err := setupEventSubscriptions(); err != nil {
-        log.Fatalf("Failed to setup event subscriptions: %v", err)
-    }
-
-    usageStr := `starting evidence management query api server...`
-    log.Println(usageStr)
-
-    // 启动HTTP服务器
-    // ...
-}
-````
-</augment_code_snippet>
-
-## � 升级到 AdvancedEventBus
-
-### 1. 当前架构 vs AdvancedEventBus
-
-**当前 evidence-management 架构**：
-```
-业务层 → 适配器 → KafkaPublisherManager/KafkaSubscriberManager → Watermill → Kafka
-```
-
-**AdvancedEventBus 架构**：
-```
-业务层 → AdvancedEventBus → 高级组件 → 基础EventBus → Kafka
-```
-
-### 2. 升级步骤
-
-#### 步骤1：创建 AdvancedEventBus 实例
-
-```go
-// evidence-management/shared/common/eventbus/advanced_setup.go
-func SetupAdvancedEventBus() (eventbus.AdvancedEventBus, error) {
-    // 加载配置
-    cfg := config.GetDefaultAdvancedEventBusConfig()
-    cfg.ServiceName = "evidence-management"
-    cfg.Type = "kafka"
-
-    // 自定义业务配置
-    cfg.Subscriber.BacklogDetection.Enabled = true
-    cfg.Subscriber.BacklogDetection.MaxLagThreshold = 100
-    cfg.Subscriber.AggregateProcessor.Enabled = true
-    cfg.Subscriber.AggregateProcessor.CacheSize = 500
-    cfg.Subscriber.RateLimit.Enabled = true
-    cfg.Subscriber.RateLimit.Limit = 1000
-
-    // 创建高级事件总线
-    bus, err := eventbus.NewKafkaAdvancedEventBus(cfg)
-    if err != nil {
-        return nil, err
-    }
-
-    // 设置业务特定的组件
-    bus.SetMessageRouter(&EvidenceMessageRouter{})
-    bus.SetErrorHandler(&EvidenceErrorHandler{})
-
-    // 注册回调
-    bus.RegisterBacklogCallback(handleBacklogChange)
-    bus.RegisterRecoveryModeCallback(handleRecoveryModeChange)
-
-    return bus, nil
-}
-```
-
-#### 步骤2：创建业务适配器
-
-```go
-// evidence-management/command/internal/infrastructure/eventbus/advanced_publisher.go
-type AdvancedEventPublisher struct {
-    advancedBus eventbus.AdvancedEventBus
-}
-
-func NewAdvancedEventPublisher(bus eventbus.AdvancedEventBus) *AdvancedEventPublisher {
-    return &AdvancedEventPublisher{advancedBus: bus}
-}
-
-func (p *AdvancedEventPublisher) Publish(ctx context.Context, topic string, event event.Event) error {
-    payload, err := event.MarshalJSON()
-    if err != nil {
-        return fmt.Errorf("failed to marshal event: %w", err)
-    }
-
-    // 使用 AdvancedEventBus 的高级发布功能
-    opts := eventbus.PublishOptions{
-        AggregateID: event.GetAggregateID(),
-        Metadata: map[string]string{
-            "eventType":   event.GetEventType(),
-            "tenantId":    event.GetTenantId(),
-            "contentType": "application/json",
-        },
-        Timeout: 30 * time.Second,
-    }
-
-    return p.advancedBus.PublishWithOptions(ctx, topic, payload, opts)
-}
-```
-
-#### 步骤3：渐进式迁移
-
-```go
-// 在依赖注入中同时提供两种实现
-func init() {
-    // 注册当前实现（向后兼容）
-    di.Provide(func() eventhandler.EventSubscriber {
-        return &KafkaEventSubscriber{
-            kafkaManager: eventbus.DefaultKafkaSubscriberManager,
-        }
-    })
-
-    // 注册新的 AdvancedEventBus 实现
-    di.Provide(func() eventbus.AdvancedEventBus {
-        bus, err := SetupAdvancedEventBus()
-        if err != nil {
-            log.Fatal("Failed to setup AdvancedEventBus:", err)
-        }
-        return bus
-    })
-
-    // 可选：提供适配器以逐步迁移
-    di.Provide(func(bus eventbus.AdvancedEventBus) publisher.EventPublisher {
-        return NewAdvancedEventPublisher(bus)
-    })
-}
-```
-
-### 3. 获得的高级功能
-
-升级到 AdvancedEventBus 后，evidence-management 项目将获得：
-
-1. **积压检测**：自动检测消息积压并触发告警
-2. **恢复模式**：在积压情况下自动切换到恢复模式
-3. **聚合处理器**：按聚合ID顺序处理消息
-4. **高级监控**：详细的性能指标和健康状态
-5. **流量控制**：智能的限流和背压机制
-6. **错误处理**：更灵活的错误处理策略
-
-## �📊 核心特性和最佳实践
-
-### 1. Outbox 模式确保事务一致性
-
-evidence-management 项目使用 Outbox 模式确保业务操作和事件发布的事务一致性：
-
-1. **事务内操作**：在同一数据库事务中完成业务数据写入和事件保存到 outbox 表
-2. **事务外发布**：事务提交后立即尝试发布事件，失败时由调度器重试
-3. **幂等性保证**：通过事件ID确保重复发布的幂等性
-
-### 2. 多租户支持
-
-通过 `TenantID` 实现多租户隔离：
-
-- **发布侧**：从上下文获取租户ID并设置到事件中
-- **订阅侧**：从事件中提取租户ID并设置到处理上下文中
-- **数据隔离**：Repository 层根据租户ID选择对应的数据库连接
-
-### 3. 事件版本管理
-
-通过事件版本字段支持事件结构演进：
-
-- **向后兼容**：新版本事件处理器能处理旧版本事件
-- **渐进升级**：支持不同版本的生产者和消费者并存
-
-### 4. 错误处理和重试机制
-
-- **分层错误处理**：聚合根、应用服务、基础设施层各自处理相应错误
-- **重试策略**：支持指数退避、最大重试次数等配置
-- **死信队列**：无法处理的消息进入死信队列，避免阻塞正常流程
-
-### 5. 性能优化
-
-- **批量处理**：支持批量更新读模型，提高处理效率
-- **异步发布**：事务外异步发布事件，不阻塞业务操作
-- **连接池**：复用 Kafka 连接，减少连接开销
-
-## 🚀 总结
-
-通过 evidence-management 项目的实际示例，我们可以看到：
-
-### **发布侧（Command 模块）**：
-1. **聚合根生成事件**：在业务操作中生成领域事件
-2. **Outbox 模式**：确保事务一致性
-3. **事件发布器**：将事件发布到 Kafka
-4. **立即发布 + 调度重试**：保证最终一致性
-
-### **订阅侧（Query 模块）**：
-1. **事件订阅器**：从 Kafka 订阅事件
-2. **事件处理器**：根据事件类型分发处理
-3. **读模型更新**：更新查询数据库
-4. **幂等性处理**：避免重复处理
-
-### **核心优势**：
-- **事务一致性**：通过 Outbox 模式保证
-- **多租户支持**：完整的租户隔离机制
-- **高可用性**：自动重连、健康检查、重试机制
-- **可扩展性**：支持水平扩展和负载均衡
-- **可观测性**：详细的日志和监控
-
-这种架构为业务开发提供了稳定可靠的事件驱动基础设施，开发者只需关注业务逻辑实现。
-
-## 🎯 扩展阅读
-
-### 相关文档
-
-1. **[AdvancedEventBus 核心功能文档](advanced-eventbus-code-examples.md)** - 详细的 API 和配置说明
-2. **[EventBus 提取方案](eventbus-extraction-proposal.md)** - 架构设计和接口定义
-3. **[jxt-core SDK 文档](../sdk/README.md)** - 完整的 SDK 使用指南
-
-### 项目结构参考
-
-```
-evidence-management/
-├── command/                    # 命令侧
-│   ├── cmd/api/               # 服务入口
-│   ├── internal/
-│   │   ├── domain/            # 领域层
-│   │   │   ├── aggregate/     # 聚合根
-│   │   │   ├── event/         # 事件定义
-│   │   │   └── valueobject/   # 值对象
-│   │   ├── application/       # 应用层
-│   │   │   ├── command/       # 命令定义
-│   │   │   └── service/       # 应用服务
-│   │   └── infrastructure/    # 基础设施层
-│   │       ├── eventbus/      # 事件发布
-│   │       ├── persistence/   # 数据持久化
-│   │       └── transaction/   # 事务管理
-├── query/                     # 查询侧
-│   ├── cmd/api/               # 服务入口
-│   ├── internal/
-│   │   ├── application/       # 应用层
-│   │   │   ├── eventhandler/  # 事件处理器
-│   │   │   ├── query/         # 查询定义
-│   │   │   └── service/       # 查询服务
-│   │   ├── infrastructure/    # 基础设施层
-│   │   │   ├── eventbus/      # 事件订阅
-│   │   │   └── persistence/   # 读模型存储
-│   │   └── models/            # 读模型定义
-└── shared/                    # 共享模块
-    ├── common/                # 通用组件
-    │   ├── di/                # 依赖注入
-    │   ├── eventbus/          # EventBus 初始化
-    │   └── global/            # 全局常量
-    └── domain/                # 领域共享
-        └── event/             # 事件定义
-```
-
-### 开发建议
-
-1. **事件设计原则**
-   - 事件应该表达业务意图，而不是技术实现
-   - 保持事件的向后兼容性
-   - 使用明确的事件命名约定
-
-2. **性能考虑**
-   - 合理设置批处理大小
-   - 监控消息积压情况
-   - 优化序列化性能
-
-3. **运维监控**
-   - 设置关键指标告警
-   - 定期检查死信队列
-   - 监控事件处理延迟
-
-## 🎯 使用 jxt-core AdvancedEventBus 的核心优势
+## 🎯 使用 jxt-core 统一 EventBus 的核心优势
 
 ### 1. 架构对比
 
@@ -1393,8 +1010,8 @@ evidence-management/
 - 手动处理连接管理、健康检查、重连逻辑
 - 缺乏统一的监控和管理能力
 
-**jxt-core AdvancedEventBus**：
-- 开箱即用的高级功能
+**jxt-core EventBus**：
+- 开箱即用的企业特性
 - 统一的配置和管理接口
 - 内置的监控、积压检测、恢复模式等企业级功能
 
@@ -1424,18 +1041,18 @@ evidence-management/
 1. **开发效率提升**：减少基础设施代码编写，专注业务逻辑
 2. **运维成本降低**：统一的监控和管理，减少运维复杂度
 3. **系统可靠性**：经过验证的企业级功能，提高系统稳定性
-4. **扩展性增强**：支持多种高级功能，满足复杂业务需求
+4. **扩展性增强**：支持多种企业特性，满足复杂业务需求
 
 ## 📚 总结
 
-通过 evidence-management 项目的示例，本文档展示了如何在业务微服务中使用 jxt-core AdvancedEventBus：
+通过 evidence-management 项目的示例，本文档展示了如何在业务微服务中使用 jxt-core 统一 EventBus：
 
 ### 核心实现要点
 
-- **Command 模块**：使用 AdvancedEventBus 发布事件，支持高级发布选项和监控
-- **Query 模块**：使用 AdvancedEventBus 订阅事件，支持聚合处理、流量控制等高级功能
+- **Command 模块**：使用 EventBus 发布事件，支持高级发布选项和监控
+- **Query 模块**：使用 EventBus 订阅事件，支持聚合处理、流量控制等企业特性
 - **配置管理**：通过统一配置文件管理所有 EventBus 参数
-- **适配器模式**：保持业务接口不变，底层使用 AdvancedEventBus
+- **适配器模式**：保持业务接口不变，底层使用 EventBus
 
 ### 技术优势
 

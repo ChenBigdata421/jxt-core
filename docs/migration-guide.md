@@ -4,6 +4,38 @@
 
 本指南详细说明如何将现有的 evidence-management 中的 `KafkaSubscriberManager` 迁移到 jxt-core 的高级事件总线。
 
+## 🚀 架构升级：从恢复模式到Keyed-Worker池
+
+### 核心改进
+
+jxt-core的事件总线采用了全新的**Keyed-Worker池架构**，完全替代了传统的恢复模式机制，带来以下显著优势：
+
+#### 1. **架构简化**
+- ❌ **旧架构**：复杂的恢复模式切换逻辑
+  - 正常模式 ⟷ 恢复模式状态切换
+  - 积压检测和模式切换逻辑
+  - 复杂的配置管理
+- ✅ **新架构**：统一的Keyed-Worker池处理
+  - 无状态切换，架构简洁
+  - 一致性哈希路由
+  - 配置简单直观
+
+#### 2. **性能提升**
+- **消除性能抖动**：无模式切换，处理延迟稳定
+- **并发性能优异**：不同聚合ID并行处理
+- **资源可控**：固定Worker池，内存使用可预测
+- **自然背压**：有界队列提供优雅降级
+
+#### 3. **顺序保证增强**
+- **严格顺序**：同一聚合ID通过哈希路由到固定Worker
+- **无竞争条件**：每个Worker独立处理
+- **故障隔离**：单Worker故障不影响其他聚合ID
+
+#### 4. **运维友好**
+- **配置简单**：只需配置Worker数量和队列大小
+- **监控直观**：Worker利用率、队列深度等指标清晰
+- **故障诊断**：无复杂状态，问题定位容易
+
 ## 迁移前准备
 
 ### 1. 环境准备
@@ -68,13 +100,7 @@ func GetEventBusConfig() config.AdvancedEventBusConfig {
                 ConsumerGroup: "evidence-management",
             },
         },
-        RecoveryMode: config.RecoveryModeConfig{
-            Enabled:                true,
-            AutoDetection:          true,
-            TransitionThreshold:    3,
-            ProcessorIdleTimeout:   5 * time.Minute,
-            GradualTransition:      true,
-        },
+
         BacklogDetection: config.BacklogDetectionConfig{
             Enabled:          true,
             MaxLagThreshold:  10,
@@ -121,12 +147,7 @@ eventbus:
     brokers: ["localhost:9092"]
     consumer_group: "evidence-management"
   
-  recoveryMode:
-    enabled: true
-    autoDetection: true
-    transitionThreshold: 3
-    processorIdleTimeout: "5m"
-    
+
   backlogDetection:
     enabled: true
     maxLagThreshold: 10
@@ -256,7 +277,7 @@ func registerEventBusDependencies() {
 **原有逻辑** (在 `processMessage` 方法中):
 ```go
 aggregateID := msg.Metadata.Get("aggregateID")
-if km.IsInRecoveryMode() || (aggregateID != "" && km.aggregateProcessors.Contains(aggregateID)) {
+if aggregateID != "" && km.aggregateProcessors.Contains(aggregateID) {
     km.processMessageWithAggregateProcessor(ctx, msg, handler, timeout)
 } else {
     km.processMessageImmediately(ctx, msg, handler, timeout)
@@ -361,7 +382,6 @@ func isBusinessLogicError(err error) bool {
 if km.checkNoBacklog(ctx) {
     km.noBacklogCount++
     if km.noBacklogCount >= 3 {
-        km.SetRecoveryMode(false)
         log.Println("连续三次检测无积压，切换到正常消费者状态")
         km.noBacklogCount = 0
         return
@@ -397,20 +417,6 @@ func HandleBacklogStateChange(ctx context.Context, state eventbus.BacklogState) 
     return nil
 }
 
-func HandleRecoveryModeChange(ctx context.Context, isRecovery bool) error {
-    if isRecovery {
-        log.Println("进入恢复模式：消息将按聚合ID顺序处理")
-        // 业务特定的恢复模式逻辑
-        enterRecoveryMode()
-    } else {
-        log.Println("退出恢复模式：逐渐切换到正常处理")
-        // 业务特定的正常模式逻辑
-        exitRecoveryMode()
-    }
-    
-    return nil
-}
-
 func sendBacklogAlert(state eventbus.BacklogState) error {
     // 实现告警发送逻辑
     return nil
@@ -426,14 +432,6 @@ func pauseNonCriticalTasks() {
 
 func resumeNormalTasks() {
     // 恢复正常任务
-}
-
-func enterRecoveryMode() {
-    // 进入恢复模式的业务逻辑
-}
-
-func exitRecoveryMode() {
-    // 退出恢复模式的业务逻辑
 }
 ```
 
@@ -465,33 +463,45 @@ func main() {
 **新代码**:
 ```go
 func main() {
-    // 初始化高级事件总线
-    config := GetEventBusConfig()
-    bus, err := eventbus.NewKafkaAdvancedEventBus(config)
+    // 初始化统一事件总线
+    config := &eventbus.EventBusConfig{
+        Type: "kafka",
+        Kafka: eventbus.KafkaConfig{
+            Brokers: []string{"localhost:9092"},
+        },
+        Enterprise: eventbus.EnterpriseConfig{
+            Subscriber: eventbus.SubscriberEnterpriseConfig{
+                BacklogDetection: eventbus.BacklogDetectionConfig{
+                    Enabled: true,
+                },
+            },
+        },
+    }
+
+    bus, err := eventbus.NewEventBus(config)
     if err != nil {
         log.Fatal(err)
     }
-    
+
     // 设置业务组件
     bus.SetMessageRouter(&eventbus.EvidenceMessageRouter{})
     bus.SetErrorHandler(&eventbus.EvidenceErrorHandler{})
-    
+
     // 注册回调
     bus.RegisterBacklogCallback(eventbus.HandleBacklogStateChange)
-    bus.RegisterRecoveryModeCallback(eventbus.HandleRecoveryModeChange)
-    
+
     // 启动积压监控
     if err := bus.StartBacklogMonitoring(context.Background()); err != nil {
         log.Fatal(err)
     }
-    
+
     // 注册到 DI 容器
-    di.Provide(func() eventbus.AdvancedEventBus {
+    di.Provide(func() eventbus.EventBus {
         return bus
     })
-    
+
     // 创建适配器以保持兼容性
-    di.Provide(func(bus eventbus.AdvancedEventBus) EventSubscriber {
+    di.Provide(func(bus eventbus.EventBus) EventSubscriber {
         return eventbus.NewEventSubscriberAdapter(bus)
     })
 }
@@ -590,7 +600,6 @@ echo "回滚完成"
 - [ ] 消息订阅功能正常
 - [ ] 消息处理功能正常
 - [ ] 积压检测功能正常
-- [ ] 恢复模式切换正常
 - [ ] 聚合处理器功能正常
 - [ ] 错误处理功能正常
 - [ ] 死信队列功能正常

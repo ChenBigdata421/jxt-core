@@ -165,6 +165,9 @@ func (bd *BacklogDetector) IsNoBacklog(ctx context.Context) (bool, error) {
 
 // checkTopicBacklog 检测单个topic的积压情况
 func (bd *BacklogDetector) checkTopicBacklog(ctx context.Context, topic string, partitions []int32, groupPartitions map[int32]*sarama.OffsetFetchResponseBlock, lagChan chan<- partitionLag) error {
+	// 暂时忽略 ctx 参数，未来可用于取消操作
+	_ = ctx
+
 	// 获取topic的最新偏移量（这里只是为了验证topic存在）
 	_, err := bd.client.GetOffset(topic, partitions[0], sarama.OffsetNewest)
 	if err != nil {
@@ -388,9 +391,19 @@ func (bd *BacklogDetector) notifyCallbacks(state BacklogState) {
 	copy(callbacks, bd.callbacks)
 	bd.callbackMu.RUnlock()
 
+	// 从当前 context 派生，而不是使用 Background
+	// 如果 ctx 为 nil，则使用 Background 作为后备
+	bd.mu.RLock()
+	parentCtx := bd.ctx
+	bd.mu.RUnlock()
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+
 	for _, callback := range callbacks {
 		go func(cb BacklogStateCallback) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// 使用父 context 派生，支持取消传播
+			ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 			defer cancel()
 
 			if err := cb(ctx, state); err != nil {

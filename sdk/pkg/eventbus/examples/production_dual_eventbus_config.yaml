@@ -1,0 +1,204 @@
+# 生产环境双EventBus实例配置示例
+# 业务A：领域事件（持久化 + Envelope + Keyed-Worker池）
+# 业务B：简单消息（无持久化 + 普通消息 + 并发处理）
+
+# ========== 领域事件EventBus配置（业务A） ==========
+domain_events:
+  type: nats  # 使用NATS JetStream确保持久化
+  
+  nats:
+    urls: ["nats://nats-cluster-1:4222", "nats://nats-cluster-2:4222", "nats://nats-cluster-3:4222"]
+    
+    # JetStream持久化配置
+    jetstream:
+      enabled: true
+      
+      # 领域事件流配置
+      stream:
+        name: "domain-events-stream"
+        subjects: 
+          - "domain.orders.events"      # 订单领域事件
+          - "domain.users.events"       # 用户领域事件
+          - "domain.inventory.events"   # 库存领域事件
+          - "domain.payments.events"    # 支付领域事件
+        
+        # 持久化策略
+        retention: "limits"             # 基于限制的保留策略
+        storage: "file"                 # 文件存储，确保持久化
+        replicas: 3                     # 3副本，确保高可用
+        
+        # 存储限制
+        maxAge: "30d"                   # 保留30天
+        maxBytes: "10GB"                # 最大10GB存储
+        maxMsgs: 10000000              # 最大1000万条消息
+        discard: "old"                  # 超限时丢弃旧消息
+        
+        # 性能优化
+        duplicateWindow: "2m"           # 2分钟去重窗口
+        
+    # 消费者配置
+    consumer:
+      durableName: "domain-events-processor"  # 持久化消费者
+      ackPolicy: "explicit"                   # 显式确认
+      ackWait: "30s"                         # 30秒确认超时
+      maxDeliver: 3                          # 最大重试3次
+      replayPolicy: "instant"                # 立即重放
+      
+    # 安全配置
+    security:
+      enabled: true
+      credFile: "/etc/nats/domain-events.creds"  # 凭证文件
+      
+  # 企业特性配置
+  enterprise:
+    # 健康检查
+    healthCheck:
+      enabled: true
+      interval: "30s"
+      timeout: "10s"
+      
+    # 监控
+    monitoring:
+      enabled: true
+      metricsInterval: "10s"
+      exportEndpoint: "http://prometheus:9090/metrics"
+
+# ========== 简单消息EventBus配置（业务B） ==========
+simple_messages:
+  type: memory  # 内存实现，追求高性能，无持久化
+  
+  # 或者使用Redis作为高性能消息队列
+  # type: redis
+  # redis:
+  #   addr: "redis-cluster:6379"
+  #   password: ""
+  #   db: 0
+  #   poolSize: 100
+  #   minIdleConns: 10
+  #   maxRetries: 3
+  
+  # 企业特性配置（轻量级）
+  enterprise:
+    # 流量控制（防止过载）
+    subscriber:
+      rateLimit:
+        enabled: true
+        rateLimit: 10000.0    # 每秒1万条消息
+        burst: 20000          # 突发2万条
+        
+    # 简单监控
+    monitoring:
+      enabled: true
+      metricsInterval: "30s"
+
+# ========== 应用程序配置示例 ==========
+application:
+  name: "order-management-service"
+  version: "1.0.0"
+  
+  # 业务配置
+  business:
+    # 领域事件配置
+    domain_events:
+      # 聚合根配置
+      aggregates:
+        order:
+          max_events_per_aggregate: 1000
+          snapshot_frequency: 100        # 每100个事件创建快照
+          
+        user:
+          max_events_per_aggregate: 500
+          snapshot_frequency: 50
+          
+      # 事件版本控制
+      versioning:
+        enabled: true
+        backward_compatible_versions: 3  # 支持向后兼容3个版本
+        
+    # 简单消息配置
+    simple_messages:
+      # 消息类型配置
+      notifications:
+        max_retry: 3
+        timeout: "5s"
+        
+      cache_invalidation:
+        batch_size: 100
+        flush_interval: "1s"
+
+# ========== 部署配置 ==========
+deployment:
+  # 资源配置
+  resources:
+    domain_events_bus:
+      cpu: "2"
+      memory: "4Gi"
+      storage: "50Gi"        # 领域事件需要持久化存储
+      
+    simple_messages_bus:
+      cpu: "1"
+      memory: "2Gi"
+      # 无需持久化存储
+      
+  # 扩展配置
+  scaling:
+    domain_events:
+      min_replicas: 2
+      max_replicas: 10
+      target_cpu_utilization: 70
+      
+    simple_messages:
+      min_replicas: 1
+      max_replicas: 20       # 简单消息可以更激进地扩展
+      target_cpu_utilization: 80
+
+# ========== 监控和告警配置 ==========
+monitoring:
+  # 领域事件监控
+  domain_events:
+    metrics:
+      - "eventbus_domain_events_published_total"
+      - "eventbus_domain_events_processed_total"
+      - "eventbus_domain_events_processing_duration"
+      - "eventbus_domain_events_lag"
+      - "eventbus_domain_events_storage_usage"
+      
+    alerts:
+      - name: "domain_events_lag_high"
+        condition: "eventbus_domain_events_lag > 1000"
+        severity: "critical"
+        
+      - name: "domain_events_storage_full"
+        condition: "eventbus_domain_events_storage_usage > 0.9"
+        severity: "warning"
+        
+  # 简单消息监控
+  simple_messages:
+    metrics:
+      - "eventbus_simple_messages_published_total"
+      - "eventbus_simple_messages_processed_total"
+      - "eventbus_simple_messages_processing_duration"
+      
+    alerts:
+      - name: "simple_messages_rate_limit_hit"
+        condition: "rate(eventbus_simple_messages_rate_limited_total[5m]) > 0"
+        severity: "warning"
+
+# ========== 日志配置 ==========
+logging:
+  level: "info"
+  
+  # 领域事件日志（详细）
+  domain_events:
+    level: "debug"
+    structured: true
+    fields:
+      - "aggregate_id"
+      - "event_type"
+      - "event_version"
+      - "trace_id"
+      
+  # 简单消息日志（简化）
+  simple_messages:
+    level: "info"
+    structured: false  # 简单格式，减少开销

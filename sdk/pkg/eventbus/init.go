@@ -8,89 +8,6 @@ import (
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 )
 
-// InitializeFromConfig 从配置初始化事件总线
-func InitializeFromConfig(cfg *config.EventBus) error {
-	if cfg == nil {
-		return fmt.Errorf("eventbus config is required")
-	}
-
-	// 转换配置
-	eventBusConfig := convertConfig(cfg)
-
-	// 初始化全局事件总线
-	if err := InitializeGlobal(eventBusConfig); err != nil {
-		return fmt.Errorf("failed to initialize eventbus from config: %w", err)
-	}
-
-	logger.Info("EventBus initialized from config successfully", "type", cfg.Type)
-	return nil
-}
-
-// convertConfig 转换配置格式
-func convertConfig(cfg *config.EventBus) *EventBusConfig {
-	eventBusConfig := &EventBusConfig{
-		Type: cfg.Type,
-		Kafka: KafkaConfig{
-			Brokers:             cfg.Kafka.Brokers,
-			HealthCheckInterval: cfg.Kafka.HealthCheckInterval,
-			Producer: ProducerConfig{
-				RequiredAcks:   cfg.Kafka.Producer.RequiredAcks,
-				Compression:    cfg.Kafka.Producer.Compression,
-				FlushFrequency: cfg.Kafka.Producer.FlushFrequency,
-				FlushMessages:  cfg.Kafka.Producer.FlushMessages,
-				RetryMax:       cfg.Kafka.Producer.RetryMax,
-				Timeout:        cfg.Kafka.Producer.Timeout,
-				BatchSize:      cfg.Kafka.Producer.BatchSize,
-				BufferSize:     cfg.Kafka.Producer.BufferSize,
-			},
-			Consumer: ConsumerConfig{
-				GroupID:           cfg.Kafka.Consumer.GroupID,
-				AutoOffsetReset:   cfg.Kafka.Consumer.AutoOffsetReset,
-				SessionTimeout:    cfg.Kafka.Consumer.SessionTimeout,
-				HeartbeatInterval: cfg.Kafka.Consumer.HeartbeatInterval,
-				MaxProcessingTime: cfg.Kafka.Consumer.MaxProcessingTime,
-				FetchMinBytes:     cfg.Kafka.Consumer.FetchMinBytes,
-				FetchMaxBytes:     cfg.Kafka.Consumer.FetchMaxBytes,
-				FetchMaxWait:      cfg.Kafka.Consumer.FetchMaxWait,
-			},
-			Security: SecurityConfig{
-				Enabled:  cfg.Kafka.Security.Enabled,
-				Protocol: cfg.Kafka.Security.Protocol,
-				Username: cfg.Kafka.Security.Username,
-				Password: cfg.Kafka.Security.Password,
-				CertFile: cfg.Kafka.Security.CertFile,
-				KeyFile:  cfg.Kafka.Security.KeyFile,
-				CAFile:   cfg.Kafka.Security.CAFile,
-			},
-		},
-		NATS: NATSConfig{
-			URLs:                cfg.NATS.URLs,
-			ClientID:            cfg.NATS.ClientID,
-			MaxReconnects:       cfg.NATS.MaxReconnects,
-			ReconnectWait:       cfg.NATS.ReconnectWait,
-			ConnectionTimeout:   cfg.NATS.ConnectionTimeout,
-			HealthCheckInterval: cfg.NATS.HealthCheckInterval,
-			JetStream:           convertJetStreamConfig(cfg.NATS.JetStream),
-			Security:            convertNATSSecurityConfig(cfg.NATS.Security),
-		},
-		Metrics: MetricsConfig{
-			Enabled:         cfg.Metrics.Enabled,
-			CollectInterval: cfg.Metrics.CollectInterval,
-			ExportEndpoint:  cfg.Metrics.ExportEndpoint,
-		},
-		Tracing: TracingConfig{
-			Enabled:     cfg.Tracing.Enabled,
-			ServiceName: cfg.Tracing.ServiceName,
-			Endpoint:    cfg.Tracing.Endpoint,
-			SampleRate:  cfg.Tracing.SampleRate,
-		},
-	}
-
-	// 设置默认值
-	setDefaults(eventBusConfig)
-	return eventBusConfig
-}
-
 // setDefaults 设置默认值
 func setDefaults(cfg *EventBusConfig) {
 	// 如果没有指定类型，默认使用内存实现
@@ -138,7 +55,7 @@ func setDefaults(cfg *EventBusConfig) {
 		}
 	}
 
-	// NATS默认值
+	// NATS默认值（智能双模式）
 	if cfg.Type == "nats" {
 		if len(cfg.NATS.URLs) == 0 {
 			cfg.NATS.URLs = []string{"nats://localhost:4222"}
@@ -159,6 +76,34 @@ func setDefaults(cfg *EventBusConfig) {
 		if cfg.NATS.HealthCheckInterval == 0 {
 			cfg.NATS.HealthCheckInterval = 5 * time.Minute
 		}
+
+		// 默认启用JetStream（可配置关闭）
+		if !cfg.NATS.JetStream.Enabled {
+			// 如果未明确配置，默认启用JetStream
+			cfg.NATS.JetStream.Enabled = true
+		}
+
+		// JetStream默认配置（仅在启用时设置）
+		if cfg.NATS.JetStream.Enabled {
+			if cfg.NATS.JetStream.Stream.Name == "" {
+				cfg.NATS.JetStream.Stream.Name = "JXT_STREAM"
+			}
+			if len(cfg.NATS.JetStream.Stream.Subjects) == 0 {
+				cfg.NATS.JetStream.Stream.Subjects = []string{"persistent.>", "order.>", "payment.>", "audit.>", "critical.>", "durable.>"}
+			}
+			if cfg.NATS.JetStream.Stream.Retention == "" {
+				cfg.NATS.JetStream.Stream.Retention = "limits"
+			}
+			if cfg.NATS.JetStream.Stream.Storage == "" {
+				cfg.NATS.JetStream.Stream.Storage = "file"
+			}
+			if cfg.NATS.JetStream.Consumer.DurableName == "" {
+				cfg.NATS.JetStream.Consumer.DurableName = "jxt-consumer"
+			}
+			if cfg.NATS.JetStream.Consumer.AckPolicy == "" {
+				cfg.NATS.JetStream.Consumer.AckPolicy = "explicit"
+			}
+		}
 	}
 
 	// Metrics默认值
@@ -172,124 +117,165 @@ func setDefaults(cfg *EventBusConfig) {
 	}
 }
 
-// Setup 设置事件总线（兼容现有代码）
-func Setup(cfg *config.EventBus) error {
-	return InitializeFromConfig(cfg)
-}
+// ==========================================================================
+// 新配置结构支持
+// ==========================================================================
 
-// GetDefaultMemoryConfig 获取默认内存配置
-func GetDefaultMemoryConfig() *config.EventBus {
-	return &config.EventBus{
-		Type: "memory",
-		Metrics: config.MetricsConfig{
-			Enabled:         true,
-			CollectInterval: 30 * time.Second,
-		},
-		Tracing: config.TracingConfig{
-			Enabled:    false,
-			SampleRate: 0.1,
-		},
-	}
-}
-
-// GetDefaultKafkaConfig 获取默认Kafka配置
-func GetDefaultKafkaConfig(brokers []string) *config.EventBus {
-	if len(brokers) == 0 {
-		brokers = []string{"localhost:9092"}
+// InitializeFromConfig 从配置初始化事件总线
+func InitializeFromConfig(cfg *config.EventBusConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("eventbus config is required")
 	}
 
-	return &config.EventBus{
-		Type: "kafka",
-		Kafka: config.KafkaConfig{
-			Brokers:             brokers,
-			HealthCheckInterval: 5 * time.Minute,
-			Producer: config.ProducerConfig{
-				RequiredAcks:   1,
-				Compression:    "snappy",
-				FlushFrequency: 500 * time.Millisecond,
-				FlushMessages:  100,
-				RetryMax:       3,
-				Timeout:        10 * time.Second,
-				BatchSize:      16384,
-				BufferSize:     32768,
+	// 设置默认值（必须在验证之前）
+	cfg.SetDefaults()
+
+	// 验证配置
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid unified config: %w", err)
+	}
+
+	// 设置全局配置
+	SetGlobalConfig(cfg)
+
+	// 转换配置
+	eventBusConfig := convertConfig(cfg)
+
+	// 初始化全局事件总线
+	if err := InitializeGlobal(eventBusConfig); err != nil {
+		return fmt.Errorf("failed to initialize eventbus from unified config: %w", err)
+	}
+
+	logger.Info("EventBus initialized from unified config successfully",
+		"type", cfg.Type,
+		"serviceName", cfg.ServiceName,
+		"healthCheckEnabled", cfg.HealthCheck.Enabled,
+		"publisherConfigured", cfg.Publisher.PublishTimeout > 0,
+		"subscriberConfigured", cfg.Subscriber.MaxConcurrency > 0)
+	return nil
+}
+
+// convertConfig 转换配置格式
+func convertConfig(cfg *config.EventBusConfig) *EventBusConfig {
+	eventBusConfig := &EventBusConfig{
+		Type: cfg.Type,
+	}
+
+	// 转换健康检查配置到企业特性
+	eventBusConfig.Enterprise.HealthCheck = HealthCheckConfig{
+		Enabled:          cfg.HealthCheck.Enabled,
+		Topic:            cfg.HealthCheck.Publisher.Topic,
+		Interval:         cfg.HealthCheck.Publisher.Interval,
+		Timeout:          cfg.HealthCheck.Publisher.Timeout,
+		FailureThreshold: cfg.HealthCheck.Publisher.FailureThreshold,
+		MessageTTL:       cfg.HealthCheck.Publisher.MessageTTL,
+	}
+
+	// 转换发布端企业特性（根据现有结构）
+	eventBusConfig.Enterprise.Publisher = PublisherEnterpriseConfig{
+		BacklogDetection: cfg.Publisher.BacklogDetection,
+		MessageFormatter: MessageFormatterConfig{
+			Enabled: true,
+			Type:    "json", // 默认使用JSON格式
+		},
+		PublishCallback: PublishCallbackConfig{
+			Enabled: false, // 默认关闭
+		},
+		RetryPolicy: RetryPolicyConfig{
+			Enabled:         cfg.Publisher.MaxReconnectAttempts > 0,
+			MaxRetries:      cfg.Publisher.MaxReconnectAttempts,
+			InitialInterval: cfg.Publisher.InitialBackoff,
+			MaxInterval:     cfg.Publisher.MaxBackoff,
+			Multiplier:      2.0, // 默认倍数
+		},
+	}
+
+	// 转换订阅端企业特性（根据现有结构）
+	eventBusConfig.Enterprise.Subscriber = SubscriberEnterpriseConfig{
+		BacklogDetection: cfg.Subscriber.BacklogDetection,
+		RateLimit: RateLimitConfig{
+			RatePerSecond: cfg.Subscriber.RateLimit.RatePerSecond,
+			BurstSize:     cfg.Subscriber.RateLimit.BurstSize,
+		},
+		DeadLetter: DeadLetterConfig{
+			Enabled:    cfg.Subscriber.ErrorHandling.DeadLetterTopic != "",
+			Topic:      cfg.Subscriber.ErrorHandling.DeadLetterTopic,
+			MaxRetries: cfg.Subscriber.ErrorHandling.MaxRetryAttempts,
+		},
+		MessageRouter: MessageRouterConfig{
+			Enabled: false,  // 默认关闭
+			Type:    "hash", // 默认哈希路由
+		},
+		ErrorHandler: ErrorHandlerConfig{
+			Enabled: cfg.Subscriber.ErrorHandling.MaxRetryAttempts > 0,
+			Type:    "retry", // 默认重试策略
+		},
+	}
+
+	// 转换监控配置
+	eventBusConfig.Metrics = MetricsConfig{
+		Enabled:         cfg.Monitoring.Enabled,
+		CollectInterval: cfg.Monitoring.CollectInterval,
+		ExportEndpoint:  cfg.Monitoring.ExportEndpoint,
+	}
+
+	// 根据类型转换特定配置
+	switch cfg.Type {
+	case "kafka":
+		eventBusConfig.Kafka = KafkaConfig{
+			Brokers: cfg.Kafka.Brokers,
+			Producer: ProducerConfig{
+				RequiredAcks:   cfg.Kafka.Producer.RequiredAcks,
+				Compression:    cfg.Kafka.Producer.Compression,
+				FlushFrequency: cfg.Kafka.Producer.FlushFrequency,
+				FlushMessages:  cfg.Kafka.Producer.FlushMessages,
+				RetryMax:       cfg.Kafka.Producer.RetryMax,
+				Timeout:        cfg.Kafka.Producer.Timeout,
+				BatchSize:      cfg.Kafka.Producer.BatchSize,
+				BufferSize:     cfg.Kafka.Producer.BufferSize,
 			},
-			Consumer: config.ConsumerConfig{
-				GroupID:           "jxt-eventbus-group",
-				AutoOffsetReset:   "earliest",
-				SessionTimeout:    30 * time.Second,
-				HeartbeatInterval: 3 * time.Second,
-				MaxProcessingTime: 5 * time.Minute,
-				FetchMinBytes:     1,
-				FetchMaxBytes:     1048576,
-				FetchMaxWait:      500 * time.Millisecond,
+			Consumer: ConsumerConfig{
+				GroupID:           cfg.Kafka.Consumer.GroupID,
+				AutoOffsetReset:   cfg.Kafka.Consumer.AutoOffsetReset,
+				SessionTimeout:    cfg.Kafka.Consumer.SessionTimeout,
+				HeartbeatInterval: cfg.Kafka.Consumer.HeartbeatInterval,
+				MaxProcessingTime: cfg.Kafka.Consumer.MaxProcessingTime,
+				FetchMinBytes:     cfg.Kafka.Consumer.FetchMinBytes,
+				FetchMaxBytes:     cfg.Kafka.Consumer.FetchMaxBytes,
+				FetchMaxWait:      cfg.Kafka.Consumer.FetchMaxWait,
 			},
-		},
-		Metrics: config.MetricsConfig{
-			Enabled:         true,
-			CollectInterval: 30 * time.Second,
-		},
-		Tracing: config.TracingConfig{
-			Enabled:    false,
-			SampleRate: 0.1,
-		},
+			Security: SecurityConfig{
+				Enabled:  cfg.Security.Enabled,
+				Protocol: cfg.Security.Protocol,
+				Username: cfg.Security.Username,
+				Password: cfg.Security.Password,
+				CertFile: cfg.Security.CertFile,
+				KeyFile:  cfg.Security.KeyFile,
+				CAFile:   cfg.Security.CAFile,
+			},
+		}
+	case "nats":
+		eventBusConfig.NATS = NATSConfig{
+			URLs:              cfg.NATS.URLs,
+			ClientID:          cfg.NATS.ClientID,
+			MaxReconnects:     cfg.NATS.MaxReconnects,
+			ReconnectWait:     cfg.NATS.ReconnectWait,
+			ConnectionTimeout: cfg.NATS.ConnectionTimeout,
+			// JetStream配置需要单独转换，这里先使用基本配置
+			JetStream: JetStreamConfig{
+				Enabled: cfg.NATS.JetStream.Enabled,
+				Domain:  cfg.NATS.JetStream.Domain,
+			},
+			Security: NATSSecurityConfig{
+				Enabled:  cfg.Security.Enabled,
+				Username: cfg.Security.Username,
+				Password: cfg.Security.Password,
+				CertFile: cfg.Security.CertFile,
+				KeyFile:  cfg.Security.KeyFile,
+				CAFile:   cfg.Security.CAFile,
+			},
+		}
 	}
-}
 
-// convertJetStreamConfig 转换JetStream配置
-func convertJetStreamConfig(cfg config.JetStreamConfig) JetStreamConfig {
-	return JetStreamConfig{
-		Enabled:        cfg.Enabled,
-		Domain:         cfg.Domain,
-		APIPrefix:      cfg.APIPrefix,
-		PublishTimeout: cfg.PublishTimeout,
-		AckWait:        cfg.AckWait,
-		MaxDeliver:     cfg.MaxDeliver,
-		Stream:         convertStreamConfig(cfg.Stream),
-		Consumer:       convertNATSConsumerConfig(cfg.Consumer),
-	}
-}
-
-// convertStreamConfig 转换流配置
-func convertStreamConfig(cfg config.StreamConfig) StreamConfig {
-	return StreamConfig{
-		Name:      cfg.Name,
-		Subjects:  cfg.Subjects,
-		Retention: cfg.Retention,
-		Storage:   cfg.Storage,
-		Replicas:  cfg.Replicas,
-		MaxAge:    cfg.MaxAge,
-		MaxBytes:  cfg.MaxBytes,
-		MaxMsgs:   cfg.MaxMsgs,
-		Discard:   cfg.Discard,
-	}
-}
-
-// convertNATSConsumerConfig 转换NATS消费者配置
-func convertNATSConsumerConfig(cfg config.NATSConsumerConfig) NATSConsumerConfig {
-	return NATSConsumerConfig{
-		DurableName:   cfg.DurableName,
-		DeliverPolicy: cfg.DeliverPolicy,
-		AckPolicy:     cfg.AckPolicy,
-		ReplayPolicy:  cfg.ReplayPolicy,
-		MaxAckPending: cfg.MaxAckPending,
-		MaxWaiting:    cfg.MaxWaiting,
-		MaxDeliver:    cfg.MaxDeliver,
-		BackOff:       cfg.BackOff,
-	}
-}
-
-// convertNATSSecurityConfig 转换NATS安全配置
-func convertNATSSecurityConfig(cfg config.NATSSecurityConfig) NATSSecurityConfig {
-	return NATSSecurityConfig{
-		Enabled:    cfg.Enabled,
-		Token:      cfg.Token,
-		Username:   cfg.Username,
-		Password:   cfg.Password,
-		NKeyFile:   cfg.NKeyFile,
-		CredFile:   cfg.CredFile,
-		CertFile:   cfg.CertFile,
-		KeyFile:    cfg.KeyFile,
-		CAFile:     cfg.CAFile,
-		SkipVerify: cfg.SkipVerify,
-	}
+	return eventBusConfig
 }

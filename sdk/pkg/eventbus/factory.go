@@ -14,6 +14,9 @@ var (
 	globalEventBus EventBus
 	globalMutex    sync.RWMutex
 	initialized    bool
+
+	// 全局配置存储
+	globalConfig *config.EventBusConfig
 )
 
 // Factory 事件总线工厂
@@ -161,11 +164,11 @@ func GetDefaultConfig(eventBusType string) *EventBusConfig {
 		Type: eventBusType,
 		Metrics: MetricsConfig{
 			Enabled:         true,
-			CollectInterval: 30 * time.Second,
+			CollectInterval: DefaultMetricsCollectInterval,
 		},
 		Tracing: TracingConfig{
 			Enabled:    false,
-			SampleRate: 0.1,
+			SampleRate: DefaultTracingSampleRate,
 		},
 	}
 
@@ -173,40 +176,129 @@ func GetDefaultConfig(eventBusType string) *EventBusConfig {
 	case "kafka":
 		config.Kafka = KafkaConfig{
 			Brokers:             []string{"localhost:9092"},
-			HealthCheckInterval: 5 * time.Minute,
+			HealthCheckInterval: DefaultKafkaHealthCheckInterval,
 			Producer: ProducerConfig{
-				RequiredAcks:   1,
+				RequiredAcks:   DefaultKafkaProducerRequiredAcks,
 				Compression:    "snappy",
-				FlushFrequency: 500 * time.Millisecond,
-				FlushMessages:  100,
-				RetryMax:       3,
-				Timeout:        10 * time.Second,
-				BatchSize:      16384,
-				BufferSize:     32768,
+				FlushFrequency: DefaultKafkaProducerFlushFrequency,
+				FlushMessages:  DefaultKafkaProducerFlushMessages,
+				RetryMax:       DefaultKafkaProducerRetryMax,
+				Timeout:        DefaultKafkaProducerTimeout,
+				BatchSize:      DefaultKafkaProducerBatchSize,
+				BufferSize:     DefaultKafkaProducerBufferSize,
 			},
 			Consumer: ConsumerConfig{
 				GroupID:           "jxt-eventbus-group",
 				AutoOffsetReset:   "earliest",
-				SessionTimeout:    30 * time.Second,
-				HeartbeatInterval: 3 * time.Second,
-				MaxProcessingTime: 5 * time.Minute,
-				FetchMinBytes:     1,
-				FetchMaxBytes:     1048576,
-				FetchMaxWait:      500 * time.Millisecond,
+				SessionTimeout:    DefaultKafkaConsumerSessionTimeout,
+				HeartbeatInterval: DefaultKafkaConsumerHeartbeatInterval,
+				MaxProcessingTime: DefaultKafkaConsumerMaxProcessingTime,
+				FetchMinBytes:     DefaultKafkaConsumerFetchMinBytes,
+				FetchMaxBytes:     DefaultKafkaConsumerFetchMaxBytes,
+				FetchMaxWait:      DefaultKafkaConsumerFetchMaxWait,
 			},
 		}
 	case "nats":
 		config.NATS = NATSConfig{
 			URLs:                []string{"nats://localhost:4222"},
 			ClientID:            "jxt-client",
-			MaxReconnects:       10,
-			ReconnectWait:       2 * time.Second,
-			ConnectionTimeout:   10 * time.Second,
-			HealthCheckInterval: 5 * time.Minute,
+			MaxReconnects:       DefaultNATSMaxReconnects,
+			ReconnectWait:       DefaultNATSReconnectWait,
+			ConnectionTimeout:   DefaultNATSConnectionTimeout,
+			HealthCheckInterval: DefaultNATSHealthCheckInterval,
 		}
 	}
 
 	return config
+}
+
+// GetDefaultPersistentNATSConfig 获取持久化NATS配置
+func GetDefaultPersistentNATSConfig(urls []string, clientID string) *EventBusConfig {
+	if len(urls) == 0 {
+		urls = []string{"nats://localhost:4222"}
+	}
+	if clientID == "" {
+		clientID = "jxt-persistent-client"
+	}
+
+	return &EventBusConfig{
+		Type: "nats",
+		NATS: NATSConfig{
+			URLs:                urls,
+			ClientID:            clientID,
+			MaxReconnects:       DefaultNATSMaxReconnects,
+			ReconnectWait:       DefaultNATSReconnectWait,
+			ConnectionTimeout:   DefaultNATSConnectionTimeout,
+			HealthCheckInterval: DefaultNATSHealthCheckInterval,
+			JetStream: JetStreamConfig{
+				Enabled:        true, // 启用持久化
+				PublishTimeout: DefaultNATSPublishTimeout,
+				AckWait:        DefaultNATSAckWait,
+				MaxDeliver:     DefaultNATSMaxDeliver,
+				Stream: StreamConfig{
+					Name:      "PERSISTENT_STREAM",
+					Subjects:  []string{"*"}, // 接受所有主题
+					Retention: "limits",
+					Storage:   "file", // 文件存储，持久化
+					Replicas:  DefaultNATSStreamReplicas,
+					MaxAge:    DefaultNATSStreamMaxAge,
+					MaxBytes:  DefaultNATSStreamMaxBytes,
+					MaxMsgs:   DefaultNATSStreamMaxMsgs,
+					Discard:   "old",
+				},
+				Consumer: NATSConsumerConfig{
+					DurableName:   "persistent-consumer",
+					DeliverPolicy: "all",
+					AckPolicy:     "explicit",
+					ReplayPolicy:  "instant",
+					MaxAckPending: DefaultNATSConsumerMaxAckPending,
+					MaxWaiting:    DefaultNATSConsumerMaxWaiting,
+					MaxDeliver:    DefaultNATSMaxDeliver,
+				},
+			},
+		},
+		Metrics: MetricsConfig{
+			Enabled:         true,
+			CollectInterval: DefaultMetricsCollectInterval,
+		},
+		Tracing: TracingConfig{
+			Enabled:    false,
+			SampleRate: DefaultTracingSampleRate,
+		},
+	}
+}
+
+// GetDefaultEphemeralNATSConfig 获取非持久化NATS配置
+func GetDefaultEphemeralNATSConfig(urls []string, clientID string) *EventBusConfig {
+	if len(urls) == 0 {
+		urls = []string{"nats://localhost:4222"}
+	}
+	if clientID == "" {
+		clientID = "jxt-ephemeral-client"
+	}
+
+	return &EventBusConfig{
+		Type: "nats",
+		NATS: NATSConfig{
+			URLs:                urls,
+			ClientID:            clientID,
+			MaxReconnects:       DefaultNATSMaxReconnects,
+			ReconnectWait:       DefaultNATSReconnectWait,
+			ConnectionTimeout:   DefaultNATSConnectionTimeout,
+			HealthCheckInterval: DefaultNATSHealthCheckInterval,
+			JetStream: JetStreamConfig{
+				Enabled: false, // 禁用持久化，使用Core NATS
+			},
+		},
+		Metrics: MetricsConfig{
+			Enabled:         true,
+			CollectInterval: DefaultMetricsCollectInterval,
+		},
+		Tracing: TracingConfig{
+			Enabled:    false,
+			SampleRate: DefaultTracingSampleRate,
+		},
+	}
 }
 
 // InitializeGlobal 初始化全局事件总线
@@ -260,6 +352,7 @@ func CloseGlobal() error {
 	}
 
 	globalEventBus = nil
+	globalConfig = nil
 	initialized = false
 
 	logger.Info("Global EventBus closed successfully")
@@ -273,140 +366,38 @@ func IsInitialized() bool {
 	return initialized
 }
 
-// AdvancedFactory 高级事件总线工厂
-type AdvancedFactory struct {
-	config *config.AdvancedEventBusConfig
+// SetGlobalConfig 设置全局配置
+func SetGlobalConfig(cfg *config.EventBusConfig) {
+	globalMutex.Lock()
+	defer globalMutex.Unlock()
+	globalConfig = cfg
 }
 
-// NewAdvancedFactory 创建高级事件总线工厂
-func NewAdvancedFactory(config *config.AdvancedEventBusConfig) *AdvancedFactory {
-	return &AdvancedFactory{config: config}
+// GetGlobalConfig 获取全局配置
+func GetGlobalConfig() *config.EventBusConfig {
+	globalMutex.RLock()
+	defer globalMutex.RUnlock()
+	return globalConfig
 }
 
-// CreateAdvancedEventBus 创建高级事件总线实例
-func (f *AdvancedFactory) CreateAdvancedEventBus() (AdvancedEventBus, error) {
-	if f.config == nil {
-		return nil, fmt.Errorf("advanced eventbus config is required")
-	}
+// ========== 便捷工厂方法 ==========
 
-	// 验证配置
-	if err := f.validateAdvancedConfig(); err != nil {
-		return nil, fmt.Errorf("invalid advanced eventbus config: %w", err)
-	}
-
-	// 创建高级事件总线实例
-	eventBus, err := CreateAdvancedEventBus(f.config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create advanced eventbus: %w", err)
-	}
-
-	logger.Info("Advanced EventBus created successfully",
-		"type", f.config.Type,
-		"serviceName", f.config.ServiceName)
-	return eventBus, nil
+// NewPersistentNATSEventBus 创建持久化NATS EventBus实例
+func NewPersistentNATSEventBus(urls []string, clientID string) (EventBus, error) {
+	config := GetDefaultPersistentNATSConfig(urls, clientID)
+	return NewEventBus(config)
 }
 
-// validateAdvancedConfig 验证高级配置
-func (f *AdvancedFactory) validateAdvancedConfig() error {
-	if f.config.ServiceName == "" {
-		return fmt.Errorf("serviceName is required for advanced event bus")
-	}
-
-	if f.config.Type == "" {
-		return fmt.Errorf("eventbus type is required")
-	}
-
-	// 设置默认值
-	if f.config.HealthCheck.Interval == 0 {
-		f.config.HealthCheck.Interval = 2 * time.Minute
-	}
-	if f.config.HealthCheck.Timeout == 0 {
-		f.config.HealthCheck.Timeout = 10 * time.Second
-	}
-	if f.config.HealthCheck.FailureThreshold == 0 {
-		f.config.HealthCheck.FailureThreshold = 3
-	}
-
-	if f.config.Publisher.MaxReconnectAttempts == 0 {
-		f.config.Publisher.MaxReconnectAttempts = 5
-	}
-	if f.config.Publisher.MaxBackoff == 0 {
-		f.config.Publisher.MaxBackoff = 1 * time.Minute
-	}
-	if f.config.Publisher.InitialBackoff == 0 {
-		f.config.Publisher.InitialBackoff = 1 * time.Second
-	}
-	if f.config.Publisher.PublishTimeout == 0 {
-		f.config.Publisher.PublishTimeout = 30 * time.Second
-	}
-
-	return nil
+// NewEphemeralNATSEventBus 创建非持久化NATS EventBus实例
+func NewEphemeralNATSEventBus(urls []string, clientID string) (EventBus, error) {
+	config := GetDefaultEphemeralNATSConfig(urls, clientID)
+	return NewEventBus(config)
 }
 
-// CreateAdvancedEventBus 创建高级事件总线实例（全局函数）
-func CreateAdvancedEventBus(cfg *config.AdvancedEventBusConfig) (AdvancedEventBus, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("config cannot be nil")
-	}
-
-	// 验证必需的配置
-	if cfg.ServiceName == "" {
-		return nil, fmt.Errorf("serviceName is required for advanced event bus")
-	}
-
-	// 根据类型创建具体实现
-	switch cfg.Type {
-	case "kafka":
-		return NewKafkaAdvancedEventBus(*cfg)
-	case "nats":
-		// TODO: 实现 NATS 高级事件总线
-		return nil, fmt.Errorf("NATS advanced event bus not implemented yet")
-	case "memory":
-		// TODO: 实现 Memory 高级事件总线
-		return nil, fmt.Errorf("Memory advanced event bus not implemented yet")
-	default:
-		return nil, fmt.Errorf("unsupported advanced eventbus type: %s", cfg.Type)
-	}
-}
-
-// GetDefaultAdvancedEventBusConfig 获取默认高级事件总线配置
-func GetDefaultAdvancedEventBusConfig() config.AdvancedEventBusConfig {
-	return config.AdvancedEventBusConfig{
-		EventBus: config.EventBus{
-			Type: "kafka",
-			Kafka: config.KafkaConfig{
-				Brokers: []string{"localhost:9092"},
-			},
-		},
-		ServiceName: "default-service",
-		HealthCheck: GetDefaultHealthCheckConfig(),
-		Publisher: config.PublisherConfig{
-			MaxReconnectAttempts: 5,
-			MaxBackoff:           1 * time.Minute,
-			InitialBackoff:       1 * time.Second,
-			PublishTimeout:       30 * time.Second,
-		},
-		Subscriber: config.SubscriberConfig{
-			RecoveryMode: config.RecoveryModeConfig{
-				Enabled:             true,
-				AutoDetection:       true,
-				TransitionThreshold: 3,
-			},
-			BacklogDetection: config.BacklogDetectionConfig{
-				Enabled:         true,
-				MaxLagThreshold: 1000,
-				CheckInterval:   1 * time.Minute,
-			},
-			AggregateProcessor: config.AggregateProcessorConfig{
-				Enabled:     true,
-				CacheSize:   1000,
-				IdleTimeout: 5 * time.Minute,
-			},
-			RateLimit: config.RateLimitConfig{
-				Enabled:       true,
-				RatePerSecond: 1000,
-				BurstSize:     1000,
-			},
-		},
-	}
+// NewPersistentKafkaEventBus 创建持久化Kafka EventBus实例
+func NewPersistentKafkaEventBus(brokers []string) (EventBus, error) {
+	config := GetDefaultConfig("kafka")
+	config.Kafka.Brokers = brokers
+	// Kafka默认就是持久化的
+	return NewEventBus(config)
 }

@@ -1,0 +1,196 @@
+# 分离式健康检查配置示例
+# 展示如何为不同微服务角色配置健康检查
+
+# ========== 场景1：纯发布端服务（如用户服务）==========
+user_service:
+  type: kafka
+  serviceName: "user-service"
+  
+  # 健康检查配置
+  healthCheck:
+    enabled: true
+
+    # 发布器配置 - 发布自己的健康状态
+    publisher:
+      topic: "health-check-user-service"
+      interval: "30s"                       # 30秒发送一次
+      timeout: "5s"
+      failureThreshold: 3
+      messageTTL: "2m"
+    
+    # 订阅监控器配置 - 不需要配置，因为不会启动订阅端
+    # subscriber: {}                        # 不需要配置
+
+  # 使用新的分离式接口启动
+  # bus.StartHealthCheckPublisher(ctx)     // 只启动发布器
+  # bus.StopHealthCheckPublisher()         // 只停止发布器
+  # 注意：不调用 StartHealthCheckSubscriber() 就相当于"禁用"订阅端
+
+---
+# ========== 场景2：纯订阅端服务（如监控服务）==========
+monitoring_service:
+  type: kafka
+  serviceName: "monitoring-service"
+  
+  # 健康检查配置
+  healthCheck:
+    enabled: true
+    
+    # 发布器配置 - 禁用，因为不发布自己的健康状态
+    publisher:
+      topic: ""                             # 不需要配置
+      interval: "0s"                        # 关键：禁用发送端
+      timeout: "0s"
+      failureThreshold: 0
+      messageTTL: "0s"
+    
+    # 订阅监控器配置 - 监控用户服务的健康状态
+    subscriber:
+      topic: "health-check-user-service"    # 监控用户服务
+      monitorInterval: "10s"                # 10秒检查一次
+      warningThreshold: 2
+      errorThreshold: 3
+      criticalThreshold: 5
+
+  # 使用新的分离式接口启动
+  # bus.StartHealthCheckSubscriber(ctx)    // 只启动订阅器
+  # bus.StopHealthCheckSubscriber()        // 只停止订阅器
+
+---
+# ========== 场景3：混合角色服务（如订单服务）==========
+order_service:
+  type: kafka
+  serviceName: "order-service"
+  
+  # 健康检查配置
+  healthCheck:
+    enabled: true
+    
+    # 发布器配置 - 发布自己的健康状态
+    publisher:
+      topic: "health-check-order-service"
+      interval: "45s"                       # 45秒发送一次
+      timeout: "8s"
+      failureThreshold: 2
+      messageTTL: "3m"
+    
+    # 订阅监控器配置 - 监控用户服务的健康状态
+    subscriber:
+      topic: "health-check-user-service"    # 监控用户服务
+      monitorInterval: "15s"                # 15秒检查一次
+      warningThreshold: 2
+      errorThreshold: 4
+      criticalThreshold: 6
+
+  # 使用新的分离式接口启动
+  # bus.StartHealthCheckPublisher(ctx)     // 启动发布器
+  # bus.StartHealthCheckSubscriber(ctx)    // 启动订阅器
+  # 或者使用便捷方法：
+  # bus.StartAllHealthCheck(ctx)           // 一次性启动所有
+
+---
+# ========== 场景4：多重监控服务 ==========
+multi_monitor_service:
+  type: kafka
+  serviceName: "multi-monitor-service"
+  
+  # 健康检查配置
+  healthCheck:
+    enabled: true
+    
+    # 发送器配置 - 发布自己的健康状态
+    sender:
+      topic: "health-check-multi-monitor-service"
+      interval: "60s"
+      timeout: "10s"
+      failureThreshold: 3
+      messageTTL: "5m"
+    
+    # 主要订阅监控器配置 - 监控用户服务
+    subscriber:
+      topic: "health-check-user-service"
+      monitorInterval: "5s"                 # 更频繁的监控
+      warningThreshold: 1
+      errorThreshold: 2
+      criticalThreshold: 3
+
+  # 注意：如果需要监控多个服务，可以通过编程方式创建多个订阅器
+  # 例如：
+  # // 监控用户服务
+  # userConfig := eventbus.GetDefaultHealthCheckConfig()
+  # userConfig.Subscriber.Topic = "health-check-user-service"
+  # userSubscriber := eventbus.NewHealthCheckSubscriber(userConfig, bus, "multi-monitor", "kafka")
+  # userSubscriber.Start(ctx)
+  #
+  # // 监控订单服务
+  # orderConfig := eventbus.GetDefaultHealthCheckConfig()
+  # orderConfig.Subscriber.Topic = "health-check-order-service"
+  # orderSubscriber := eventbus.NewHealthCheckSubscriber(orderConfig, bus, "multi-monitor", "kafka")
+  # orderSubscriber.Start(ctx)
+
+---
+# ========== 编程方式使用示例 ==========
+# 
+# // 场景1：只启动发布端
+# func startPublisherOnlyService(bus eventbus.EventBus, ctx context.Context) error {
+#     return bus.StartHealthCheckPublisher(ctx)
+# }
+# 
+# // 场景2：只启动订阅端
+# func startSubscriberOnlyService(bus eventbus.EventBus, ctx context.Context) error {
+#     return bus.StartHealthCheckSubscriber(ctx)
+# }
+# 
+# // 场景3：根据业务角色动态启动
+# func startServiceBasedOnRole(bus eventbus.EventBus, ctx context.Context, role string) error {
+#     switch role {
+#     case "publisher":
+#         return bus.StartHealthCheckPublisher(ctx)
+#     case "subscriber":
+#         return bus.StartHealthCheckSubscriber(ctx)
+#     case "both":
+#         return bus.StartAllHealthCheck(ctx)
+#     default:
+#         return fmt.Errorf("unknown role: %s", role)
+#     }
+# }
+# 
+# // 场景4：获取不同组件的状态
+# func getHealthStatus(bus eventbus.EventBus) {
+#     // 获取发布器状态
+#     publisherStatus := bus.GetHealthCheckPublisherStatus()
+#     fmt.Printf("Publisher: healthy=%v, running=%v\n", 
+#         publisherStatus.IsHealthy, publisherStatus.IsRunning)
+#     
+#     // 获取订阅器统计
+#     subscriberStats := bus.GetHealthCheckSubscriberStats()
+#     fmt.Printf("Subscriber: healthy=%v, start_time=%v\n", 
+#         subscriberStats.IsHealthy, subscriberStats.StartTime)
+# }
+
+# ========== 关键优势总结 ==========
+#
+# 1. 角色分离：
+#    - 微服务可以根据实际业务角色选择启动发布端或订阅端
+#    - 避免不必要的资源消耗
+#
+# 2. 配置简化：
+#    - 移除了冗余的subscriber.enabled字段
+#    - 启动控制完全通过接口管理（StartHealthCheckSubscriber/StopHealthCheckSubscriber）
+#    - 避免了配置和接口的双重控制混淆
+#
+# 3. 灵活配置：
+#    - 不同服务可以有不同的健康检查间隔和阈值
+#    - 支持精确的主题配对和监控策略
+#
+# 4. 多重监控：
+#    - 一个服务可以监控多个其他服务的健康状态
+#    - 支持复杂的监控拓扑
+#
+# 5. 向后兼容：
+#    - 保留旧的统一接口，但标记为废弃
+#    - 平滑迁移到新的分离式接口
+#
+# 6. 精确控制：
+#    - 可以独立控制发布器和订阅器的生命周期
+#    - 支持动态启停和状态查询

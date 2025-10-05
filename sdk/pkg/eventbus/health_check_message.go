@@ -3,7 +3,6 @@ package eventbus
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -12,10 +11,10 @@ import (
 const (
 	// DefaultHealthCheckTopic jxt-core 统一管理的健康检查主题
 	DefaultHealthCheckTopic = "jxt-core-health-check"
-	
+
 	// 按事件总线类型的健康检查主题
-	KafkaHealthCheckTopic = "jxt-core-kafka-health-check"
-	NATSHealthCheckTopic  = "jxt-core-nats-health-check"
+	KafkaHealthCheckTopic  = "jxt-core-kafka-health-check"
+	NATSHealthCheckTopic   = "jxt-core-nats-health-check"
 	MemoryHealthCheckTopic = "jxt-core-memory-health-check"
 )
 
@@ -43,12 +42,16 @@ func CreateHealthCheckMessage(source, eventBusType string) *HealthCheckMessage {
 
 // ToBytes 序列化为字节数组
 func (h *HealthCheckMessage) ToBytes() ([]byte, error) {
-	return json.Marshal(h)
+	// 确保 Metadata 不为 nil
+	if h.Metadata == nil {
+		h.Metadata = make(map[string]string)
+	}
+	return Marshal(h)
 }
 
 // FromBytes 从字节数组反序列化
 func (h *HealthCheckMessage) FromBytes(data []byte) error {
-	return json.Unmarshal(data, h)
+	return Unmarshal(data, h)
 }
 
 // IsValid 验证消息是否有效
@@ -56,14 +59,14 @@ func (h *HealthCheckMessage) IsValid() bool {
 	if h.MessageID == "" || h.Source == "" || h.EventBusType == "" {
 		return false
 	}
-	
+
 	// 检查时间戳是否在合理范围内（避免时钟偏移问题）
 	now := time.Now()
-	if h.Timestamp.After(now.Add(1*time.Minute)) || 
-	   h.Timestamp.Before(now.Add(-5*time.Minute)) {
+	if h.Timestamp.After(now.Add(1*time.Minute)) ||
+		h.Timestamp.Before(now.Add(-5*time.Minute)) {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -118,14 +121,14 @@ func GetHealthCheckTopic(eventBusType string) string {
 
 // HealthCheckMessageValidator 健康检查消息验证器
 type HealthCheckMessageValidator struct {
-	MaxMessageAge time.Duration // 最大消息年龄
-	RequiredFields []string     // 必需字段
+	MaxMessageAge  time.Duration // 最大消息年龄
+	RequiredFields []string      // 必需字段
 }
 
 // NewHealthCheckMessageValidator 创建健康检查消息验证器
 func NewHealthCheckMessageValidator() *HealthCheckMessageValidator {
 	return &HealthCheckMessageValidator{
-		MaxMessageAge: 5 * time.Minute,
+		MaxMessageAge:  DefaultBacklogTimeThreshold, // 使用默认积压时间阈值
 		RequiredFields: []string{"messageId", "timestamp", "source", "eventBusType", "version"},
 	}
 }
@@ -135,7 +138,7 @@ func (v *HealthCheckMessageValidator) Validate(msg *HealthCheckMessage) error {
 	if msg == nil {
 		return fmt.Errorf("health check message cannot be nil")
 	}
-	
+
 	// 验证必需字段
 	if msg.MessageID == "" {
 		return fmt.Errorf("messageId is required")
@@ -149,17 +152,17 @@ func (v *HealthCheckMessageValidator) Validate(msg *HealthCheckMessage) error {
 	if msg.Version == "" {
 		return fmt.Errorf("version is required")
 	}
-	
+
 	// 验证时间戳
 	if msg.Timestamp.IsZero() {
 		return fmt.Errorf("timestamp is required")
 	}
-	
+
 	// 验证消息年龄
 	if msg.IsExpired(v.MaxMessageAge) {
 		return fmt.Errorf("message is too old: %v", time.Since(msg.Timestamp))
 	}
-	
+
 	// 验证事件总线类型
 	validTypes := []string{"kafka", "nats", "memory"}
 	isValidType := false
@@ -172,7 +175,7 @@ func (v *HealthCheckMessageValidator) Validate(msg *HealthCheckMessage) error {
 	if !isValidType {
 		return fmt.Errorf("invalid eventBusType: %s", msg.EventBusType)
 	}
-	
+
 	return nil
 }
 
@@ -232,23 +235,23 @@ func NewHealthCheckMessageParser() *HealthCheckMessageParser {
 // Parse 解析健康检查消息
 func (p *HealthCheckMessageParser) Parse(data []byte) (*HealthCheckMessage, error) {
 	var msg HealthCheckMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal health check message: %w", err)
 	}
-	
+
 	if err := p.validator.Validate(&msg); err != nil {
 		return nil, fmt.Errorf("health check message validation failed: %w", err)
 	}
-	
+
 	return &msg, nil
 }
 
 // ParseWithoutValidation 解析健康检查消息（不验证）
 func (p *HealthCheckMessageParser) ParseWithoutValidation(data []byte) (*HealthCheckMessage, error) {
 	var msg HealthCheckMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal health check message: %w", err)
 	}
-	
+
 	return &msg, nil
 }

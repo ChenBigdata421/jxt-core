@@ -1,0 +1,233 @@
+# EventBus 积压检测配置示例
+# 展示如何配置发送端和订阅端的积压检测
+
+eventbus:
+  type: "kafka"  # 或 "nats"
+  serviceName: "evidence-service"
+  
+  # 发布端配置
+  publisher:
+    # 基础配置
+    batchSize: 100
+    publishTimeout: 10s
+    
+    # 发送端积压检测配置
+    backlogDetection:
+      enabled: true
+      maxQueueDepth: 1000        # 最大队列深度
+      maxPublishLatency: 5s      # 最大发送延迟
+      rateThreshold: 500.0       # 发送速率阈值 (msg/sec)
+      checkInterval: 30s         # 检测间隔
+  
+  # 订阅端配置
+  subscriber:
+    # 基础配置
+    concurrency: 10
+    processTimeout: 30s
+    
+    # 订阅端积压检测配置
+    backlogDetection:
+      enabled: true
+      maxLagThreshold: 1000      # 最大消息积压数量
+      maxTimeThreshold: 5m       # 最大积压时间
+      checkInterval: 30s         # 检测间隔
+  
+  # 具体实现配置
+  kafka:
+    brokers: ["localhost:9092"]
+    producer:
+      requiredAcks: 1
+      timeout: 10s
+      compression: "snappy"
+    consumer:
+      groupId: "evidence-consumer-group"
+      sessionTimeout: 30s
+      heartbeatInterval: 3s
+
+---
+# 只启用发送端积压检测的配置示例
+eventbus:
+  type: "kafka"
+  serviceName: "high-throughput-publisher"
+  
+  # 发布端配置 - 启用积压检测
+  publisher:
+    backlogDetection:
+      enabled: true
+      maxQueueDepth: 5000        # 高吞吐量场景，允许更大的队列深度
+      maxPublishLatency: 2s      # 更严格的延迟要求
+      rateThreshold: 2000.0      # 更高的速率阈值
+      checkInterval: 15s         # 更频繁的检测
+  
+  # 订阅端配置 - 禁用积压检测
+  subscriber:
+    backlogDetection:
+      enabled: false
+  
+  kafka:
+    brokers: ["localhost:9092"]
+    producer:
+      requiredAcks: 1
+      timeout: 5s
+      compression: "lz4"
+    consumer:
+      groupId: "publisher-service-group"
+
+---
+# 只启用订阅端积压检测的配置示例
+eventbus:
+  type: "nats"
+  serviceName: "consumer-heavy-service"
+  
+  # 发布端配置 - 禁用积压检测
+  publisher:
+    backlogDetection:
+      enabled: false
+  
+  # 订阅端配置 - 启用积压检测
+  subscriber:
+    backlogDetection:
+      enabled: true
+      maxLagThreshold: 500       # 消费者敏感，较低的积压阈值
+      maxTimeThreshold: 2m       # 较短的时间阈值
+      checkInterval: 20s         # 较频繁的检测
+  
+  nats:
+    urls: ["nats://localhost:4222"]
+    clientId: "consumer-service"
+    jetstream:
+      enabled: true
+      domain: "evidence"
+      stream:
+        name: "evidence-stream"
+        subjects: ["evidence.>"]
+
+---
+# 生产环境推荐配置
+eventbus:
+  type: "kafka"
+  serviceName: "evidence-production-service"
+  
+  # 发布端配置 - 生产环境优化
+  publisher:
+    batchSize: 500
+    publishTimeout: 15s
+    backlogDetection:
+      enabled: true
+      maxQueueDepth: 2000        # 生产环境平衡值
+      maxPublishLatency: 10s     # 允许较长的延迟
+      rateThreshold: 1000.0      # 适中的速率阈值
+      checkInterval: 60s         # 较长的检测间隔，减少开销
+  
+  # 订阅端配置 - 生产环境优化
+  subscriber:
+    concurrency: 20
+    processTimeout: 60s
+    backlogDetection:
+      enabled: true
+      maxLagThreshold: 2000      # 生产环境允许更多积压
+      maxTimeThreshold: 10m      # 较长的时间阈值
+      checkInterval: 60s         # 与发送端保持一致
+  
+  # 安全配置
+  security:
+    enabled: true
+    protocol: "SASL_SSL"
+    username: "${KAFKA_USERNAME}"
+    password: "${KAFKA_PASSWORD}"
+    certFile: "/etc/ssl/certs/kafka-client.crt"
+    keyFile: "/etc/ssl/private/kafka-client.key"
+    caFile: "/etc/ssl/certs/kafka-ca.crt"
+  
+  # 健康检查配置
+  healthCheck:
+    enabled: true
+    interval: 30s
+    timeout: 10s
+    failureThreshold: 3
+  
+  # 监控配置
+  monitoring:
+    enabled: true
+    metricsInterval: 60s
+    enableDetailedMetrics: true
+  
+  kafka:
+    brokers: 
+      - "kafka-1.production.com:9092"
+      - "kafka-2.production.com:9092"
+      - "kafka-3.production.com:9092"
+    producer:
+      requiredAcks: -1           # 等待所有副本确认
+      timeout: 30s
+      compression: "snappy"
+      retryMax: 5
+      batchSize: 16384
+    consumer:
+      groupId: "evidence-production-group"
+      sessionTimeout: 30s
+      heartbeatInterval: 3s
+      maxProcessingTime: 5m
+      fetchMinBytes: 1024
+      fetchMaxBytes: 52428800    # 50MB
+
+---
+# 开发环境配置 - 简化版本
+eventbus:
+  type: "memory"  # 开发环境使用内存实现
+  serviceName: "evidence-dev-service"
+  
+  # 发布端配置 - 开发环境
+  publisher:
+    backlogDetection:
+      enabled: false  # 开发环境可以禁用
+  
+  # 订阅端配置 - 开发环境
+  subscriber:
+    backlogDetection:
+      enabled: false  # 开发环境可以禁用
+  
+  # 健康检查配置 - 开发环境
+  healthCheck:
+    enabled: true
+    interval: 10s
+    timeout: 5s
+    failureThreshold: 1
+  
+  # 监控配置 - 开发环境
+  monitoring:
+    enabled: false  # 开发环境可以禁用监控
+
+---
+# 测试环境配置 - 启用所有功能进行测试
+eventbus:
+  type: "kafka"
+  serviceName: "evidence-test-service"
+  
+  # 发布端配置 - 测试环境
+  publisher:
+    backlogDetection:
+      enabled: true
+      maxQueueDepth: 100         # 测试环境使用较小值
+      maxPublishLatency: 1s      # 测试环境使用较严格值
+      rateThreshold: 100.0       # 测试环境使用较小值
+      checkInterval: 10s         # 测试环境使用较频繁检测
+  
+  # 订阅端配置 - 测试环境
+  subscriber:
+    backlogDetection:
+      enabled: true
+      maxLagThreshold: 100       # 测试环境使用较小值
+      maxTimeThreshold: 1m       # 测试环境使用较短时间
+      checkInterval: 10s         # 测试环境使用较频繁检测
+  
+  kafka:
+    brokers: ["kafka-test:9092"]
+    producer:
+      requiredAcks: 1
+      timeout: 5s
+      compression: "none"        # 测试环境不压缩，便于调试
+    consumer:
+      groupId: "evidence-test-group"
+      sessionTimeout: 10s
+      heartbeatInterval: 1s
