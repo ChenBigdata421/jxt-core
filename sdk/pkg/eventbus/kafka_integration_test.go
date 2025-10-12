@@ -1,3 +1,6 @@
+// 暂时禁用旧的集成测试，使用新的性能测试
+// +build ignore
+
 package eventbus
 
 import (

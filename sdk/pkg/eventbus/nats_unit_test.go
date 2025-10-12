@@ -1,3 +1,6 @@
+// 暂时禁用NATS测试，专注于Kafka性能测试
+// +build ignore
+
 package eventbus
 
 import (

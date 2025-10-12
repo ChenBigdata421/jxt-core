@@ -22,7 +22,6 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.4.2
-	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/json-iterator/go v1.1.11
 	github.com/mojocn/base64Captcha v1.3.1
 	github.com/nats-io/nats.go v1.45.0

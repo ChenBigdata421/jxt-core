@@ -340,37 +340,86 @@ type MonitoringConfig struct {
 	ExportEndpoint  string        `mapstructure:"exportEndpoint"`
 }
 
-// KafkaConfig Kafka配置
+// KafkaConfig Kafka配置 - 程序员配置层（完整）
+// 包含所有技术细节和程序员控制的字段
 type KafkaConfig struct {
-	Brokers             []string       `mapstructure:"brokers"`
-	HealthCheckInterval time.Duration  `mapstructure:"healthCheckInterval"`
-	Producer            ProducerConfig `mapstructure:"producer"`
-	Consumer            ConsumerConfig `mapstructure:"consumer"`
-	Security            SecurityConfig `mapstructure:"security"`
+	// 基础配置 (从用户配置转换而来)
+	Brokers  []string       `mapstructure:"brokers"`  // Kafka集群地址
+	Producer ProducerConfig `mapstructure:"producer"` // 生产者配置
+	Consumer ConsumerConfig `mapstructure:"consumer"` // 消费者配置
+
+	// 程序员控制字段 (有合理默认值)
+	HealthCheckInterval time.Duration  `mapstructure:"healthCheckInterval"` // 健康检查间隔 (默认: 30s)
+	Security            SecurityConfig `mapstructure:"security"`            // 安全配置
+	Net                 NetConfig      `mapstructure:"net"`                 // 网络配置
+
+	// 高级功能配置 (程序员专用)
+	ClientID             string        `mapstructure:"clientId"`             // 客户端ID (默认: "jxt-eventbus")
+	MetadataRefreshFreq  time.Duration `mapstructure:"metadataRefreshFreq"`  // 元数据刷新频率 (默认: 10m)
+	MetadataRetryMax     int           `mapstructure:"metadataRetryMax"`     // 元数据重试次数 (默认: 3)
+	MetadataRetryBackoff time.Duration `mapstructure:"metadataRetryBackoff"` // 元数据重试退避时间 (默认: 250ms)
+
+	// 企业级特性配置 (从用户配置转换而来)
+	Enterprise EnterpriseConfig `mapstructure:"enterprise"` // 企业级特性配置
 }
 
-// ProducerConfig 生产者配置
+// ProducerConfig 生产者配置 - 程序员配置层（完整）
+// 包含所有技术细节和程序员控制的字段
 type ProducerConfig struct {
-	RequiredAcks   int           `mapstructure:"requiredAcks"`
-	Compression    string        `mapstructure:"compression"`
-	FlushFrequency time.Duration `mapstructure:"flushFrequency"`
-	FlushMessages  int           `mapstructure:"flushMessages"`
-	RetryMax       int           `mapstructure:"retryMax"`
-	Timeout        time.Duration `mapstructure:"timeout"`
-	BatchSize      int           `mapstructure:"batchSize"`
-	BufferSize     int           `mapstructure:"bufferSize"`
+	// 用户配置字段 (从用户配置转换而来)
+	RequiredAcks   int           `mapstructure:"requiredAcks"`   // 消息确认级别
+	Compression    string        `mapstructure:"compression"`    // 压缩算法
+	FlushFrequency time.Duration `mapstructure:"flushFrequency"` // 刷新频率
+	FlushMessages  int           `mapstructure:"flushMessages"`  // 批量消息数
+	Timeout        time.Duration `mapstructure:"timeout"`        // 发送超时时间
+
+	// 程序员控制字段 (有合理默认值)
+	FlushBytes      int    `mapstructure:"flushBytes"`      // 批量字节数 (默认: 1MB)
+	RetryMax        int    `mapstructure:"retryMax"`        // 最大重试次数 (默认: 3)
+	BatchSize       int    `mapstructure:"batchSize"`       // 批量大小 (默认: 16KB)
+	BufferSize      int    `mapstructure:"bufferSize"`      // 缓冲区大小 (默认: 32MB)
+	Idempotent      bool   `mapstructure:"idempotent"`      // 幂等性 (默认: true)
+	MaxMessageBytes int    `mapstructure:"maxMessageBytes"` // 最大消息字节数 (默认: 1MB)
+	PartitionerType string `mapstructure:"partitionerType"` // 分区器类型 (默认: "hash")
+
+	// 高级技术字段 (程序员专用)
+	LingerMs         time.Duration `mapstructure:"lingerMs"`         // 延迟发送时间 (默认: 5ms)
+	CompressionLevel int           `mapstructure:"compressionLevel"` // 压缩级别 (默认: 6)
+	MaxInFlight      int           `mapstructure:"maxInFlight"`      // 最大飞行请求数 (默认: 5)
 }
 
-// ConsumerConfig 消费者配置
+// ConsumerConfig 消费者配置 - 程序员配置层（完整）
+// 包含所有技术细节和程序员控制的字段
 type ConsumerConfig struct {
-	GroupID           string        `mapstructure:"groupId"`
-	AutoOffsetReset   string        `mapstructure:"autoOffsetReset"`
-	SessionTimeout    time.Duration `mapstructure:"sessionTimeout"`
-	HeartbeatInterval time.Duration `mapstructure:"heartbeatInterval"`
-	MaxProcessingTime time.Duration `mapstructure:"maxProcessingTime"`
-	FetchMinBytes     int           `mapstructure:"fetchMinBytes"`
-	FetchMaxBytes     int           `mapstructure:"fetchMaxBytes"`
-	FetchMaxWait      time.Duration `mapstructure:"fetchMaxWait"`
+	// 用户配置字段 (从用户配置转换而来)
+	GroupID           string        `mapstructure:"groupId"`           // 消费者组ID
+	AutoOffsetReset   string        `mapstructure:"autoOffsetReset"`   // 偏移量重置策略
+	SessionTimeout    time.Duration `mapstructure:"sessionTimeout"`    // 会话超时时间
+	HeartbeatInterval time.Duration `mapstructure:"heartbeatInterval"` // 心跳间隔
+
+	// 程序员控制字段 (有合理默认值)
+	MaxProcessingTime time.Duration `mapstructure:"maxProcessingTime"` // 最大处理时间 (默认: 30s)
+	FetchMinBytes     int           `mapstructure:"fetchMinBytes"`     // 最小获取字节数 (默认: 1KB)
+	FetchMaxBytes     int           `mapstructure:"fetchMaxBytes"`     // 最大获取字节数 (默认: 50MB)
+	FetchMaxWait      time.Duration `mapstructure:"fetchMaxWait"`      // 最大等待时间 (默认: 500ms)
+
+	// 高级技术字段 (程序员专用)
+	MaxPollRecords     int           `mapstructure:"maxPollRecords"`     // 最大轮询记录数 (默认: 500)
+	EnableAutoCommit   bool          `mapstructure:"enableAutoCommit"`   // 启用自动提交 (默认: false)
+	AutoCommitInterval time.Duration `mapstructure:"autoCommitInterval"` // 自动提交间隔 (默认: 5s)
+	IsolationLevel     string        `mapstructure:"isolationLevel"`     // 隔离级别 (默认: "read_committed")
+	RebalanceStrategy  string        `mapstructure:"rebalanceStrategy"`  // 再平衡策略 (默认: "range")
+}
+
+// NetConfig 网络配置 - 程序员专用配置
+// 用户不需要关心这些底层网络参数，由程序员设定合理默认值
+type NetConfig struct {
+	DialTimeout  time.Duration `mapstructure:"dialTimeout"`  // 连接超时 (默认: 30s)
+	ReadTimeout  time.Duration `mapstructure:"readTimeout"`  // 读取超时 (默认: 30s)
+	WriteTimeout time.Duration `mapstructure:"writeTimeout"` // 写入超时 (默认: 30s)
+	KeepAlive    time.Duration `mapstructure:"keepAlive"`    // 保活时间 (默认: 30s)
+	MaxIdleConns int           `mapstructure:"maxIdleConns"` // 最大空闲连接数 (默认: 10)
+	MaxOpenConns int           `mapstructure:"maxOpenConns"` // 最大打开连接数 (默认: 100)
 }
 
 // SecurityConfig 安全配置
@@ -398,6 +447,9 @@ type NATSConfig struct {
 
 	// 安全配置
 	Security NATSSecurityConfig `mapstructure:"security"`
+
+	// 企业级特性配置 (从用户配置转换而来)
+	Enterprise EnterpriseConfig `mapstructure:"enterprise"` // 企业级特性配置
 }
 
 // JetStreamConfig JetStream配置

@@ -2,7 +2,84 @@
 
 EventBus是jxt-core提供的统一事件总线组件，支持多种消息中间件实现，为微服务架构提供可靠的事件驱动通信能力。
 
+## 🚀 架构优化亮点
 
+### 统一架构设计
+- **NATS**: 1个连接 → 1个JetStream Context → 1个统一Consumer → 多个Pull Subscription
+- **Kafka**: 1个连接 → 1个统一Consumer Group → 多个Topic订阅
+- **统一接口**: 所有实现都使用相同的EventBus接口，支持无缝切换
+
+### 性能优化成果
+- **资源效率**: NATS Consumer数量从N个优化为1个，资源节省33-41%
+- **管理简化**: 统一Consumer管理，降低运维复杂度
+- **扩展性**: 新增topic无需创建新Consumer，只需添加Pull Subscription
+
+详细优化报告请参考：[NATS优化报告](./NATS_OPTIMIZATION_REPORT.md)
+
+## 🏗️ 架构图
+
+### NATS 统一架构
+```
+Connection
+    └── JetStream Context
+        └── Unified Consumer (FilterSubject: ">")
+            ├── Pull Subscription (topic1)
+            ├── Pull Subscription (topic2)
+            └── Pull Subscription (topicN)
+```
+
+### Kafka 统一架构
+```
+Connection
+    └── Unified Consumer Group
+        ├── Topic Subscription (topic1)
+        ├── Topic Subscription (topic2)
+        └── Topic Subscription (topicN)
+```
+
+## 🚀 快速开始
+
+### 基础使用示例
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+)
+
+func main() {
+    // 创建NATS EventBus
+    bus, err := eventbus.NewPersistentNATSEventBus(
+        []string{"nats://localhost:4222"},
+        "my-client",
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer bus.Close()
+
+    ctx := context.Background()
+
+    // 订阅消息
+    err = bus.Subscribe(ctx, "user.created", func(ctx context.Context, message []byte) error {
+        log.Printf("Received: %s", string(message))
+        return nil
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 发布消息
+    err = bus.Publish(ctx, "user.created", []byte(`{"id": "123", "name": "John"}`))
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+```
 
 ## 配置
 
@@ -57,9 +134,15 @@ eventbus:
     sampleRate: 0.1
 ```
 
-### NATS JetStream配置
+### NATS JetStream配置 (优化架构)
 
-NATS EventBus 专注于 JetStream 持久化消息处理，提供企业级的可靠性保证：
+NATS EventBus 采用统一Consumer架构，提供企业级的可靠性保证：
+
+**🔥 架构特点**:
+- **1个连接**: 高效的连接复用
+- **1个JetStream Context**: 统一的流管理
+- **1个统一Consumer**: 使用FilterSubject ">" 订阅所有主题
+- **多个Pull Subscription**: 每个topic独立的Pull Subscription
 
 ```yaml
 eventbus:
@@ -73,7 +156,7 @@ eventbus:
     connectionTimeout: 10s
     healthCheckInterval: 5m
 
-    # JetStream配置
+    # JetStream配置 - 统一架构
     jetstream:
       enabled: true
       publishTimeout: 5s
@@ -97,20 +180,26 @@ eventbus:
         maxMsgs: 10000
         discard: "old"
 
-      # 消费者配置
+      # 统一Consumer配置 (自动创建为 "{durableName}-unified")
       consumer:
-        durableName: "business-consumer"
+        durableName: "business-consumer"  # 实际Consumer名: "business-consumer-unified"
         deliverPolicy: "all"
         ackPolicy: "explicit"
         replayPolicy: "instant"
         maxAckPending: 100
         maxWaiting: 500
         maxDeliver: 3
+        # filterSubject: ">" 自动设置，订阅所有主题
 
   metrics:
     enabled: true
     collectInterval: 30s
 ```
+
+**优化效果**:
+- ✅ 资源节省33-41%（Consumer数量从N个减少到1个）
+- ✅ 管理简化（统一Consumer管理）
+- ✅ 扩展性强（新增topic无需创建新Consumer）
 
 ### 企业特性配置
 

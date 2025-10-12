@@ -162,10 +162,13 @@ func (m *eventBusManager) performHealthCheck(ctx context.Context) error {
 // performFullHealthCheck 执行完整的健康检查（内部方法）
 func (m *eventBusManager) performFullHealthCheck(ctx context.Context) (*HealthStatus, error) {
 	start := time.Now()
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	if m.closed {
+	// 🔧 修复死锁问题：先检查关闭状态，避免在持有锁时调用其他需要锁的方法
+	m.mu.RLock()
+	closed := m.closed
+	m.mu.RUnlock()
+
+	if closed {
 		return &HealthStatus{
 			Overall:   "unhealthy",
 			Timestamp: time.Now(),
@@ -178,10 +181,7 @@ func (m *eventBusManager) performFullHealthCheck(ctx context.Context) (*HealthSt
 		}, fmt.Errorf("eventbus is closed")
 	}
 
-	// 更新健康检查时间
-	m.metrics.LastHealthCheck = time.Now()
-
-	// 执行基础设施健康检查
+	// 执行基础设施健康检查（不持有锁）
 	infraHealth, err := m.checkInfrastructureHealth(ctx)
 	if err != nil {
 		return &HealthStatus{
@@ -195,8 +195,12 @@ func (m *eventBusManager) performFullHealthCheck(ctx context.Context) (*HealthSt
 
 	// 执行业务健康检查（如果已注册）
 	var businessHealth interface{}
-	if m.businessHealthChecker != nil {
-		if err := m.businessHealthChecker.CheckBusinessHealth(ctx); err != nil {
+	m.mu.RLock()
+	businessHealthChecker := m.businessHealthChecker
+	m.mu.RUnlock()
+
+	if businessHealthChecker != nil {
+		if err := businessHealthChecker.CheckBusinessHealth(ctx); err != nil {
 			return &HealthStatus{
 				Overall:        "unhealthy",
 				Infrastructure: infraHealth,
@@ -205,11 +209,11 @@ func (m *eventBusManager) performFullHealthCheck(ctx context.Context) (*HealthSt
 				CheckDuration:  time.Since(start),
 			}, err
 		}
-		businessHealth = m.businessHealthChecker.GetBusinessMetrics()
+		businessHealth = businessHealthChecker.GetBusinessMetrics()
 	}
 
-	// 更新健康状态
-	m.healthStatus = &HealthStatus{
+	// 🔧 修复死锁问题：在更新状态时获取锁
+	healthStatus := &HealthStatus{
 		Overall:        "healthy",
 		Infrastructure: infraHealth,
 		Business:       businessHealth,
@@ -217,9 +221,13 @@ func (m *eventBusManager) performFullHealthCheck(ctx context.Context) (*HealthSt
 		CheckDuration:  time.Since(start),
 	}
 
+	m.mu.Lock()
+	m.healthStatus = healthStatus
+	m.metrics.LastHealthCheck = time.Now()
 	m.metrics.HealthCheckStatus = "healthy"
+	m.mu.Unlock()
 	logger.Debug("Health check completed successfully")
-	return m.healthStatus, nil
+	return healthStatus, nil
 }
 
 // checkInfrastructureHealth 检查基础设施健康状态
@@ -509,79 +517,15 @@ func (m *eventBusManager) updateMetrics(success bool, isPublish bool, duration t
 
 // initKafka 初始化Kafka事件总线
 func (m *eventBusManager) initKafka() (EventBus, error) {
-	// 创建简化的配置格式
-	kafkaConfig := &config.KafkaConfig{
-		Brokers: m.config.Kafka.Brokers,
-		Producer: config.ProducerConfig{
-			RequiredAcks:   m.config.Kafka.Producer.RequiredAcks,
-			Timeout:        m.config.Kafka.Producer.Timeout,
-			Compression:    m.config.Kafka.Producer.Compression,
-			FlushFrequency: m.config.Kafka.Producer.FlushFrequency,
-			FlushMessages:  m.config.Kafka.Producer.FlushMessages,
-			RetryMax:       m.config.Kafka.Producer.RetryMax,
-			BatchSize:      m.config.Kafka.Producer.BatchSize,
-			BufferSize:     m.config.Kafka.Producer.BufferSize,
-		},
-		Consumer: config.ConsumerConfig{
-			GroupID:           m.config.Kafka.Consumer.GroupID,
-			AutoOffsetReset:   m.config.Kafka.Consumer.AutoOffsetReset,
-			SessionTimeout:    m.config.Kafka.Consumer.SessionTimeout,
-			HeartbeatInterval: m.config.Kafka.Consumer.HeartbeatInterval,
-			MaxProcessingTime: m.config.Kafka.Consumer.MaxProcessingTime,
-			FetchMinBytes:     m.config.Kafka.Consumer.FetchMinBytes,
-			FetchMaxBytes:     m.config.Kafka.Consumer.FetchMaxBytes,
-			FetchMaxWait:      m.config.Kafka.Consumer.FetchMaxWait,
-		},
-	}
-
-	return NewKafkaEventBusWithFullConfig(kafkaConfig, m.config)
+	// m.config.Kafka 已经是程序员配置层的配置，直接使用
+	return NewKafkaEventBus(&m.config.Kafka)
 }
 
 // initNATS 初始化NATS事件总线
 func (m *eventBusManager) initNATS() (EventBus, error) {
-	// 创建简化的配置格式
-	natsConfig := &config.NATSConfig{
-		URLs:              m.config.NATS.URLs,
-		ClientID:          m.config.NATS.ClientID,
-		MaxReconnects:     m.config.NATS.MaxReconnects,
-		ReconnectWait:     m.config.NATS.ReconnectWait,
-		ConnectionTimeout: m.config.NATS.ConnectionTimeout,
-		JetStream: config.JetStreamConfig{
-			Enabled:        m.config.NATS.JetStream.Enabled,
-			Domain:         m.config.NATS.JetStream.Domain,
-			APIPrefix:      m.config.NATS.JetStream.APIPrefix,
-			PublishTimeout: m.config.NATS.JetStream.PublishTimeout,
-			AckWait:        m.config.NATS.JetStream.AckWait,
-			MaxDeliver:     m.config.NATS.JetStream.MaxDeliver,
-			Stream: config.StreamConfig{
-				Name:      m.config.NATS.JetStream.Stream.Name,
-				Subjects:  m.config.NATS.JetStream.Stream.Subjects,
-				Retention: m.config.NATS.JetStream.Stream.Retention,
-				Storage:   m.config.NATS.JetStream.Stream.Storage,
-				Replicas:  m.config.NATS.JetStream.Stream.Replicas,
-				MaxAge:    m.config.NATS.JetStream.Stream.MaxAge,
-				MaxBytes:  m.config.NATS.JetStream.Stream.MaxBytes,
-				MaxMsgs:   m.config.NATS.JetStream.Stream.MaxMsgs,
-				Discard:   m.config.NATS.JetStream.Stream.Discard,
-			},
-			Consumer: config.NATSConsumerConfig{
-				DurableName:   m.config.NATS.JetStream.Consumer.DurableName,
-				DeliverPolicy: m.config.NATS.JetStream.Consumer.DeliverPolicy,
-				AckPolicy:     m.config.NATS.JetStream.Consumer.AckPolicy,
-				ReplayPolicy:  m.config.NATS.JetStream.Consumer.ReplayPolicy,
-			},
-		},
-		Security: config.NATSSecurityConfig{
-			Enabled:  m.config.NATS.Security.Enabled,
-			Username: m.config.NATS.Security.Username,
-			Password: m.config.NATS.Security.Password,
-			CertFile: m.config.NATS.Security.CertFile,
-			KeyFile:  m.config.NATS.Security.KeyFile,
-			CAFile:   m.config.NATS.Security.CAFile,
-		},
-	}
-
-	return NewNATSEventBusWithFullConfig(natsConfig, m.config)
+	// 使用程序员配置层的配置，直接使用
+	// m.config.NATS 已经是程序员配置层的配置，直接使用
+	return NewNATSEventBus(&m.config.NATS)
 }
 
 // ========== 生命周期管理 ==========
@@ -1152,4 +1096,194 @@ func (m *eventBusManager) GetTopicConfigStrategy() TopicConfigStrategy {
 
 	// 默认返回创建或更新策略
 	return StrategyCreateOrUpdate
+}
+
+// ========== 配置转换函数 ==========
+
+// ConvertUserConfigToInternalKafkaConfig 将用户配置转换为程序员内部配置
+// 这是配置分层设计的核心：用户只需要配置核心字段，程序员控制技术细节
+// 导出此函数以便在演示和测试中使用
+func ConvertUserConfigToInternalKafkaConfig(userConfig *config.KafkaConfig) *KafkaConfig {
+	return convertUserConfigToInternalKafkaConfig(userConfig)
+}
+
+// convertUserConfigToInternalKafkaConfig 内部转换函数
+func convertUserConfigToInternalKafkaConfig(userConfig *config.KafkaConfig) *KafkaConfig {
+	internalConfig := &KafkaConfig{
+		// 基础配置 (从用户配置直接映射)
+		Brokers: userConfig.Brokers,
+
+		// 生产者配置转换
+		Producer: ProducerConfig{
+			// 用户配置字段 (直接映射，但需要确保与幂等性兼容)
+			RequiredAcks:   -1, // 强制设置为WaitForAll，幂等性生产者要求
+			Compression:    userConfig.Producer.Compression,
+			FlushFrequency: userConfig.Producer.FlushFrequency,
+			FlushMessages:  userConfig.Producer.FlushMessages,
+			Timeout:        userConfig.Producer.Timeout,
+
+			// 程序员设定的默认值 (用户不需要关心的技术细节)
+			FlushBytes:      1024 * 1024,      // 1MB - 批量字节数
+			RetryMax:        3,                // 3次重试
+			BatchSize:       16 * 1024,        // 16KB - 批量大小
+			BufferSize:      32 * 1024 * 1024, // 32MB - 缓冲区大小
+			Idempotent:      true,             // 启用幂等性，确保消息不重复
+			MaxMessageBytes: 1024 * 1024,      // 1MB - 最大消息大小
+			PartitionerType: "hash",           // 哈希分区器，确保相同key的消息到同一分区
+
+			// 高级技术字段 (程序员专用优化)
+			LingerMs:         5 * time.Millisecond, // 5ms延迟发送，提高批处理效率
+			CompressionLevel: 6,                    // 压缩级别6，平衡压缩率和CPU使用
+			MaxInFlight:      1,                    // 幂等性生产者要求MaxInFlight=1
+		},
+
+		// 消费者配置转换
+		Consumer: ConsumerConfig{
+			// 用户配置字段 (直接映射)
+			GroupID:           userConfig.Consumer.GroupID,
+			AutoOffsetReset:   userConfig.Consumer.AutoOffsetReset,
+			SessionTimeout:    userConfig.Consumer.SessionTimeout,
+			HeartbeatInterval: userConfig.Consumer.HeartbeatInterval,
+
+			// 程序员设定的默认值 (用户不需要关心的技术细节)
+			MaxProcessingTime: 30 * time.Second,       // 30s最大处理时间
+			FetchMinBytes:     1024,                   // 1KB最小获取字节数
+			FetchMaxBytes:     50 * 1024 * 1024,       // 50MB最大获取字节数
+			FetchMaxWait:      500 * time.Millisecond, // 500ms最大等待时间
+
+			// 高级技术字段 (程序员专用优化)
+			MaxPollRecords:     500,              // 最大轮询记录数
+			EnableAutoCommit:   false,            // 禁用自动提交，手动控制
+			AutoCommitInterval: 5 * time.Second,  // 自动提交间隔
+			IsolationLevel:     "read_committed", // 读已提交，确保数据一致性
+			RebalanceStrategy:  "range",          // 范围分区策略
+		},
+
+		// 程序员专用配置 (用户完全不需要关心)
+		HealthCheckInterval:  30 * time.Second,       // 健康检查间隔
+		ClientID:             "jxt-eventbus",         // 客户端标识
+		MetadataRefreshFreq:  10 * time.Minute,       // 元数据刷新频率
+		MetadataRetryMax:     3,                      // 元数据重试次数
+		MetadataRetryBackoff: 250 * time.Millisecond, // 元数据重试退避时间
+
+		// 网络配置 (程序员专用，用户不需要配置)
+		Net: NetConfig{
+			DialTimeout:  30 * time.Second, // 连接超时
+			ReadTimeout:  30 * time.Second, // 读取超时
+			WriteTimeout: 30 * time.Second, // 写入超时
+			KeepAlive:    30 * time.Second, // 保活时间
+			MaxIdleConns: 10,               // 最大空闲连接数
+			MaxOpenConns: 100,              // 最大打开连接数
+		},
+
+		// 安全配置 (默认不启用，可根据需要调整)
+		Security: SecurityConfig{
+			Enabled: false, // 默认不启用安全认证
+		},
+
+		// 企业级特性配置 (需要从完整配置中获取，这里先设置默认值)
+		Enterprise: EnterpriseConfig{
+			// 这些值将在convertConfig函数中被正确设置
+		},
+	}
+
+	return internalConfig
+}
+
+// convertUserConfigToInternalNATSConfig 将用户NATS配置转换为程序员内部配置
+func convertUserConfigToInternalNATSConfig(userConfig *NATSConfig) *NATSConfig {
+	internalConfig := &NATSConfig{
+		// 基础配置 (从用户配置直接映射)
+		URLs:              userConfig.URLs,
+		ClientID:          userConfig.ClientID,
+		MaxReconnects:     userConfig.MaxReconnects,
+		ReconnectWait:     userConfig.ReconnectWait,
+		ConnectionTimeout: userConfig.ConnectionTimeout,
+
+		// 程序员专用配置 (设定合理默认值)
+		HealthCheckInterval: 5 * time.Minute, // 默认5分钟健康检查
+
+		// JetStream配置 - 需要完整转换
+		JetStream: convertJetStreamConfig(userConfig.JetStream),
+
+		// 安全配置
+		Security: userConfig.Security,
+
+		// 企业级特性配置 (需要从完整配置中获取，这里先设置默认值)
+		Enterprise: EnterpriseConfig{
+			// 这些值将在convertConfig函数中被正确设置
+		},
+	}
+
+	return internalConfig
+}
+
+// convertJetStreamConfig 转换JetStream配置，添加程序员专用字段
+func convertJetStreamConfig(userJetStream JetStreamConfig) JetStreamConfig {
+	internalJetStream := userJetStream
+
+	// 设置程序员专用的默认值
+	if internalJetStream.PublishTimeout == 0 {
+		internalJetStream.PublishTimeout = 5 * time.Second
+	}
+	if internalJetStream.AckWait == 0 {
+		internalJetStream.AckWait = 30 * time.Second
+	}
+	if internalJetStream.MaxDeliver == 0 {
+		internalJetStream.MaxDeliver = 3
+	}
+
+	// 设置Stream配置的程序员默认值
+	if internalJetStream.Stream.Name == "" {
+		internalJetStream.Stream.Name = "BUSINESS_STREAM"
+	}
+	if len(internalJetStream.Stream.Subjects) == 0 {
+		internalJetStream.Stream.Subjects = []string{"business.>"}
+	}
+	if internalJetStream.Stream.Retention == "" {
+		internalJetStream.Stream.Retention = "limits"
+	}
+	if internalJetStream.Stream.Storage == "" {
+		internalJetStream.Stream.Storage = "file"
+	}
+	if internalJetStream.Stream.Replicas == 0 {
+		internalJetStream.Stream.Replicas = 1
+	}
+	if internalJetStream.Stream.MaxAge == 0 {
+		internalJetStream.Stream.MaxAge = 24 * time.Hour
+	}
+	if internalJetStream.Stream.MaxBytes == 0 {
+		internalJetStream.Stream.MaxBytes = 100 * 1024 * 1024 // 100MB
+	}
+	if internalJetStream.Stream.MaxMsgs == 0 {
+		internalJetStream.Stream.MaxMsgs = 10000
+	}
+	if internalJetStream.Stream.Discard == "" {
+		internalJetStream.Stream.Discard = "old"
+	}
+
+	// 设置Consumer配置的程序员默认值
+	if internalJetStream.Consumer.DurableName == "" {
+		internalJetStream.Consumer.DurableName = "business-consumer"
+	}
+	if internalJetStream.Consumer.DeliverPolicy == "" {
+		internalJetStream.Consumer.DeliverPolicy = "all"
+	}
+	if internalJetStream.Consumer.AckPolicy == "" {
+		internalJetStream.Consumer.AckPolicy = "explicit"
+	}
+	if internalJetStream.Consumer.ReplayPolicy == "" {
+		internalJetStream.Consumer.ReplayPolicy = "instant"
+	}
+	if internalJetStream.Consumer.MaxAckPending == 0 {
+		internalJetStream.Consumer.MaxAckPending = 100
+	}
+	if internalJetStream.Consumer.MaxWaiting == 0 {
+		internalJetStream.Consumer.MaxWaiting = 500
+	}
+	if internalJetStream.Consumer.MaxDeliver == 0 {
+		internalJetStream.Consumer.MaxDeliver = 3
+	}
+
+	return internalJetStream
 }

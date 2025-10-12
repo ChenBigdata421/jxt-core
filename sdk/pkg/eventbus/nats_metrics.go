@@ -322,25 +322,25 @@ func classifyError(err error) string {
 	
 	errStr := err.Error()
 	switch {
-	case contains(errStr, "timeout"):
+	case containsSubstring(errStr, "timeout"):
 		return "timeout"
-	case contains(errStr, "connection"):
+	case containsSubstring(errStr, "connection"):
 		return "connection"
-	case contains(errStr, "permission"):
+	case containsSubstring(errStr, "permission"):
 		return "permission"
-	case contains(errStr, "not found"):
+	case containsSubstring(errStr, "not found"):
 		return "not_found"
-	case contains(errStr, "invalid"):
+	case containsSubstring(errStr, "invalid"):
 		return "invalid"
 	default:
 		return "unknown"
 	}
 }
 
-// contains 检查字符串是否包含子字符串
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) && 
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
+// containsSubstring 检查字符串是否包含子字符串
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
 		 indexOf(s, substr) >= 0)))
 }
 

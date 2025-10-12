@@ -164,7 +164,7 @@ func TestConvertConfig_Kafka(t *testing.T) {
 
 	assert.Equal(t, "kafka", result.Type)
 	assert.Equal(t, []string{"localhost:9092"}, result.Kafka.Brokers)
-	assert.Equal(t, int(1), int(result.Kafka.Producer.RequiredAcks))
+	assert.Equal(t, int(-1), int(result.Kafka.Producer.RequiredAcks)) // WaitForAll for idempotent producer
 	assert.Equal(t, "snappy", result.Kafka.Producer.Compression)
 	assert.True(t, result.Enterprise.HealthCheck.Enabled)
 	assert.True(t, result.Metrics.Enabled)

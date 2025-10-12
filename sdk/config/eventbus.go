@@ -36,12 +36,13 @@ type EventBusConfig struct {
 // 特定实现配置 - 只包含各实现特有的配置
 // ==========================================================================
 
-// KafkaConfig Kafka配置
+// KafkaConfig Kafka配置 - 用户配置层（简化）
+// 只包含用户需要关心的核心配置字段
 type KafkaConfig struct {
 	Brokers  []string       `mapstructure:"brokers"`  // Kafka集群地址
 	Producer ProducerConfig `mapstructure:"producer"` // 生产者配置
 	Consumer ConsumerConfig `mapstructure:"consumer"` // 消费者配置
-	Net      NetConfig      `mapstructure:"net"`      // 网络配置
+	// 移除了程序员应该控制的字段: Net (网络配置由程序员在内部处理)
 }
 
 // NATSConfig NATS配置
@@ -127,13 +128,6 @@ type SubscriberConfig struct {
 	ErrorHandling    ErrorHandlingConfig              `mapstructure:"errorHandling"`    // 错误处理
 }
 
-// NetConfig 网络配置
-type NetConfig struct {
-	DialTimeout  time.Duration `mapstructure:"dialTimeout"`
-	ReadTimeout  time.Duration `mapstructure:"readTimeout"`
-	WriteTimeout time.Duration `mapstructure:"writeTimeout"`
-}
-
 // PublisherBacklogDetectionConfig 发送端积压检测配置
 type PublisherBacklogDetectionConfig struct {
 	Enabled           bool          `mapstructure:"enabled"`
@@ -174,37 +168,26 @@ type ErrorHandlingConfig struct {
 	RetryBackoffMax  time.Duration `mapstructure:"retryBackoffMax"`
 }
 
-// ProducerConfig 生产者配置
+// ProducerConfig 生产者配置 - 用户配置层（简化）
+// 只包含用户需要关心的核心配置字段
 type ProducerConfig struct {
-	RequiredAcks    int           `mapstructure:"requiredAcks"`
-	Compression     string        `mapstructure:"compression"`
-	FlushFrequency  time.Duration `mapstructure:"flushFrequency"`
-	FlushMessages   int           `mapstructure:"flushMessages"`
-	FlushBytes      int           `mapstructure:"flushBytes"`
-	RetryMax        int           `mapstructure:"retryMax"`
-	Timeout         time.Duration `mapstructure:"timeout"`
-	BatchSize       int           `mapstructure:"batchSize"`
-	BufferSize      int           `mapstructure:"bufferSize"`
-	Idempotent      bool          `mapstructure:"idempotent"`
-	MaxMessageBytes int           `mapstructure:"maxMessageBytes"`
-	PartitionerType string        `mapstructure:"partitionerType"`
+	RequiredAcks    int           `mapstructure:"requiredAcks"`    // 消息确认级别 (0=不确认, 1=leader确认, -1=所有副本确认)
+	Compression     string        `mapstructure:"compression"`     // 压缩算法 (none, gzip, snappy, lz4, zstd)
+	FlushFrequency  time.Duration `mapstructure:"flushFrequency"`  // 刷新频率
+	FlushMessages   int           `mapstructure:"flushMessages"`   // 批量消息数
+	Timeout         time.Duration `mapstructure:"timeout"`         // 发送超时时间
+	// 移除了程序员应该控制的字段: FlushBytes, RetryMax, BatchSize, BufferSize, Idempotent, MaxMessageBytes, PartitionerType
 }
 
-// ConsumerConfig 消费者配置
+// ConsumerConfig 消费者配置 - 用户配置层（简化）
+// 只包含用户需要关心的核心配置字段
 type ConsumerConfig struct {
-	GroupID            string        `mapstructure:"groupId"`
-	AutoOffsetReset    string        `mapstructure:"autoOffsetReset"`
-	SessionTimeout     time.Duration `mapstructure:"sessionTimeout"`
-	HeartbeatInterval  time.Duration `mapstructure:"heartbeatInterval"`
-	MaxProcessingTime  time.Duration `mapstructure:"maxProcessingTime"`
-	FetchMinBytes      int           `mapstructure:"fetchMinBytes"`
-	FetchMaxBytes      int           `mapstructure:"fetchMaxBytes"`
-	FetchMaxWait       time.Duration `mapstructure:"fetchMaxWait"`
-	RebalanceStrategy  string        `mapstructure:"rebalanceStrategy"`
-	IsolationLevel     string        `mapstructure:"isolationLevel"`
-	MaxPollRecords     int           `mapstructure:"maxPollRecords"`
-	EnableAutoCommit   bool          `mapstructure:"enableAutoCommit"`
-	AutoCommitInterval time.Duration `mapstructure:"autoCommitInterval"`
+	GroupID            string        `mapstructure:"groupId"`            // 消费者组ID
+	AutoOffsetReset    string        `mapstructure:"autoOffsetReset"`    // 偏移量重置策略 (earliest, latest, none)
+	SessionTimeout     time.Duration `mapstructure:"sessionTimeout"`     // 会话超时时间
+	HeartbeatInterval  time.Duration `mapstructure:"heartbeatInterval"`  // 心跳间隔
+	// 移除了程序员应该控制的字段: MaxProcessingTime, FetchMinBytes, FetchMaxBytes, FetchMaxWait,
+	// RebalanceStrategy, IsolationLevel, MaxPollRecords, EnableAutoCommit, AutoCommitInterval
 }
 
 // SecurityConfig 安全配置

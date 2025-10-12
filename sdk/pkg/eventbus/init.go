@@ -155,7 +155,12 @@ func InitializeFromConfig(cfg *config.EventBusConfig) error {
 	return nil
 }
 
-// convertConfig 转换配置格式
+// ConvertConfig 转换配置格式 - 导出版本
+func ConvertConfig(cfg *config.EventBusConfig) *EventBusConfig {
+	return convertConfig(cfg)
+}
+
+// convertConfig 内部转换函数
 func convertConfig(cfg *config.EventBusConfig) *EventBusConfig {
 	eventBusConfig := &EventBusConfig{
 		Type: cfg.Type,
@@ -222,49 +227,34 @@ func convertConfig(cfg *config.EventBusConfig) *EventBusConfig {
 	// 根据类型转换特定配置
 	switch cfg.Type {
 	case "kafka":
-		eventBusConfig.Kafka = KafkaConfig{
-			Brokers: cfg.Kafka.Brokers,
-			Producer: ProducerConfig{
-				RequiredAcks:   cfg.Kafka.Producer.RequiredAcks,
-				Compression:    cfg.Kafka.Producer.Compression,
-				FlushFrequency: cfg.Kafka.Producer.FlushFrequency,
-				FlushMessages:  cfg.Kafka.Producer.FlushMessages,
-				RetryMax:       cfg.Kafka.Producer.RetryMax,
-				Timeout:        cfg.Kafka.Producer.Timeout,
-				BatchSize:      cfg.Kafka.Producer.BatchSize,
-				BufferSize:     cfg.Kafka.Producer.BufferSize,
-			},
-			Consumer: ConsumerConfig{
-				GroupID:           cfg.Kafka.Consumer.GroupID,
-				AutoOffsetReset:   cfg.Kafka.Consumer.AutoOffsetReset,
-				SessionTimeout:    cfg.Kafka.Consumer.SessionTimeout,
-				HeartbeatInterval: cfg.Kafka.Consumer.HeartbeatInterval,
-				MaxProcessingTime: cfg.Kafka.Consumer.MaxProcessingTime,
-				FetchMinBytes:     cfg.Kafka.Consumer.FetchMinBytes,
-				FetchMaxBytes:     cfg.Kafka.Consumer.FetchMaxBytes,
-				FetchMaxWait:      cfg.Kafka.Consumer.FetchMaxWait,
-			},
-			Security: SecurityConfig{
-				Enabled:  cfg.Security.Enabled,
-				Protocol: cfg.Security.Protocol,
-				Username: cfg.Security.Username,
-				Password: cfg.Security.Password,
-				CertFile: cfg.Security.CertFile,
-				KeyFile:  cfg.Security.KeyFile,
-				CAFile:   cfg.Security.CAFile,
-			},
+		// 直接使用配置转换函数，将用户配置转换为程序员内部配置
+		kafkaConfig := convertUserConfigToInternalKafkaConfig(&cfg.Kafka)
+		// 覆盖安全配置（从顶级配置中获取）
+		kafkaConfig.Security = SecurityConfig{
+			Enabled:  cfg.Security.Enabled,
+			Protocol: cfg.Security.Protocol,
+			Username: cfg.Security.Username,
+			Password: cfg.Security.Password,
+			CertFile: cfg.Security.CertFile,
+			KeyFile:  cfg.Security.KeyFile,
+			CAFile:   cfg.Security.CAFile,
 		}
+		// 设置企业级特性配置
+		kafkaConfig.Enterprise = eventBusConfig.Enterprise
+		eventBusConfig.Kafka = *kafkaConfig
 	case "nats":
-		eventBusConfig.NATS = NATSConfig{
+		// 🔥 将用户配置层转换为程序员配置层
+		// 第一步：从用户配置层构建基础配置
+		userNATSConfig := &NATSConfig{
 			URLs:              cfg.NATS.URLs,
 			ClientID:          cfg.NATS.ClientID,
 			MaxReconnects:     cfg.NATS.MaxReconnects,
 			ReconnectWait:     cfg.NATS.ReconnectWait,
 			ConnectionTimeout: cfg.NATS.ConnectionTimeout,
-			// JetStream配置需要单独转换，这里先使用基本配置
 			JetStream: JetStreamConfig{
 				Enabled: cfg.NATS.JetStream.Enabled,
 				Domain:  cfg.NATS.JetStream.Domain,
+				// 用户配置层只有基础字段，其他字段由程序员配置层设置默认值
 			},
 			Security: NATSSecurityConfig{
 				Enabled:  cfg.Security.Enabled,
@@ -275,6 +265,13 @@ func convertConfig(cfg *config.EventBusConfig) *EventBusConfig {
 				CAFile:   cfg.Security.CAFile,
 			},
 		}
+
+		// 第二步：转换为程序员配置层（添加程序员专用字段和默认值）
+		natsConfig := convertUserConfigToInternalNATSConfig(userNATSConfig)
+
+		// 第三步：设置企业级特性配置
+		natsConfig.Enterprise = eventBusConfig.Enterprise
+		eventBusConfig.NATS = *natsConfig
 	}
 
 	return eventBusConfig

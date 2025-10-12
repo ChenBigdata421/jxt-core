@@ -8,26 +8,31 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
-
-	"github.com/ChenBigdata421/jxt-core/sdk/config"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 )
 
 // natsEventBus NATS JetStream事件总线实现
 // 企业级增强版本，专注于JetStream持久化消息
 // 支持方案A（Envelope）消息包络
+// 🔥 优化架构：1个连接，1个JetStream Context，1个Consumer，多个Pull Subscription
 type natsEventBus struct {
 	conn               *nats.Conn
 	js                 nats.JetStreamContext
-	config             *config.NATSConfig
+	config             *NATSConfig // 使用内部配置结构，实现解耦
 	subscriptions      map[string]*nats.Subscription
-	consumers          map[string]nats.ConsumerInfo
 	logger             *zap.Logger
 	mu                 sync.RWMutex
 	closed             bool
 	reconnectCallbacks []func(ctx context.Context) error
+
+	// 🔥 统一Consumer管理 - 优化架构
+	unifiedConsumer    nats.ConsumerInfo         // 单一Consumer
+	topicHandlers      map[string]MessageHandler // topic到handler的映射
+	topicHandlersMu    sync.RWMutex              // topic handlers锁
+	subscribedTopics   []string                  // 当前订阅的topic列表
+	subscribedTopicsMu sync.RWMutex              // subscribed topics锁
 
 	// 企业级特性
 	publishedMessages atomic.Int64
@@ -62,8 +67,7 @@ type natsEventBus struct {
 	backlogDetector          *NATSBacklogDetector      // 订阅端积压检测器
 	publisherBacklogDetector *PublisherBacklogDetector // 发送端积压检测器
 
-	// 完整配置（用于访问 Publisher/Subscriber 配置）
-	fullConfig *EventBusConfig
+	// 移除fullConfig字段，企业级特性配置现在在config.Enterprise中
 
 	// Keyed-Worker池管理（与Kafka保持一致）
 	keyedPools   map[string]*KeyedWorkerPool // topic -> pool
@@ -82,11 +86,201 @@ type natsEventBus struct {
 }
 
 // NewNATSEventBus 创建NATS JetStream事件总线
-func NewNATSEventBus(config *config.NATSConfig) (EventBus, error) {
-	return NewNATSEventBusWithFullConfig(config, nil)
+// 使用内部配置结构，实现配置解耦
+func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
+	if config == nil {
+		return nil, fmt.Errorf("nats config cannot be nil")
+	}
+
+	if len(config.URLs) == 0 {
+		return nil, fmt.Errorf("nats URLs cannot be empty")
+	}
+
+	// 构建连接选项
+	opts := buildNATSOptionsInternal(config)
+
+	// 连接到NATS服务器
+	var nc *nats.Conn
+	var err error
+
+	if len(config.URLs) > 0 {
+		nc, err = nats.Connect(config.URLs[0], opts...)
+	} else {
+		nc, err = nats.Connect(nats.DefaultURL, opts...)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+	}
+
+	// 创建JetStream上下文
+	js, err := nc.JetStream()
+	if err != nil {
+		nc.Close()
+		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
+	}
+
+	// 创建事件总线实例
+	bus := &natsEventBus{
+		conn:               nc,
+		js:                 js,
+		config:             config,
+		subscriptions:      make(map[string]*nats.Subscription),
+		logger:             zap.NewNop(), // 使用空logger，避免依赖问题
+		reconnectCallbacks: make([]func(ctx context.Context) error, 0),
+		topicConfigs:       make(map[string]TopicOptions),
+		// 🔥 初始化统一Consumer管理字段
+		topicHandlers:        make(map[string]MessageHandler),
+		subscribedTopics:     make([]string, 0),
+		subscriptionHandlers: make(map[string]MessageHandler),
+		keyedPools:           make(map[string]*KeyedWorkerPool),
+	}
+
+	logger.Info("NATS EventBus created successfully",
+		"urls", config.URLs,
+		"clientId", config.ClientID)
+
+	// 🔥 初始化统一Consumer（如果启用JetStream）
+	if config.JetStream.Enabled {
+		// 首先确保Stream存在
+		if err := bus.ensureStreamExists(); err != nil {
+			nc.Close()
+			return nil, fmt.Errorf("failed to ensure stream exists: %w", err)
+		}
+
+		if err := bus.initUnifiedConsumer(); err != nil {
+			nc.Close()
+			return nil, fmt.Errorf("failed to initialize unified consumer: %w", err)
+		}
+	}
+
+	return bus, nil
+}
+
+// ensureStreamExists 确保配置的Stream存在
+func (n *natsEventBus) ensureStreamExists() error {
+	if n.js == nil {
+		return fmt.Errorf("JetStream not enabled")
+	}
+
+	streamName := n.config.JetStream.Stream.Name
+	if streamName == "" {
+		return fmt.Errorf("stream name not configured")
+	}
+
+	// 检查Stream是否已存在
+	_, err := n.js.StreamInfo(streamName)
+	if err == nil {
+		// Stream已存在
+		n.logger.Info("JetStream stream already exists", zap.String("stream", streamName))
+		return nil
+	}
+
+	// Stream不存在，创建新的
+	streamConfig := &nats.StreamConfig{
+		Name:      streamName,
+		Subjects:  n.config.JetStream.Stream.Subjects,
+		Retention: parseRetentionPolicy(n.config.JetStream.Stream.Retention),
+		Storage:   parseStorageType(n.config.JetStream.Stream.Storage),
+		Replicas:  n.config.JetStream.Stream.Replicas,
+		MaxAge:    n.config.JetStream.Stream.MaxAge,
+		MaxBytes:  n.config.JetStream.Stream.MaxBytes,
+		MaxMsgs:   n.config.JetStream.Stream.MaxMsgs,
+		Discard:   parseDiscardPolicy(n.config.JetStream.Stream.Discard),
+	}
+
+	_, err = n.js.AddStream(streamConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create stream %s: %w", streamName, err)
+	}
+
+	n.logger.Info("Created JetStream stream",
+		zap.String("stream", streamName),
+		zap.Strings("subjects", streamConfig.Subjects),
+		zap.String("storage", streamConfig.Storage.String()))
+
+	return nil
+}
+
+// 🔥 initUnifiedConsumer 初始化统一Consumer
+func (n *natsEventBus) initUnifiedConsumer() error {
+	// 构建统一Consumer配置
+	durableName := fmt.Sprintf("%s-unified", n.config.JetStream.Consumer.DurableName)
+
+	// 不设置FilterSubject，让每个Pull Subscription自己指定subject过滤
+	// 这样一个统一的Consumer可以支持多个不同的topic订阅
+	consumerConfig := &nats.ConsumerConfig{
+		Durable:       durableName,
+		DeliverPolicy: parseDeliverPolicy(n.config.JetStream.Consumer.DeliverPolicy),
+		AckPolicy:     parseAckPolicy(n.config.JetStream.Consumer.AckPolicy),
+		ReplayPolicy:  parseReplayPolicy(n.config.JetStream.Consumer.ReplayPolicy),
+		MaxAckPending: n.config.JetStream.Consumer.MaxAckPending,
+		MaxWaiting:    n.config.JetStream.Consumer.MaxWaiting,
+		MaxDeliver:    n.config.JetStream.Consumer.MaxDeliver,
+		BackOff:       n.config.JetStream.Consumer.BackOff,
+		// FilterSubject留空，允许多个topic订阅
+	}
+
+	if n.config.JetStream.AckWait > 0 {
+		consumerConfig.AckWait = n.config.JetStream.AckWait
+	}
+
+	// 创建统一Consumer
+	consumer, err := n.js.AddConsumer(n.config.JetStream.Stream.Name, consumerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create unified consumer: %w", err)
+	}
+
+	n.unifiedConsumer = *consumer
+	n.logger.Info("Unified NATS consumer initialized",
+		zap.String("durableName", durableName),
+		zap.String("stream", n.config.JetStream.Stream.Name))
+
+	return nil
+}
+
+// buildNATSOptionsInternal 构建NATS连接选项（内部配置版本）
+func buildNATSOptionsInternal(config *NATSConfig) []nats.Option {
+	var opts []nats.Option
+
+	// 基础配置
+	if config.ClientID != "" {
+		opts = append(opts, nats.Name(config.ClientID))
+	}
+
+	if config.MaxReconnects > 0 {
+		opts = append(opts, nats.MaxReconnects(config.MaxReconnects))
+	}
+
+	if config.ReconnectWait > 0 {
+		opts = append(opts, nats.ReconnectWait(config.ReconnectWait))
+	}
+
+	if config.ConnectionTimeout > 0 {
+		opts = append(opts, nats.Timeout(config.ConnectionTimeout))
+	}
+
+	// 安全配置
+	if config.Security.Enabled {
+		if config.Security.Username != "" && config.Security.Password != "" {
+			opts = append(opts, nats.UserInfo(config.Security.Username, config.Security.Password))
+		}
+
+		if config.Security.CertFile != "" && config.Security.KeyFile != "" {
+			opts = append(opts, nats.ClientCert(config.Security.CertFile, config.Security.KeyFile))
+		}
+
+		if config.Security.CAFile != "" {
+			opts = append(opts, nats.RootCAs(config.Security.CAFile))
+		}
+	}
+
+	return opts
 }
 
 // NewNATSEventBusWithFullConfig 创建NATS JetStream事件总线（带完整配置）
+// 已废弃：使用新的内部配置结构
+/*
 func NewNATSEventBusWithFullConfig(config *config.NATSConfig, fullConfig *EventBusConfig) (EventBus, error) {
 	// 构建连接选项
 	opts := buildNATSOptions(config)
@@ -218,8 +412,11 @@ func NewNATSEventBusWithFullConfig(config *config.NATSConfig, fullConfig *EventB
 
 	return eventBus, nil
 }
+*/
 
 // buildNATSOptions 构建NATS连接选项
+// 已废弃：使用buildNATSOptionsInternal
+/*
 func buildNATSOptions(config *config.NATSConfig) []nats.Option {
 	opts := []nats.Option{
 		nats.MaxReconnects(config.MaxReconnects),
@@ -260,8 +457,11 @@ func buildNATSOptions(config *config.NATSConfig) []nats.Option {
 
 	return opts
 }
+*/
 
 // buildJetStreamOptions 构建JetStream选项
+// 已废弃：使用内部配置
+/*
 func buildJetStreamOptions(config *config.NATSConfig) []nats.JSOpt {
 	var opts []nats.JSOpt
 
@@ -277,8 +477,11 @@ func buildJetStreamOptions(config *config.NATSConfig) []nats.JSOpt {
 
 	return opts
 }
+*/
 
 // ensureStream 确保流存在
+// 已废弃：使用内部配置
+/*
 func ensureStream(js nats.JetStreamContext, config *config.NATSConfig) error {
 	streamConfig := &nats.StreamConfig{
 		Name:      config.JetStream.Stream.Name,
@@ -312,6 +515,7 @@ func ensureStream(js nats.JetStreamContext, config *config.NATSConfig) error {
 
 	return nil
 }
+*/
 
 // parseRetentionPolicy 解析保留策略
 func parseRetentionPolicy(policy string) nats.RetentionPolicy {
@@ -580,63 +784,75 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 	return nil
 }
 
-// subscribeJetStream 使用JetStream订阅
+// 🔥 subscribeJetStream 使用统一Consumer和Pull Subscription订阅
 func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, handler MessageHandler) error {
-	// 构建消费者配置
-	// 为每个主题生成唯一的消费者名称，避免冲突
-	topicSafeName := strings.ReplaceAll(topic, ".", "_")
-	durableName := fmt.Sprintf("%s-%s", n.config.JetStream.Consumer.DurableName, topicSafeName)
+	// 🔥 注册topic handler到统一路由表
+	n.topicHandlersMu.Lock()
+	n.topicHandlers[topic] = handler
+	n.topicHandlersMu.Unlock()
 
-	consumerConfig := &nats.ConsumerConfig{
-		Durable:       durableName,
-		DeliverPolicy: parseDeliverPolicy(n.config.JetStream.Consumer.DeliverPolicy),
-		AckPolicy:     parseAckPolicy(n.config.JetStream.Consumer.AckPolicy),
-		ReplayPolicy:  parseReplayPolicy(n.config.JetStream.Consumer.ReplayPolicy),
-		MaxAckPending: n.config.JetStream.Consumer.MaxAckPending,
-		MaxWaiting:    n.config.JetStream.Consumer.MaxWaiting,
-		MaxDeliver:    n.config.JetStream.Consumer.MaxDeliver,
-		BackOff:       n.config.JetStream.Consumer.BackOff,
-		FilterSubject: topic,
+	// 🔥 添加到订阅topic列表
+	n.subscribedTopicsMu.Lock()
+	needNewSubscription := true
+	for _, t := range n.subscribedTopics {
+		if t == topic {
+			needNewSubscription = false
+			break
+		}
 	}
-
-	if n.config.JetStream.AckWait > 0 {
-		consumerConfig.AckWait = n.config.JetStream.AckWait
+	if needNewSubscription {
+		n.subscribedTopics = append(n.subscribedTopics, topic)
 	}
+	n.subscribedTopicsMu.Unlock()
 
-	// 创建或获取消费者
-	consumer, err := n.js.AddConsumer(n.config.JetStream.Stream.Name, consumerConfig)
+	// 🔥 使用统一Consumer创建Pull Subscription
+	durableName := n.unifiedConsumer.Config.Durable
+	sub, err := n.js.PullSubscribe(topic, durableName)
 	if err != nil {
-		return fmt.Errorf("failed to create consumer: %w", err)
-	}
+		// 回滚更改
+		n.topicHandlersMu.Lock()
+		delete(n.topicHandlers, topic)
+		n.topicHandlersMu.Unlock()
 
-	n.consumers[topic] = *consumer
+		if needNewSubscription {
+			n.subscribedTopicsMu.Lock()
+			for i, t := range n.subscribedTopics {
+				if t == topic {
+					n.subscribedTopics = append(n.subscribedTopics[:i], n.subscribedTopics[i+1:]...)
+					break
+				}
+			}
+			n.subscribedTopicsMu.Unlock()
+		}
 
-	// 创建订阅
-	sub, err := n.js.PullSubscribe(topic, consumerConfig.Durable)
-	if err != nil {
-		return fmt.Errorf("failed to create pull subscription: %w", err)
+		return fmt.Errorf("failed to create pull subscription for topic %s: %w", topic, err)
 	}
 
 	n.subscriptions[topic] = sub
 
 	// 注册消费者到积压检测器
 	if n.backlogDetector != nil {
-		consumerName := fmt.Sprintf("%s-%s", topic, consumerConfig.Durable)
-		n.backlogDetector.RegisterConsumer(consumerName, consumerConfig.Durable)
-		n.logger.Debug("Consumer registered to NATS backlog detector",
+		consumerName := fmt.Sprintf("unified-%s", topic)
+		n.backlogDetector.RegisterConsumer(consumerName, durableName)
+		n.logger.Debug("Topic registered to NATS backlog detector",
 			zap.String("topic", topic),
 			zap.String("consumer", consumerName),
-			zap.String("durable", consumerConfig.Durable))
+			zap.String("durable", durableName))
 	}
 
-	// 启动消息处理协程
-	go n.processPullMessages(ctx, topic, sub, handler)
+	// 🔥 启动统一消息处理协程（每个topic一个Pull Subscription）
+	go n.processUnifiedPullMessages(ctx, topic, sub)
+
+	n.logger.Info("JetStream subscription created via unified consumer",
+		zap.String("topic", topic),
+		zap.String("durableName", durableName),
+		zap.Int("totalTopics", len(n.subscribedTopics)))
 
 	return nil
 }
 
-// processPullMessages 处理拉取的消息
-func (n *natsEventBus) processPullMessages(ctx context.Context, topic string, sub *nats.Subscription, handler MessageHandler) {
+// 🔥 processUnifiedPullMessages 使用统一Consumer处理拉取的消息
+func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic string, sub *nats.Subscription) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -648,7 +864,7 @@ func (n *natsEventBus) processPullMessages(ctx context.Context, topic string, su
 				if err == nats.ErrTimeout {
 					continue // 超时是正常的，继续拉取
 				}
-				n.logger.Error("Failed to fetch messages",
+				n.logger.Error("Failed to fetch messages from unified consumer",
 					zap.String("topic", topic),
 					zap.Error(err))
 				time.Sleep(time.Second)
@@ -657,12 +873,30 @@ func (n *natsEventBus) processPullMessages(ctx context.Context, topic string, su
 
 			// 处理消息
 			for _, msg := range msgs {
+				// 🔥 从统一路由表获取handler
+				n.topicHandlersMu.RLock()
+				handler, exists := n.topicHandlers[topic]
+				n.topicHandlersMu.RUnlock()
+
+				if !exists {
+					n.logger.Warn("No handler found for topic",
+						zap.String("topic", topic))
+					msg.Ack() // 确认消息以避免重复投递
+					continue
+				}
+
 				n.handleMessage(ctx, topic, msg.Data, handler, func() error {
 					return msg.Ack()
 				})
 			}
 		}
 	}
+}
+
+// processPullMessages 处理拉取的消息（保留兼容性）
+func (n *natsEventBus) processPullMessages(ctx context.Context, topic string, sub *nats.Subscription, handler MessageHandler) {
+	// 重定向到统一处理方法
+	n.processUnifiedPullMessages(ctx, topic, sub)
 }
 
 // handleMessage 处理单个消息（支持方案A：Envelope优先级提取）
@@ -847,9 +1081,17 @@ func (n *natsEventBus) Close() error {
 	n.keyedPools = make(map[string]*KeyedWorkerPool)
 	n.keyedPoolsMu.Unlock()
 
-	// 清空订阅和消费者映射
+	// 🔥 清空统一Consumer管理的映射
+	n.topicHandlersMu.Lock()
+	n.topicHandlers = make(map[string]MessageHandler)
+	n.topicHandlersMu.Unlock()
+
+	n.subscribedTopicsMu.Lock()
+	n.subscribedTopics = make([]string, 0)
+	n.subscribedTopicsMu.Unlock()
+
+	// 清空订阅映射
 	n.subscriptions = make(map[string]*nats.Subscription)
-	n.consumers = make(map[string]nats.ConsumerInfo)
 
 	// 关闭NATS连接
 	if n.conn != nil {
@@ -943,10 +1185,10 @@ func (n *natsEventBus) updateJetStreamMetrics() {
 		}
 	}
 
-	// 获取消费者信息
+	// 获取统一消费者信息
 	n.mu.RLock()
-	for consumerName := range n.consumers {
-		if consumerInfo, err := n.js.ConsumerInfo(streamName, consumerName); err == nil {
+	if n.unifiedConsumer.Name != "" {
+		if consumerInfo, err := n.js.ConsumerInfo(streamName, n.unifiedConsumer.Name); err == nil {
 			// 更新消费者指标
 			if n.metrics != nil {
 				n.metrics.MessagesConsumed += int64(consumerInfo.Delivered.Consumer)
@@ -1572,7 +1814,7 @@ func (n *natsEventBus) reconnect(ctx context.Context) error {
 		}
 
 		// 尝试重新初始化连接
-		if err := n.reinitializeConnection(); err != nil {
+		if err := n.reinitializeConnectionInternal(); err != nil {
 			n.logger.Warn("NATS reconnection attempt failed",
 				zap.Int("attempt", attempt),
 				zap.Error(err))
@@ -1629,7 +1871,71 @@ func (n *natsEventBus) calculateBackoff(attempt int) time.Duration {
 	return time.Duration(backoff)
 }
 
+// reinitializeConnectionInternal 重新初始化 NATS 连接（使用内部配置）
+func (n *natsEventBus) reinitializeConnectionInternal() error {
+	// 关闭现有连接
+	if n.conn != nil {
+		n.conn.Close()
+	}
+
+	// 构建连接选项
+	opts := buildNATSOptionsInternal(n.config)
+
+	// 重新连接到NATS服务器
+	var nc *nats.Conn
+	var err error
+
+	if len(n.config.URLs) > 0 {
+		nc, err = nats.Connect(n.config.URLs[0], opts...)
+	} else {
+		nc, err = nats.Connect(nats.DefaultURL, opts...)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to reconnect to NATS: %w", err)
+	}
+
+	// 更新连接
+	n.conn = nc
+
+	// 重新创建JetStream上下文
+	js, err := nc.JetStream()
+	if err != nil {
+		nc.Close()
+		return fmt.Errorf("failed to create JetStream context: %w", err)
+	}
+	n.js = js
+
+	// 重新初始化统一Consumer
+	if err := n.initUnifiedConsumer(); err != nil {
+		nc.Close()
+		return fmt.Errorf("failed to reinitialize unified consumer: %w", err)
+	}
+
+	// 恢复订阅
+	n.subscriptionsMu.RLock()
+	handlers := make(map[string]MessageHandler)
+	for topic, handler := range n.subscriptionHandlers {
+		handlers[topic] = handler
+	}
+	n.subscriptionsMu.RUnlock()
+
+	// 重新订阅所有topic
+	for topic, handler := range handlers {
+		if err := n.Subscribe(context.Background(), topic, handler); err != nil {
+			n.logger.Warn("Failed to restore subscription during reconnection",
+				zap.String("topic", topic),
+				zap.Error(err))
+		}
+	}
+
+	n.logger.Info("NATS connection reinitialized successfully")
+	return nil
+}
+
 // reinitializeConnection 重新初始化 NATS 连接
+// 已废弃：使用内部配置
+/*
 func (n *natsEventBus) reinitializeConnection() error {
 	// 关闭现有连接
 	if n.conn != nil {
@@ -1689,8 +1995,9 @@ func (n *natsEventBus) reinitializeConnection() error {
 	n.logger.Info("NATS connection reinitialized successfully")
 	return nil
 }
+*/
 
-// restoreSubscriptions 恢复所有订阅
+// 🔥 restoreSubscriptions 恢复所有订阅（使用统一Consumer架构）
 func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 	n.subscriptionsMu.RLock()
 	handlers := make(map[string]MessageHandler)
@@ -1704,16 +2011,29 @@ func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 		return nil
 	}
 
-	n.logger.Info("Restoring NATS subscriptions", zap.Int("count", len(handlers)))
+	n.logger.Info("Restoring NATS subscriptions with unified consumer", zap.Int("count", len(handlers)))
 
-	// 清空现有订阅映射
+	// 🔥 重新初始化统一Consumer
+	if n.config.JetStream.Enabled {
+		if err := n.initUnifiedConsumer(); err != nil {
+			n.logger.Error("Failed to reinitialize unified consumer", zap.Error(err))
+			return fmt.Errorf("failed to reinitialize unified consumer: %w", err)
+		}
+	}
+
+	// 🔥 清空现有映射
 	n.subscriptions = make(map[string]*nats.Subscription)
-	n.consumers = make(map[string]nats.ConsumerInfo)
+	n.topicHandlersMu.Lock()
+	n.topicHandlers = make(map[string]MessageHandler)
+	n.topicHandlersMu.Unlock()
+	n.subscribedTopicsMu.Lock()
+	n.subscribedTopics = make([]string, 0)
+	n.subscribedTopicsMu.Unlock()
 
 	var errors []error
 	restoredCount := 0
 
-	// 重新建立每个订阅（只使用JetStream）
+	// 🔥 重新建立每个订阅（使用统一Consumer）
 	for topic, handler := range handlers {
 		err := n.subscribeJetStream(ctx, topic, handler)
 
@@ -1724,9 +2044,9 @@ func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 				zap.Error(err))
 		} else {
 			restoredCount++
-			n.logger.Debug("JetStream subscription restored",
+			n.logger.Debug("JetStream subscription restored via unified consumer",
 				zap.String("topic", topic),
-				zap.Bool("jetstream", true))
+				zap.String("consumer", n.unifiedConsumer.Config.Durable))
 		}
 	}
 

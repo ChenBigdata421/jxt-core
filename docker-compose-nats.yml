@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    container_name: benchmark-nats-jetstream
+    ports:
+      - "4223:4222"    # NATS client port (避免与现有NATS冲突)
+      - "8223:8222"    # HTTP monitoring port (避免冲突)
+      - "6223:6222"    # Cluster port (避免冲突)
+    command: ["--jetstream", "--store_dir=/data", "--http_port=8222"]
+    volumes:
+      - benchmark_nats_data:/data
+    environment:
+      - NATS_DEBUG=true
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - benchmark-network
+
+  # Kafka服务 (用于性能对比测试)
+  kafka:
+    image: bitnami/kafka:3.5.1
+    hostname: benchmark-kafka
+    container_name: benchmark-kafka
+    ports:
+      - "9093:9092"     # Kafka client port (避免与现有Kafka冲突)
+      - "29093:29092"   # External port (避免冲突)
+    environment:
+      - KAFKA_CFG_NODE_ID=2
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=2@benchmark-kafka:9094
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://benchmark-kafka:9092,CONTROLLER://benchmark-kafka:9094,EXTERNAL://0.0.0.0:29092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://benchmark-kafka:9092,EXTERNAL://localhost:29093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_KRAFT_CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk  # 有效的UUID格式
+
+  # RedPanda服务 (Kafka兼容的高性能替代)
+  redpanda:
+    image: redpandadata/redpanda:v23.2.15
+    hostname: benchmark-redpanda
+    container_name: benchmark-redpanda
+    ports:
+      - "29094:9092"   # RedPanda Kafka API port
+      - "9645:9644"    # Admin API port
+    command:
+      - redpanda
+      - start
+      - --node-id=0
+      - --kafka-addr=0.0.0.0:9092
+      - --advertise-kafka-addr=localhost:29094
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=localhost:33145
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --default-log-level=warn
+    volumes:
+      - benchmark_redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - benchmark-network
+
+  # NATS监控面板 (可选)
+  nats-box:
+    image: natsio/nats-box:latest
+    container_name: benchmark-nats-box
+    depends_on:
+      - nats
+    command: >
+      sh -c "
+        echo '🎯 NATS & Kafka Benchmark Environment Ready!';
+        echo '🔵 NATS Server: nats://nats:4222 (External: localhost:4223)';
+        echo '🔵 NATS Monitoring: http://localhost:8223';
+        echo '🟠 Kafka Server: localhost:29093';
+        echo '📊 Use: docker exec -it benchmark-nats-box nats --help';
+        echo '📊 Use: docker exec -it benchmark-kafka kafka-topics.sh --help';
+        tail -f /dev/null
+      "
+    restart: unless-stopped
+    networks:
+      - benchmark-network
+
+volumes:
+  benchmark_nats_data:
+    driver: local
+  benchmark_kafka_data:
+    driver: local
+  benchmark_redpanda_data:
+    driver: local
+
+networks:
+  benchmark-network:
+    driver: bridge
+    name: benchmark-network

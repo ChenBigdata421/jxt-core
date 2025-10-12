@@ -67,21 +67,27 @@ func NewMemoryEventBus() EventBus {
 // Publish 发布消息
 func (m *memoryEventBus) Publish(ctx context.Context, topic string, message []byte) error {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	if m.closed {
+		m.mu.RUnlock()
 		return fmt.Errorf("memory eventbus is closed")
 	}
 
 	handlers, exists := m.subscribers[topic]
 	if !exists || len(handlers) == 0 {
+		m.mu.RUnlock()
 		logger.Debug("No subscribers for topic", "topic", topic)
 		return nil
 	}
 
+	// 🔧 修复并发安全问题：创建handlers的副本，避免在异步goroutine中使用可能被修改的切片
+	handlersCopy := make([]MessageHandler, len(handlers))
+	copy(handlersCopy, handlers)
+	subscriberCount := len(handlersCopy)
+	m.mu.RUnlock()
+
 	// 异步处理消息，避免阻塞发布者
 	go func() {
-		for _, handler := range handlers {
+		for _, handler := range handlersCopy {
 			go func(h MessageHandler) {
 				defer func() {
 					if r := recover(); r != nil {
@@ -101,7 +107,7 @@ func (m *memoryEventBus) Publish(ctx context.Context, topic string, message []by
 	}()
 
 	m.metrics.MessagesPublished++
-	logger.Debug("Message published to memory eventbus", "topic", topic, "subscribers", len(handlers))
+	logger.Debug("Message published to memory eventbus", "topic", topic, "subscribers", subscriberCount)
 	return nil
 }
 
