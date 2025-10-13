@@ -1,0 +1,315 @@
+=== RUN   TestKafkaVsNATSPerformanceComparison
+    kafka_nats_comparison_test.go:89: 🚀 ===== Kafka vs NATS JetStream 全面性能对比测试 =====
+    kafka_nats_comparison_test.go:90: 📋 测试要求:
+    kafka_nats_comparison_test.go:91:    1. 创建 EventBus 实例（Kafka 和 NATS JetStream）
+    kafka_nats_comparison_test.go:92:    2. NATS JetStream 持久化到磁盘
+    kafka_nats_comparison_test.go:93:    3. 使用 PublishEnvelope 方法发布
+    kafka_nats_comparison_test.go:94:    4. 使用 SubscribeEnvelope 方法订阅
+    kafka_nats_comparison_test.go:95:    5. 测试压力：低压500、中压2000、高压5000、极限10000
+    kafka_nats_comparison_test.go:96: 
+    kafka_nats_comparison_test.go:117: 
+        ================================================================================
+    kafka_nats_comparison_test.go:118: 🎯 开始 低压 测试 (500 条消息)
+    kafka_nats_comparison_test.go:119: ================================================================================
+    kafka_nats_comparison_test.go:122: 
+        🔴 测试 Kafka...
+2025-10-12T17:02:36.895+0800	INFO	logger/logger.go:48	Kafka EventBus created successfully (AsyncProducer mode)brokers[localhost:29094]clientIdkafka-perf-低压-1760259756healthCheckInterval30scompressionsnappyflushFrequency10msflushMessages100flushBytes1048576
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 499/500 条消息
+    kafka_nats_comparison_test.go:406: ⏰ 接收超时: 0/500 条消息
+    kafka_nats_comparison_test.go:131: 
+        🔵 测试 NATS JetStream (磁盘持久化)...
+2025-10-12T17:03:17.937+0800	INFO	logger/logger.go:48	NATS EventBus created successfullyurls[nats://localhost:4223]clientIdnats-perf-低压-1760259797
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 499/500 条消息
+    kafka_nats_comparison_test.go:402: ✅ 接收完成: 499/500 条消息
+    kafka_nats_comparison_test.go:473: 
+        ================================================================================
+    kafka_nats_comparison_test.go:474: 📊 低压 测试结果对比
+    kafka_nats_comparison_test.go:475: ================================================================================
+    kafka_nats_comparison_test.go:478: 
+        📨 消息统计:
+    kafka_nats_comparison_test.go:479:    发送消息数                | Kafka:      499 | NATS:      499
+    kafka_nats_comparison_test.go:480:    接收消息数                | Kafka:        0 | NATS:      499
+    kafka_nats_comparison_test.go:481:    成功率                  | Kafka:    0.00% | NATS:  100.00%
+    kafka_nats_comparison_test.go:482:    发送错误                 | Kafka:        1 | NATS:        1
+    kafka_nats_comparison_test.go:483:    处理错误                 | Kafka:        0 | NATS:        0
+    kafka_nats_comparison_test.go:484:    顺序违反                 | Kafka:        0 | NATS:      188
+    kafka_nats_comparison_test.go:487: 
+        🚀 性能指标:
+    kafka_nats_comparison_test.go:488:    发送吞吐量                | Kafka:      16.09 msg/s | NATS:     235.03 msg/s
+    kafka_nats_comparison_test.go:489:    接收吞吐量                | Kafka:       0.00 msg/s | NATS:     235.03 msg/s
+    kafka_nats_comparison_test.go:490:    平均发送延迟               | Kafka:      8.061 ms | NATS:      1.097 ms
+    kafka_nats_comparison_test.go:491:    平均处理延迟               | Kafka:      0.000 ms | NATS:      0.003 ms
+    kafka_nats_comparison_test.go:492:    总耗时                  | Kafka:      31.02 s | NATS:       2.12 s
+    kafka_nats_comparison_test.go:495: 
+        💾 资源占用:
+    kafka_nats_comparison_test.go:496:    初始协程数                | Kafka:        2 | NATS:        3
+    kafka_nats_comparison_test.go:497:    峰值协程数                | Kafka:      131 | NATS:     1424
+    kafka_nats_comparison_test.go:498:    最终协程数                | Kafka:      125 | NATS:     1418
+    kafka_nats_comparison_test.go:499:    协程泄漏                 | Kafka:      123 | NATS:     1415
+    kafka_nats_comparison_test.go:500:    初始内存                 | Kafka:       1.48 MB | NATS:       1.55 MB
+    kafka_nats_comparison_test.go:501:    峰值内存                 | Kafka:       3.17 MB | NATS:      20.68 MB
+    kafka_nats_comparison_test.go:502:    最终内存                 | Kafka:       2.41 MB | NATS:      20.83 MB
+    kafka_nats_comparison_test.go:503:    内存增量                 | Kafka:       1.68 MB | NATS:      19.14 MB
+    kafka_nats_comparison_test.go:506: 
+        🏆 性能优势:
+    kafka_nats_comparison_test.go:512:    NATS 吞吐量优势: ++Inf%
+    kafka_nats_comparison_test.go:517:    Kafka 延迟优势: -100.00%
+    kafka_nats_comparison_test.go:525:    Kafka 内存优势: -91.20%
+    kafka_nats_comparison_test.go:531: ================================================================================
+    kafka_nats_comparison_test.go:534: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:534
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	"0" is not greater than "90"
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	Kafka 成功率应该 > 90%
+    kafka_nats_comparison_test.go:537: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:537
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	Not equal: 
+        	            	expected: 0
+        	            	actual  : 188
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	NATS 不应该有顺序违反
+    kafka_nats_comparison_test.go:117: 
+        ================================================================================
+    kafka_nats_comparison_test.go:118: 🎯 开始 中压 测试 (2000 条消息)
+    kafka_nats_comparison_test.go:119: ================================================================================
+    kafka_nats_comparison_test.go:122: 
+        🔴 测试 Kafka...
+2025-10-12T17:03:30.082+0800	INFO	logger/logger.go:48	Kafka EventBus created successfully (AsyncProducer mode)brokers[localhost:29094]clientIdkafka-perf-中压-1760259810healthCheckInterval30scompressionsnappyflushFrequency10msflushMessages100flushBytes1048576
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 1999/2000 条消息
+    kafka_nats_comparison_test.go:406: ⏰ 接收超时: 0/2000 条消息
+    kafka_nats_comparison_test.go:131: 
+        🔵 测试 NATS JetStream (磁盘持久化)...
+2025-10-12T17:04:41.158+0800	INFO	logger/logger.go:48	NATS EventBus created successfullyurls[nats://localhost:4223]clientIdnats-perf-中压-1760259881
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 1999/2000 条消息
+    kafka_nats_comparison_test.go:402: ✅ 接收完成: 2000/2000 条消息
+    kafka_nats_comparison_test.go:473: 
+        ================================================================================
+    kafka_nats_comparison_test.go:474: 📊 中压 测试结果对比
+    kafka_nats_comparison_test.go:475: ================================================================================
+    kafka_nats_comparison_test.go:478: 
+        📨 消息统计:
+    kafka_nats_comparison_test.go:479:    发送消息数                | Kafka:     1999 | NATS:     1999
+    kafka_nats_comparison_test.go:480:    接收消息数                | Kafka:        0 | NATS:     2000
+    kafka_nats_comparison_test.go:481:    成功率                  | Kafka:    0.00% | NATS:  100.05%
+    kafka_nats_comparison_test.go:482:    发送错误                 | Kafka:        1 | NATS:        1
+    kafka_nats_comparison_test.go:483:    处理错误                 | Kafka:        0 | NATS:        0
+    kafka_nats_comparison_test.go:484:    顺序违反                 | Kafka:        0 | NATS:      970
+    kafka_nats_comparison_test.go:487: 
+        🚀 性能指标:
+    kafka_nats_comparison_test.go:488:    发送吞吐量                | Kafka:      32.74 msg/s | NATS:     122.96 msg/s
+    kafka_nats_comparison_test.go:489:    接收吞吐量                | Kafka:       0.00 msg/s | NATS:     123.02 msg/s
+    kafka_nats_comparison_test.go:490:    平均发送延迟               | Kafka:      9.594 ms | NATS:      2.049 ms
+    kafka_nats_comparison_test.go:491:    平均处理延迟               | Kafka:      0.000 ms | NATS:      0.003 ms
+    kafka_nats_comparison_test.go:492:    总耗时                  | Kafka:      61.06 s | NATS:      16.26 s
+    kafka_nats_comparison_test.go:495: 
+        💾 资源占用:
+    kafka_nats_comparison_test.go:496:    初始协程数                | Kafka:        3 | NATS:        3
+    kafka_nats_comparison_test.go:497:    峰值协程数                | Kafka:      146 | NATS:     1439
+    kafka_nats_comparison_test.go:498:    最终协程数                | Kafka:      125 | NATS:     1418
+    kafka_nats_comparison_test.go:499:    协程泄漏                 | Kafka:      122 | NATS:     1415
+    kafka_nats_comparison_test.go:500:    初始内存                 | Kafka:       2.30 MB | NATS:       2.28 MB
+    kafka_nats_comparison_test.go:501:    峰值内存                 | Kafka:       4.88 MB | NATS:      25.61 MB
+    kafka_nats_comparison_test.go:502:    最终内存                 | Kafka:       3.54 MB | NATS:      22.56 MB
+    kafka_nats_comparison_test.go:503:    内存增量                 | Kafka:       2.58 MB | NATS:      23.33 MB
+    kafka_nats_comparison_test.go:506: 
+        🏆 性能优势:
+    kafka_nats_comparison_test.go:512:    NATS 吞吐量优势: ++Inf%
+    kafka_nats_comparison_test.go:517:    Kafka 延迟优势: -100.00%
+    kafka_nats_comparison_test.go:525:    Kafka 内存优势: -88.92%
+    kafka_nats_comparison_test.go:531: ================================================================================
+    kafka_nats_comparison_test.go:534: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:534
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	"0" is not greater than "90"
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	Kafka 成功率应该 > 90%
+    kafka_nats_comparison_test.go:537: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:537
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	Not equal: 
+        	            	expected: 0
+        	            	actual  : 970
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	NATS 不应该有顺序违反
+    kafka_nats_comparison_test.go:117: 
+        ================================================================================
+    kafka_nats_comparison_test.go:118: 🎯 开始 高压 测试 (5000 条消息)
+    kafka_nats_comparison_test.go:119: ================================================================================
+    kafka_nats_comparison_test.go:122: 
+        🔴 测试 Kafka...
+2025-10-12T17:05:07.439+0800	INFO	logger/logger.go:48	Kafka EventBus created successfully (AsyncProducer mode)brokers[localhost:29094]clientIdkafka-perf-高压-1760259907healthCheckInterval30scompressionsnappyflushFrequency10msflushMessages100flushBytes1048576
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 4999/5000 条消息
+    kafka_nats_comparison_test.go:406: ⏰ 接收超时: 0/5000 条消息
+    kafka_nats_comparison_test.go:131: 
+        🔵 测试 NATS JetStream (磁盘持久化)...
+2025-10-12T17:06:48.579+0800	INFO	logger/logger.go:48	NATS EventBus created successfullyurls[nats://localhost:4223]clientIdnats-perf-高压-1760260008
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 4999/5000 条消息
+    kafka_nats_comparison_test.go:402: ✅ 接收完成: 5000/5000 条消息
+    kafka_nats_comparison_test.go:473: 
+        ================================================================================
+    kafka_nats_comparison_test.go:474: 📊 高压 测试结果对比
+    kafka_nats_comparison_test.go:475: ================================================================================
+    kafka_nats_comparison_test.go:478: 
+        📨 消息统计:
+    kafka_nats_comparison_test.go:479:    发送消息数                | Kafka:     4999 | NATS:     4999
+    kafka_nats_comparison_test.go:480:    接收消息数                | Kafka:        0 | NATS:     5000
+    kafka_nats_comparison_test.go:481:    成功率                  | Kafka:    0.00% | NATS:  100.02%
+    kafka_nats_comparison_test.go:482:    发送错误                 | Kafka:        1 | NATS:        1
+    kafka_nats_comparison_test.go:483:    处理错误                 | Kafka:        0 | NATS:        0
+    kafka_nats_comparison_test.go:484:    顺序违反                 | Kafka:        0 | NATS:     2468
+    kafka_nats_comparison_test.go:487: 
+        🚀 性能指标:
+    kafka_nats_comparison_test.go:488:    发送吞吐量                | Kafka:      54.86 msg/s | NATS:      82.65 msg/s
+    kafka_nats_comparison_test.go:489:    接收吞吐量                | Kafka:       0.00 msg/s | NATS:      82.67 msg/s
+    kafka_nats_comparison_test.go:490:    平均发送延迟               | Kafka:      9.979 ms | NATS:      2.901 ms
+    kafka_nats_comparison_test.go:491:    平均处理延迟               | Kafka:      0.000 ms | NATS:      0.002 ms
+    kafka_nats_comparison_test.go:492:    总耗时                  | Kafka:      91.13 s | NATS:      60.48 s
+    kafka_nats_comparison_test.go:495: 
+        💾 资源占用:
+    kafka_nats_comparison_test.go:496:    初始协程数                | Kafka:        3 | NATS:        3
+    kafka_nats_comparison_test.go:497:    峰值协程数                | Kafka:      176 | NATS:     1469
+    kafka_nats_comparison_test.go:498:    最终协程数                | Kafka:      125 | NATS:     1418
+    kafka_nats_comparison_test.go:499:    协程泄漏                 | Kafka:      122 | NATS:     1415
+    kafka_nats_comparison_test.go:500:    初始内存                 | Kafka:       2.58 MB | NATS:       2.50 MB
+    kafka_nats_comparison_test.go:501:    峰值内存                 | Kafka:       5.63 MB | NATS:      27.07 MB
+    kafka_nats_comparison_test.go:502:    最终内存                 | Kafka:       3.56 MB | NATS:      18.65 MB
+    kafka_nats_comparison_test.go:503:    内存增量                 | Kafka:       3.05 MB | NATS:      24.57 MB
+    kafka_nats_comparison_test.go:506: 
+        🏆 性能优势:
+    kafka_nats_comparison_test.go:512:    NATS 吞吐量优势: ++Inf%
+    kafka_nats_comparison_test.go:517:    Kafka 延迟优势: -100.00%
+    kafka_nats_comparison_test.go:525:    Kafka 内存优势: -87.58%
+    kafka_nats_comparison_test.go:531: ================================================================================
+    kafka_nats_comparison_test.go:534: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:534
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	"0" is not greater than "90"
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	Kafka 成功率应该 > 90%
+    kafka_nats_comparison_test.go:537: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:537
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	Not equal: 
+        	            	expected: 0
+        	            	actual  : 2468
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	NATS 不应该有顺序违反
+    kafka_nats_comparison_test.go:117: 
+        ================================================================================
+    kafka_nats_comparison_test.go:118: 🎯 开始 极限 测试 (10000 条消息)
+    kafka_nats_comparison_test.go:119: ================================================================================
+    kafka_nats_comparison_test.go:122: 
+        🔴 测试 Kafka...
+2025-10-12T17:07:59.083+0800	INFO	logger/logger.go:48	Kafka EventBus created successfully (AsyncProducer mode)brokers[localhost:29094]clientIdkafka-perf-极限-1760260079healthCheckInterval30scompressionsnappyflushFrequency10msflushMessages100flushBytes1048576
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 9999/10000 条消息
+    kafka_nats_comparison_test.go:406: ⏰ 接收超时: 0/10000 条消息
+    kafka_nats_comparison_test.go:131: 
+        🔵 测试 NATS JetStream (磁盘持久化)...
+2025-10-12T17:10:40.346+0800	INFO	logger/logger.go:48	NATS EventBus created successfullyurls[nats://localhost:4223]clientIdnats-perf-极限-1760260240
+    kafka_nats_comparison_test.go:388: ✅ 发送完成: 9999/10000 条消息
+    kafka_nats_comparison_test.go:402: ✅ 接收完成: 9733/10000 条消息
+    kafka_nats_comparison_test.go:473: 
+        ================================================================================
+    kafka_nats_comparison_test.go:474: 📊 极限 测试结果对比
+    kafka_nats_comparison_test.go:475: ================================================================================
+    kafka_nats_comparison_test.go:478: 
+        📨 消息统计:
+    kafka_nats_comparison_test.go:479:    发送消息数                | Kafka:     9999 | NATS:     9999
+    kafka_nats_comparison_test.go:480:    接收消息数                | Kafka:        0 | NATS:    10000
+    kafka_nats_comparison_test.go:481:    成功率                  | Kafka:    0.00% | NATS:   97.34%
+    kafka_nats_comparison_test.go:482:    发送错误                 | Kafka:        1 | NATS:        1
+    kafka_nats_comparison_test.go:483:    处理错误                 | Kafka:        0 | NATS:        0
+    kafka_nats_comparison_test.go:484:    顺序违反                 | Kafka:        0 | NATS:     4902
+    kafka_nats_comparison_test.go:487: 
+        🚀 性能指标:
+    kafka_nats_comparison_test.go:488:    发送吞吐量                | Kafka:      66.11 msg/s | NATS:      73.95 msg/s
+    kafka_nats_comparison_test.go:489:    接收吞吐量                | Kafka:       0.00 msg/s | NATS:      71.99 msg/s
+    kafka_nats_comparison_test.go:490:    平均发送延迟               | Kafka:     10.120 ms | NATS:      4.186 ms
+    kafka_nats_comparison_test.go:491:    平均处理延迟               | Kafka:      0.000 ms | NATS:      0.001 ms
+    kafka_nats_comparison_test.go:492:    总耗时                  | Kafka:     151.24 s | NATS:     135.21 s
+    kafka_nats_comparison_test.go:495: 
+        💾 资源占用:
+    kafka_nats_comparison_test.go:496:    初始协程数                | Kafka:        3 | NATS:        3
+    kafka_nats_comparison_test.go:497:    峰值协程数                | Kafka:      226 | NATS:     1519
+    kafka_nats_comparison_test.go:498:    最终协程数                | Kafka:      125 | NATS:     1418
+    kafka_nats_comparison_test.go:499:    协程泄漏                 | Kafka:      122 | NATS:     1415
+    kafka_nats_comparison_test.go:500:    初始内存                 | Kafka:       2.74 MB | NATS:       2.66 MB
+    kafka_nats_comparison_test.go:501:    峰值内存                 | Kafka:       6.07 MB | NATS:      26.16 MB
+    kafka_nats_comparison_test.go:502:    最终内存                 | Kafka:       3.44 MB | NATS:      23.93 MB
+    kafka_nats_comparison_test.go:503:    内存增量                 | Kafka:       3.33 MB | NATS:      23.50 MB
+    kafka_nats_comparison_test.go:506: 
+        🏆 性能优势:
+    kafka_nats_comparison_test.go:512:    NATS 吞吐量优势: ++Inf%
+    kafka_nats_comparison_test.go:517:    Kafka 延迟优势: -100.00%
+    kafka_nats_comparison_test.go:525:    Kafka 内存优势: -85.85%
+    kafka_nats_comparison_test.go:531: ================================================================================
+    kafka_nats_comparison_test.go:534: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:534
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	"0" is not greater than "90"
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	Kafka 成功率应该 > 90%
+    kafka_nats_comparison_test.go:537: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:537
+        	            				D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/performance_tests/kafka_nats_comparison_test.go:136
+        	Error:      	Not equal: 
+        	            	expected: 0
+        	            	actual  : 4902
+        	Test:       	TestKafkaVsNATSPerformanceComparison
+        	Messages:   	NATS 不应该有顺序违反
+    kafka_nats_comparison_test.go:542: 
+        ====================================================================================================
+    kafka_nats_comparison_test.go:543: 🏆 Kafka vs NATS JetStream 综合性能对比报告
+    kafka_nats_comparison_test.go:544: ====================================================================================================
+    kafka_nats_comparison_test.go:555: 
+        📊 性能指标汇总表:
+    kafka_nats_comparison_test.go:556: 压力级别       | 系统              | 吞吐量(msg/s)      | 延迟(ms)          | 成功率(%)          | 内存增量(MB)        | 协程泄漏           
+    kafka_nats_comparison_test.go:558: ----------------------------------------------------------------------------------------------------
+    kafka_nats_comparison_test.go:564: 低压         | Kafka           |            0.00 |           0.000 |            0.00 |            1.68 |             123
+    kafka_nats_comparison_test.go:567: 低压         | NATS            |          235.03 |           0.003 |          100.00 |           19.14 |            1415
+    kafka_nats_comparison_test.go:570: ----------------------------------------------------------------------------------------------------
+    kafka_nats_comparison_test.go:564: 中压         | Kafka           |            0.00 |           0.000 |            0.00 |            2.58 |             122
+    kafka_nats_comparison_test.go:567: 中压         | NATS            |          123.02 |           0.003 |          100.05 |           23.33 |            1415
+    kafka_nats_comparison_test.go:570: ----------------------------------------------------------------------------------------------------
+    kafka_nats_comparison_test.go:564: 高压         | Kafka           |            0.00 |           0.000 |            0.00 |            3.05 |             122
+    kafka_nats_comparison_test.go:567: 高压         | NATS            |           82.67 |           0.002 |          100.02 |           24.57 |            1415
+    kafka_nats_comparison_test.go:570: ----------------------------------------------------------------------------------------------------
+    kafka_nats_comparison_test.go:564: 极限         | Kafka           |            0.00 |           0.000 |            0.00 |            3.33 |             122
+    kafka_nats_comparison_test.go:567: 极限         | NATS            |           71.99 |           0.001 |           97.34 |           23.50 |            1415
+    kafka_nats_comparison_test.go:570: ----------------------------------------------------------------------------------------------------
+    kafka_nats_comparison_test.go:596: 
+        🎯 综合评分:
+    kafka_nats_comparison_test.go:597: 平均吞吐量                | Kafka:       0.00 msg/s | NATS:     128.18 msg/s
+    kafka_nats_comparison_test.go:598: 平均延迟                 | Kafka:      0.000 ms | NATS:      0.002 ms
+    kafka_nats_comparison_test.go:599: 平均内存增量               | Kafka:       2.66 MB | NATS:      22.63 MB
+    kafka_nats_comparison_test.go:602: 
+        🏆 最终结论:
+    kafka_nats_comparison_test.go:613:    ✅ 吞吐量: NATS 胜出 (++Inf%)
+    kafka_nats_comparison_test.go:619:    ✅ 延迟: Kafka 胜出 (-100.00%)
+    kafka_nats_comparison_test.go:629:    ✅ 内存效率: Kafka 胜出 (-88.24%)
+    kafka_nats_comparison_test.go:637: 
+        🎉 总体获胜者:
+    kafka_nats_comparison_test.go:639:    🥇 Kafka 以 2:1 获胜！
+    kafka_nats_comparison_test.go:647: 
+        💡 使用建议:
+    kafka_nats_comparison_test.go:648: 🔴 选择 Kafka 当:
+    kafka_nats_comparison_test.go:649:    • 需要企业级可靠性和持久化保证
+    kafka_nats_comparison_test.go:650:    • 需要复杂的数据处理管道
+    kafka_nats_comparison_test.go:651:    • 需要成熟的生态系统和工具链
+    kafka_nats_comparison_test.go:652:    • 数据量大且需要长期保存
+    kafka_nats_comparison_test.go:654: 
+        🔵 选择 NATS JetStream 当:
+    kafka_nats_comparison_test.go:655:    • 需要极致的性能和低延迟
+    kafka_nats_comparison_test.go:656:    • 需要简单的部署和运维
+    kafka_nats_comparison_test.go:657:    • 需要轻量级的消息传递
+    kafka_nats_comparison_test.go:658:    • 构建实时应用和微服务
+    kafka_nats_comparison_test.go:660: 
+        ====================================================================================================
+    kafka_nats_comparison_test.go:661: ✅ 测试完成！共执行 4 个场景，8 次测试
+    kafka_nats_comparison_test.go:662: ====================================================================================================
+--- FAIL: TestKafkaVsNATSPerformanceComparison (628.69s)
+FAIL
+exit status 1
+FAIL	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus/performance_tests	629.694s

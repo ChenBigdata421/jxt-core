@@ -21,6 +21,24 @@ const (
 // MessageHandler 消息处理器函数类型
 type MessageHandler func(ctx context.Context, message []byte) error
 
+// PublishResult 异步发布结果
+type PublishResult struct {
+	// EventID 事件ID（来自Envelope.EventID或自定义ID）
+	EventID string
+	// Topic 主题
+	Topic string
+	// Success 是否成功
+	Success bool
+	// Error 错误信息（失败时）
+	Error error
+	// Timestamp 发布时间戳
+	Timestamp time.Time
+	// AggregateID 聚合ID（可选，来自Envelope）
+	AggregateID string
+	// EventType 事件类型（可选，来自Envelope）
+	EventType string
+}
+
 // EventBus 统一事件总线接口（合并基础功能和企业特性）
 type EventBus interface {
 	// ========== 基础功能 ==========
@@ -73,13 +91,6 @@ type EventBus interface {
 	// 停止所有积压监控
 	StopAllBacklogMonitoring() error
 
-	// ========== 向后兼容接口（已废弃） ==========
-	// 注册订阅端积压回调（已废弃，请使用RegisterSubscriberBacklogCallback）
-	RegisterBacklogCallback(callback BacklogStateCallback) error
-	// 启动订阅端积压监控（已废弃，请使用StartSubscriberBacklogMonitoring）
-	StartBacklogMonitoring(ctx context.Context) error
-	// 停止订阅端积压监控（已废弃，请使用StopSubscriberBacklogMonitoring）
-	StopBacklogMonitoring() error
 	// 设置消息路由器
 	SetMessageRouter(router MessageRouter) error
 	// 设置错误处理器
@@ -145,12 +156,17 @@ type EventBus interface {
 	GetTopicConfigStrategy() TopicConfigStrategy
 
 	// ========== Envelope 支持（可选使用） ==========
-	// 发布Envelope消息
+	// 发布Envelope消息（异步发布，立即返回）
 	PublishEnvelope(ctx context.Context, topic string, envelope *Envelope) error
 	// SubscribeEnvelope 订阅Envelope消息（自动使用Keyed-Worker池）
 	// 特点：按聚合ID顺序处理，事件溯源支持，毫秒级延迟
 	// 适用：领域事件、事件溯源、聚合管理等需要顺序保证的场景
 	SubscribeEnvelope(ctx context.Context, topic string, handler EnvelopeHandler) error
+
+	// ========== 异步发布结果处理（用于Outbox模式） ==========
+	// GetPublishResultChannel 获取异步发布结果通道
+	// 用于Outbox Processor监听发布结果并更新Outbox状态
+	GetPublishResultChannel() <-chan *PublishResult
 }
 
 // Publisher 发布器接口

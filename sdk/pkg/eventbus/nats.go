@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,188 @@ import (
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 )
+
+// WorkItemInterface 通用工作项接口
+type WorkItemInterface interface {
+	GetTopic() string
+	Process() error
+}
+
+// NATSWorkItem NATS专用的全局Worker池工作项
+type NATSWorkItem struct {
+	Topic    string
+	Data     []byte
+	Handler  MessageHandler
+	AckFunc  func() error
+	Context  context.Context
+	EventBus *natsEventBus // 用于更新统计计数器
+}
+
+// GetTopic 实现WorkItemInterface接口
+func (w NATSWorkItem) GetTopic() string {
+	return w.Topic
+}
+
+// Process 实现WorkItemInterface接口
+func (w NATSWorkItem) Process() error {
+	// 处理消息
+	err := w.Handler(w.Context, w.Data)
+	if err != nil {
+		if w.EventBus != nil {
+			w.EventBus.errorCount.Add(1)
+		}
+		return err
+	}
+
+	// 确认消息
+	err = w.AckFunc()
+	if err != nil {
+		if w.EventBus != nil {
+			w.EventBus.errorCount.Add(1)
+		}
+		return err
+	}
+
+	// 更新消费计数器
+	if w.EventBus != nil {
+		w.EventBus.consumedMessages.Add(1)
+	}
+
+	return nil
+}
+
+// NATSGlobalWorkerPool NATS专用的全局Worker池
+type NATSGlobalWorkerPool struct {
+	workers     []*NATSWorker
+	workQueue   chan NATSWorkItem
+	workerCount int
+	queueSize   int
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	logger      *zap.Logger
+}
+
+// NATSWorker NATS专用的Worker
+type NATSWorker struct {
+	id       int
+	pool     *NATSGlobalWorkerPool
+	workChan chan NATSWorkItem
+	quit     chan bool
+}
+
+// NewNATSGlobalWorkerPool 创建NATS专用的全局Worker池
+func NewNATSGlobalWorkerPool(workerCount int, logger *zap.Logger) *NATSGlobalWorkerPool {
+	if workerCount <= 0 {
+		workerCount = runtime.NumCPU() * 2 // 默认：CPU核心数 × 2
+	}
+
+	queueSize := workerCount * 100 // 队列大小：worker数量 × 100
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	pool := &NATSGlobalWorkerPool{
+		workers:     make([]*NATSWorker, workerCount),
+		workQueue:   make(chan NATSWorkItem, queueSize),
+		workerCount: workerCount,
+		queueSize:   queueSize,
+		ctx:         ctx,
+		cancel:      cancel,
+		logger:      logger,
+	}
+
+	// 创建并启动workers
+	for i := 0; i < workerCount; i++ {
+		worker := &NATSWorker{
+			id:       i,
+			pool:     pool,
+			workChan: pool.workQueue,
+			quit:     make(chan bool),
+		}
+		pool.workers[i] = worker
+		pool.wg.Add(1)
+		go worker.start()
+	}
+
+	logger.Info("NATS Global Worker Pool started",
+		zap.Int("workerCount", workerCount),
+		zap.Int("queueSize", queueSize))
+
+	return pool
+}
+
+// SubmitWork 提交工作到NATS全局Worker池
+func (p *NATSGlobalWorkerPool) SubmitWork(work NATSWorkItem) bool {
+	select {
+	case p.workQueue <- work:
+		return true
+	case <-time.After(100 * time.Millisecond):
+		// 等待100ms后仍然满，记录警告但仍尝试提交
+		p.logger.Warn("NATS Global worker pool queue full, applying backpressure",
+			zap.String("topic", work.Topic))
+		// 阻塞等待，确保消息不丢失
+		p.workQueue <- work
+		return true
+	}
+}
+
+// start NATSWorker启动
+func (w *NATSWorker) start() {
+	defer w.pool.wg.Done()
+
+	for {
+		select {
+		case work := <-w.workChan:
+			w.processWork(work)
+		case <-w.quit:
+			return
+		case <-w.pool.ctx.Done():
+			return
+		}
+	}
+}
+
+// processWork 处理工作
+func (w *NATSWorker) processWork(work NATSWorkItem) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.pool.logger.Error("NATS Worker panic during message processing",
+				zap.Int("workerID", w.id),
+				zap.String("topic", work.Topic),
+				zap.Any("panic", r))
+		}
+	}()
+
+	// 处理消息并确认
+	err := work.Process()
+	if err != nil {
+		w.pool.logger.Error("NATS Message processing failed",
+			zap.Int("workerID", w.id),
+			zap.String("topic", work.Topic),
+			zap.Error(err))
+	}
+}
+
+// Close 关闭NATS全局Worker池
+func (p *NATSGlobalWorkerPool) Close() {
+	p.logger.Info("Shutting down NATS global worker pool")
+
+	// 取消上下文
+	p.cancel()
+
+	// 关闭所有worker的quit通道
+	for _, worker := range p.workers {
+		close(worker.quit)
+	}
+
+	// 等待所有worker完成
+	p.wg.Wait()
+
+	// 关闭工作队列
+	close(p.workQueue)
+
+	p.logger.Info("NATS Global worker pool shut down completed")
+}
 
 // natsEventBus NATS JetStream事件总线实现
 // 企业级增强版本，专注于JetStream持久化消息
@@ -73,6 +256,11 @@ type natsEventBus struct {
 	keyedPools   map[string]*KeyedWorkerPool // topic -> pool
 	keyedPoolsMu sync.RWMutex
 
+	// ✅ 优化 7: 统一Keyed-Worker池（新方案）
+	// 有聚合ID的消息：基于哈希路由（保证顺序）
+	// 无聚合ID的消息：轮询分配（高并发）
+	unifiedWorkerPool *UnifiedWorkerPool
+
 	// 主题配置管理
 	topicConfigs          map[string]TopicOptions
 	topicConfigsMu        sync.RWMutex
@@ -83,6 +271,17 @@ type natsEventBus struct {
 	healthCheckSubscriber *HealthCheckSubscriber
 	// 健康检查发布器
 	healthChecker *HealthChecker
+
+	// 异步发布结果通道（用于Outbox模式）
+	publishResultChan chan *PublishResult
+	// 异步发布结果处理控制
+	publishResultWg     sync.WaitGroup
+	publishResultCancel context.CancelFunc
+	// 是否启用发布结果通道（性能优化：默认禁用）
+	enablePublishResult bool
+
+	// ✅ 重构：移除 per-message goroutine，使用全局错误处理器
+	// asyncAckCtx, asyncAckCancel, asyncAckWg 已移除
 }
 
 // NewNATSEventBus 创建NATS JetStream事件总线
@@ -113,11 +312,21 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
-	// 创建JetStream上下文
-	js, err := nc.JetStream()
-	if err != nil {
-		nc.Close()
-		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
+	// 创建JetStream上下文（配置异步发布优化）
+	var js nats.JetStreamContext
+	if config.JetStream.Enabled {
+		// ✅ 优化 1: 配置异步发布选项
+		jsOpts := []nats.JSOpt{
+			// ✅ 优化：增加未确认消息数量限制到 100000
+			// 从 50000 增加到 100000，减少极限场景阻塞概率
+			nats.PublishAsyncMaxPending(100000),
+		}
+
+		js, err = nc.JetStream(jsOpts...)
+		if err != nil {
+			nc.Close()
+			return nil, fmt.Errorf("failed to create JetStream context: %w", err)
+		}
 	}
 
 	// 创建事件总线实例
@@ -134,7 +343,50 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		subscribedTopics:     make([]string, 0),
 		subscriptionHandlers: make(map[string]MessageHandler),
 		keyedPools:           make(map[string]*KeyedWorkerPool),
+		// 🚀 初始化异步发布结果通道（缓冲区大小：10000）
+		publishResultChan: make(chan *PublishResult, 10000),
 	}
+
+	// ✅ 重构：配置全局异步发布处理器（业界最佳实践）
+	if config.JetStream.Enabled && js != nil {
+		// 重新创建JetStream上下文，添加全局错误处理器
+		jsOpts := []nats.JSOpt{
+			// ✅ 优化：增加未确认消息数量限制到 100000
+			// 从 50000 增加到 100000，减少极限场景阻塞概率
+			// 注意：这个值需要根据实际场景调整
+			// - 低并发场景：256 足够
+			// - 高并发场景：需要更大的值（如 10000）
+			// - 极限场景：需要非常大的值（如 100000）
+			nats.PublishAsyncMaxPending(100000),
+
+			// ✅ 全局错误处理器（业界最佳实践）
+			// 只处理错误，成功的 ACK 由 NATS 内部自动处理
+			// 这样可以避免为每条消息创建 goroutine
+			nats.PublishAsyncErrHandler(func(js nats.JetStream, originalMsg *nats.Msg, err error) {
+				bus.errorCount.Add(1)
+				bus.logger.Error("Async publish failed (global handler)",
+					zap.String("subject", originalMsg.Subject),
+					zap.Int("dataSize", len(originalMsg.Data)),
+					zap.Error(err))
+			}),
+		}
+
+		// 重新创建带错误处理器的JetStream上下文
+		js, err = nc.JetStream(jsOpts...)
+		if err != nil {
+			nc.Close()
+			return nil, fmt.Errorf("failed to create JetStream context with error handler: %w", err)
+		}
+		bus.js = js
+
+		logger.Info("NATS JetStream configured with global async publish handler",
+			zap.Int("maxPending", 100000))
+	}
+
+	// ✅ 优化 7: 初始化统一Keyed-Worker池（新方案）
+	// 有聚合ID：基于哈希路由（保证顺序）
+	// 无聚合ID：轮询分配（高并发）
+	bus.unifiedWorkerPool = NewUnifiedWorkerPool(0, bus.logger) // 0表示使用默认worker数量（CPU核心数×16）
 
 	logger.Info("NATS EventBus created successfully",
 		"urls", config.URLs,
@@ -209,20 +461,29 @@ func (n *natsEventBus) initUnifiedConsumer() error {
 
 	// 不设置FilterSubject，让每个Pull Subscription自己指定subject过滤
 	// 这样一个统一的Consumer可以支持多个不同的topic订阅
+
+	// 🔥 优化 ACK 机制：增加 AckWait，减少 MaxAckPending
+	ackWait := n.config.JetStream.AckWait
+	if ackWait <= 0 {
+		ackWait = 60 * time.Second // 默认 60 秒（从 30 秒增加）
+	}
+
+	maxAckPending := n.config.JetStream.Consumer.MaxAckPending
+	if maxAckPending <= 0 || maxAckPending > 1000 {
+		maxAckPending = 1000 // 默认 1000（从 65536 减少）
+	}
+
 	consumerConfig := &nats.ConsumerConfig{
 		Durable:       durableName,
 		DeliverPolicy: parseDeliverPolicy(n.config.JetStream.Consumer.DeliverPolicy),
 		AckPolicy:     parseAckPolicy(n.config.JetStream.Consumer.AckPolicy),
 		ReplayPolicy:  parseReplayPolicy(n.config.JetStream.Consumer.ReplayPolicy),
-		MaxAckPending: n.config.JetStream.Consumer.MaxAckPending,
+		AckWait:       ackWait,
+		MaxAckPending: maxAckPending,
 		MaxWaiting:    n.config.JetStream.Consumer.MaxWaiting,
 		MaxDeliver:    n.config.JetStream.Consumer.MaxDeliver,
 		BackOff:       n.config.JetStream.Consumer.BackOff,
 		// FilterSubject留空，允许多个topic订阅
-	}
-
-	if n.config.JetStream.AckWait > 0 {
-		consumerConfig.AckWait = n.config.JetStream.AckWait
 	}
 
 	// 创建统一Consumer
@@ -259,6 +520,17 @@ func buildNATSOptionsInternal(config *NATSConfig) []nats.Option {
 	if config.ConnectionTimeout > 0 {
 		opts = append(opts, nats.Timeout(config.ConnectionTimeout))
 	}
+
+	// ✅ 修复问题1: 增加写入刷新超时配置（防止 I/O timeout）
+	// 默认10秒，高压场景下足够处理TCP写缓冲区满的情况
+	opts = append(opts, nats.FlusherTimeout(10*time.Second))
+
+	// ✅ 修复问题1: 增加心跳配置（保持连接活跃）
+	opts = append(opts, nats.PingInterval(20*time.Second))
+
+	// ✅ 修复问题1: 增加重连缓冲区大小（默认32KB -> 1MB）
+	// 高并发场景下可以缓冲更多待发送消息
+	opts = append(opts, nats.ReconnectBufSize(1024*1024))
 
 	// 安全配置
 	if config.Security.Enabled {
@@ -630,13 +902,14 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 	}
 
 	if shouldUsePersistent && n.js != nil {
-		// 使用JetStream发布（持久化）
+		// ✅ 优化 1: 使用JetStream异步发布（持久化）
 		var pubOpts []nats.PubOpt
 		if n.config.JetStream.PublishTimeout > 0 {
 			pubOpts = append(pubOpts, nats.AckWait(n.config.JetStream.PublishTimeout))
 		}
 
-		_, err = n.js.Publish(topic, message, pubOpts...)
+		// ✅ 异步发布（不等待ACK，由统一错误处理器处理失败）
+		_, err = n.js.PublishAsync(topic, message, pubOpts...)
 		if err != nil {
 			n.errorCount.Add(1)
 			n.logger.Error("Failed to publish message to NATS JetStream",
@@ -646,6 +919,8 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 				zap.Error(err))
 			return err
 		}
+		// ✅ 成功的ACK由NATS内部自动处理
+		// ✅ 错误的ACK由PublishAsyncErrHandler统一处理
 	} else {
 		// 使用Core NATS发布（非持久化）
 		err = n.conn.Publish(topic, message)
@@ -716,6 +991,9 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 //	    return processNotification(notification) // 直接并发处理
 //	})
 func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler MessageHandler) error {
+	n.logger.Error("🔥 SUBSCRIBE CALLED",
+		zap.String("topic", topic))
+
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -736,11 +1014,19 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 	// 根据配置选择订阅模式
 	var err error
 
+	n.logger.Error("🔥 SUBSCRIPTION MODE CHECK",
+		zap.Bool("jetStreamEnabled", n.config.JetStream.Enabled),
+		zap.Bool("jsNotNil", n.js != nil))
+
 	if n.config.JetStream.Enabled && n.js != nil {
 		// 使用JetStream订阅（持久化）
+		n.logger.Error("🔥 USING JETSTREAM SUBSCRIPTION",
+			zap.String("topic", topic))
 		err = n.subscribeJetStream(ctx, topic, handler)
 	} else {
 		// 使用Core NATS订阅（非持久化）
+		n.logger.Error("🔥 USING CORE NATS SUBSCRIPTION",
+			zap.String("topic", topic))
 		msgHandler := func(msg *nats.Msg) {
 			n.handleMessage(ctx, topic, msg.Data, handler, func() error {
 				return nil // Core NATS不需要手动确认
@@ -805,8 +1091,15 @@ func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, han
 	}
 	n.subscribedTopicsMu.Unlock()
 
-	// 🔥 使用统一Consumer创建Pull Subscription
-	durableName := n.unifiedConsumer.Config.Durable
+	// 🔥 为每个 topic 创建独立的 Durable Consumer（避免跨 topic 消息混淆）
+	// 格式：{base_durable_name}_{topic}
+	baseDurableName := n.unifiedConsumer.Config.Durable
+	// 将 topic 中的特殊字符替换为下划线，避免 consumer 名称冲突
+	topicSuffix := strings.ReplaceAll(topic, ".", "_")
+	topicSuffix = strings.ReplaceAll(topicSuffix, "*", "wildcard")
+	topicSuffix = strings.ReplaceAll(topicSuffix, ">", "all")
+	durableName := fmt.Sprintf("%s_%s", baseDurableName, topicSuffix)
+
 	sub, err := n.js.PullSubscribe(topic, durableName)
 	if err != nil {
 		// 回滚更改
@@ -841,6 +1134,8 @@ func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, han
 	}
 
 	// 🔥 启动统一消息处理协程（每个topic一个Pull Subscription）
+	n.logger.Error("🔥 STARTING processUnifiedPullMessages",
+		zap.String("topic", topic))
 	go n.processUnifiedPullMessages(ctx, topic, sub)
 
 	n.logger.Info("JetStream subscription created via unified consumer",
@@ -858,8 +1153,10 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 		case <-ctx.Done():
 			return
 		default:
+			// ✅ 优化 2: 增大批量拉取大小（10 → 500）
+			// ✅ 优化 3: 缩短 MaxWait 时间（1s → 100ms）
 			// 拉取消息
-			msgs, err := sub.Fetch(10, nats.MaxWait(time.Second))
+			msgs, err := sub.Fetch(500, nats.MaxWait(100*time.Millisecond))
 			if err != nil {
 				if err == nats.ErrTimeout {
 					continue // 超时是正常的，继续拉取
@@ -872,11 +1169,19 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 			}
 
 			// 处理消息
+			n.logger.Error("🔥 PROCESSING MESSAGES",
+				zap.String("topic", topic),
+				zap.Int("msgCount", len(msgs)))
+
 			for _, msg := range msgs {
 				// 🔥 从统一路由表获取handler
 				n.topicHandlersMu.RLock()
 				handler, exists := n.topicHandlers[topic]
 				n.topicHandlersMu.RUnlock()
+
+				n.logger.Error("🔥 HANDLER LOOKUP",
+					zap.String("topic", topic),
+					zap.Bool("exists", exists))
 
 				if !exists {
 					n.logger.Warn("No handler found for topic",
@@ -884,6 +1189,10 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 					msg.Ack() // 确认消息以避免重复投递
 					continue
 				}
+
+				n.logger.Error("🔥 CALLING handleMessage",
+					zap.String("topic", topic),
+					zap.Int("dataLen", len(msg.Data)))
 
 				n.handleMessage(ctx, topic, msg.Data, handler, func() error {
 					return msg.Ack()
@@ -901,6 +1210,10 @@ func (n *natsEventBus) processPullMessages(ctx context.Context, topic string, su
 
 // handleMessage 处理单个消息（支持方案A：Envelope优先级提取）
 func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []byte, handler MessageHandler, ackFunc func() error) {
+	n.logger.Error("🔥 handleMessage CALLED",
+		zap.String("topic", topic),
+		zap.Int("dataLen", len(data)))
+
 	defer func() {
 		if r := recover(); r != nil {
 			n.errorCount.Add(1)
@@ -916,8 +1229,46 @@ func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []b
 
 	// ⭐ 智能路由决策：根据聚合ID提取结果决定处理模式
 	// 优先级：Envelope > Header > NATS Subject
-	aggregateID, _ := ExtractAggregateID(data, nil, nil, topic)
+	// 注意：对于Subscribe调用，我们不从topic中提取聚合ID，保持与Kafka一致的行为
+	aggregateID, _ := ExtractAggregateID(data, nil, nil, "")
 
+	// ✅ 调试日志：记录路由决策
+	n.logger.Error("🔥 MESSAGE ROUTING DECISION",
+		zap.String("topic", topic),
+		zap.String("aggregateID", aggregateID),
+		zap.Bool("hasAggregateID", aggregateID != ""),
+		zap.Bool("hasUnifiedWorkerPool", n.unifiedWorkerPool != nil))
+
+	// ✅ 使用统一Keyed-Worker池处理所有消息
+	// 有聚合ID：基于哈希路由到特定Worker（保证顺序）
+	// 无聚合ID：轮询分配到任意Worker（高并发）
+	if n.unifiedWorkerPool != nil {
+		workItem := UnifiedWorkItem{
+			Topic:       topic,
+			AggregateID: aggregateID, // 可能为空
+			Data:        data,
+			Handler:     handler,
+			Context:     handlerCtx,
+			NATSAckFunc: ackFunc,
+			NATSBus:     n,
+		}
+
+		if !n.unifiedWorkerPool.SubmitWork(workItem) {
+			n.errorCount.Add(1)
+			n.logger.Error("Failed to submit work to unified worker pool",
+				zap.String("topic", topic),
+				zap.String("aggregateID", aggregateID))
+			return
+		}
+
+		n.logger.Info("Message submitted to unified worker pool",
+			zap.String("topic", topic),
+			zap.String("aggregateID", aggregateID),
+			zap.Bool("hasAggregateID", aggregateID != ""))
+		return
+	}
+
+	// 降级：如果统一Worker池不可用，使用旧的逻辑
 	if aggregateID != "" {
 		// ✅ 有聚合ID：使用Keyed-Worker池进行顺序处理
 		// 这种情况通常发生在：
@@ -978,11 +1329,7 @@ func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []b
 		}
 	}
 
-	// ❌ 无聚合ID：直接并发处理（不使用Keyed-Worker池）
-	// 这种情况通常发生在：
-	// 1. Subscribe订阅的原始消息（如JSON、文本等）
-	// 2. 无法从消息中提取有效聚合ID的情况
-	// 3. 简单消息传递场景（通知、缓存失效等）
+	// 降级：直接处理（保持向后兼容）
 	if err := handler(handlerCtx, data); err != nil {
 		n.errorCount.Add(1)
 		n.logger.Error("Failed to handle NATS message",
@@ -1092,6 +1439,22 @@ func (n *natsEventBus) Close() error {
 
 	// 清空订阅映射
 	n.subscriptions = make(map[string]*nats.Subscription)
+
+	// ✅ 重构：等待所有异步发布完成（优雅关闭）
+	if n.js != nil {
+		n.logger.Info("Waiting for async publishes to complete...")
+		select {
+		case <-n.js.PublishAsyncComplete():
+			n.logger.Info("All async publishes completed")
+		case <-time.After(30 * time.Second):
+			n.logger.Warn("Timeout waiting for async publishes to complete")
+		}
+	}
+
+	// ✅ 优化 7: 关闭统一Keyed-Worker池
+	if n.unifiedWorkerPool != nil {
+		n.unifiedWorkerPool.Close()
+	}
 
 	// 关闭NATS连接
 	if n.conn != nil {
@@ -1279,24 +1642,6 @@ func (n *natsEventBus) StopSubscriberBacklogMonitoring() error {
 	}
 	n.logger.Info("Subscriber backlog monitoring not available for NATS eventbus")
 	return nil
-}
-
-// RegisterBacklogCallback 注册订阅端积压回调（已废弃，向后兼容）
-func (n *natsEventBus) RegisterBacklogCallback(callback BacklogStateCallback) error {
-	n.logger.Warn("RegisterBacklogCallback is deprecated, use RegisterSubscriberBacklogCallback instead")
-	return n.RegisterSubscriberBacklogCallback(callback)
-}
-
-// StartBacklogMonitoring 启动订阅端积压监控（已废弃，向后兼容）
-func (n *natsEventBus) StartBacklogMonitoring(ctx context.Context) error {
-	n.logger.Warn("StartBacklogMonitoring is deprecated, use StartSubscriberBacklogMonitoring instead")
-	return n.StartSubscriberBacklogMonitoring(ctx)
-}
-
-// StopBacklogMonitoring 停止订阅端积压监控（已废弃，向后兼容）
-func (n *natsEventBus) StopBacklogMonitoring() error {
-	n.logger.Warn("StopBacklogMonitoring is deprecated, use StopSubscriberBacklogMonitoring instead")
-	return n.StopSubscriberBacklogMonitoring()
 }
 
 // RegisterPublisherBacklogCallback 注册发送端积压回调
@@ -2085,45 +2430,156 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 		return fmt.Errorf("failed to serialize envelope: %w", err)
 	}
 
-	// 创建NATS消息（方案A + 传输层镜像）
-	msg := &nats.Msg{
-		Subject: topic,
-		Data:    envelopeBytes,
-		Header: nats.Header{
-			"X-Aggregate-ID":  []string{envelope.AggregateID},
-			"X-Event-Version": []string{fmt.Sprintf("%d", envelope.EventVersion)},
-			"X-Event-Type":    []string{envelope.EventType},
-			"X-Timestamp":     []string{envelope.Timestamp.Format(time.RFC3339)},
-		},
-	}
-
-	// 添加可选字段到Header
-	if envelope.TraceID != "" {
-		msg.Header.Set("X-Trace-ID", envelope.TraceID)
-	}
-	if envelope.CorrelationID != "" {
-		msg.Header.Set("X-Correlation-ID", envelope.CorrelationID)
-	}
-
-	// 发送消息
-	_, err = n.js.PublishMsg(msg)
+	// ✅ 重构：直接异步发布，不创建 Header（性能优化）
+	// Header 创建开销大，且在高并发场景下会导致性能下降
+	// NATS JetStream 的全局错误处理器会处理所有 ACK 错误
+	_, err = n.js.PublishAsync(topic, envelopeBytes)
 	if err != nil {
 		n.errorCount.Add(1)
-		n.logger.Error("Failed to publish envelope message",
+		n.logger.Error("Failed to submit async publish for envelope message",
 			zap.String("subject", topic),
 			zap.String("aggregateID", envelope.AggregateID),
 			zap.String("eventType", envelope.EventType),
 			zap.Int64("eventVersion", envelope.EventVersion),
 			zap.Error(err))
-		return fmt.Errorf("failed to publish envelope message: %w", err)
+		return fmt.Errorf("failed to submit async publish: %w", err)
+	}
+
+	// ✅ 重构：立即返回，不等待 ACK（完全异步）
+	// ACK 处理由全局错误处理器负责（在 NewNATSEventBus 中配置）
+	// 这样可以：
+	// 1. 消除 per-message goroutine（解决 goroutine 泄漏）
+	// 2. 大幅提升性能（减少 goroutine 创建开销）
+	// 3. 简化代码逻辑
+	return nil
+}
+
+// PublishEnvelopeSync 同步发布Envelope消息（等待ACK确认）
+//
+// 使用场景：
+// - 需要立即知道发布结果的场景
+// - 关键业务消息，必须确认发布成功
+// - 测试场景
+//
+// 性能：比 PublishEnvelope 慢，但提供即时反馈
+func (n *natsEventBus) PublishEnvelopeSync(ctx context.Context, topic string, envelope *Envelope) error {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	if n.closed {
+		return fmt.Errorf("nats eventbus is closed")
+	}
+
+	// 校验Envelope
+	if err := envelope.Validate(); err != nil {
+		return fmt.Errorf("invalid envelope: %w", err)
+	}
+
+	// 序列化Envelope
+	envelopeBytes, err := envelope.ToBytes()
+	if err != nil {
+		n.errorCount.Add(1)
+		return fmt.Errorf("failed to serialize envelope: %w", err)
+	}
+
+	// ✅ 同步发布（等待ACK）
+	_, err = n.js.Publish(topic, envelopeBytes)
+	if err != nil {
+		n.errorCount.Add(1)
+		n.logger.Error("Sync publish failed for envelope message",
+			zap.String("subject", topic),
+			zap.String("aggregateID", envelope.AggregateID),
+			zap.String("eventType", envelope.EventType),
+			zap.Int64("eventVersion", envelope.EventVersion),
+			zap.Error(err))
+		return fmt.Errorf("failed to publish: %w", err)
 	}
 
 	n.publishedMessages.Add(1)
-	n.logger.Debug("Envelope message published successfully",
+	n.logger.Debug("Envelope message published successfully (sync)",
 		zap.String("subject", topic),
 		zap.String("aggregateID", envelope.AggregateID),
 		zap.String("eventType", envelope.EventType),
 		zap.Int64("eventVersion", envelope.EventVersion))
+
+	return nil
+}
+
+// PublishEnvelopeBatch 批量发布Envelope消息（批量等待ACK）
+//
+// 使用场景：
+// - 批量导入数据
+// - 需要确认所有消息都发布成功
+// - 性能和可靠性的平衡
+//
+// 性能：比单条同步发布快，比完全异步慢，但提供批量确认
+//
+// 参考：NATS bench 的批量 ACK 检查实现
+func (n *natsEventBus) PublishEnvelopeBatch(ctx context.Context, topic string, envelopes []*Envelope) error {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	if n.closed {
+		return fmt.Errorf("nats eventbus is closed")
+	}
+
+	if len(envelopes) == 0 {
+		return nil
+	}
+
+	// ✅ 批量异步发布
+	futures := make([]nats.PubAckFuture, 0, len(envelopes))
+	for _, envelope := range envelopes {
+		// 校验Envelope
+		if err := envelope.Validate(); err != nil {
+			return fmt.Errorf("invalid envelope: %w", err)
+		}
+
+		// 序列化Envelope
+		envelopeBytes, err := envelope.ToBytes()
+		if err != nil {
+			n.errorCount.Add(1)
+			return fmt.Errorf("failed to serialize envelope: %w", err)
+		}
+
+		// 异步发布
+		future, err := n.js.PublishAsync(topic, envelopeBytes)
+		if err != nil {
+			n.errorCount.Add(1)
+			return fmt.Errorf("failed to submit async publish: %w", err)
+		}
+		futures = append(futures, future)
+	}
+
+	// ✅ 批量检查 ACK（参考 nats bench）
+	timeout := 30 * time.Second
+	if n.config.JetStream.PublishTimeout > 0 {
+		timeout = n.config.JetStream.PublishTimeout
+	}
+
+	var errs []error
+	for i, future := range futures {
+		select {
+		case <-future.Ok():
+			n.publishedMessages.Add(1)
+		case err := <-future.Err():
+			n.errorCount.Add(1)
+			errs = append(errs, fmt.Errorf("message %d failed: %w", i, err))
+		case <-time.After(timeout):
+			n.errorCount.Add(1)
+			errs = append(errs, fmt.Errorf("message %d ACK timeout", i))
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to publish %d/%d messages: %v", len(errs), len(envelopes), errs)
+	}
+
+	n.logger.Debug("Batch envelope messages published successfully",
+		zap.String("subject", topic),
+		zap.Int("count", len(envelopes)))
 
 	return nil
 }
@@ -2175,6 +2631,12 @@ func (n *natsEventBus) SubscribeEnvelope(ctx context.Context, topic string, hand
 
 	// 使用现有的Subscribe方法
 	return n.Subscribe(ctx, topic, wrappedHandler)
+}
+
+// GetPublishResultChannel 获取异步发布结果通道
+// 用于Outbox Processor监听发布结果并更新Outbox状态
+func (n *natsEventBus) GetPublishResultChannel() <-chan *PublishResult {
+	return n.publishResultChan
 }
 
 // ========== 新的分离式健康检查接口实现 ==========

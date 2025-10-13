@@ -61,6 +61,8 @@ func NewMemoryEventBus() EventBus {
 			},
 			Details: make(map[string]interface{}),
 		},
+		// 🚀 初始化异步发布结果通道（缓冲区大小：10000）
+		publishResultChan: make(chan *PublishResult, 10000),
 	}
 }
 

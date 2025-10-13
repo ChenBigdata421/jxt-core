@@ -1,0 +1,44 @@
+=== RUN   TestNATSOrderDebug
+    nats_order_debug_test.go:30: 🔍 ===== NATS 顺序违反调试测试 =====
+2025-10-13T10:20:18.537+0800	INFO	logger/logger.go:48	NATS EventBus created successfullyurls[nats://localhost:4223]clientIdnats-debug-1760322018
+    nats_order_debug_test.go:85: 📊 测试参数:
+    nats_order_debug_test.go:86:    聚合数量: 10
+    nats_order_debug_test.go:87:    每个聚合消息数: 50
+    nats_order_debug_test.go:88:    总消息数: 500
+    nats_order_debug_test.go:89:    Topic: debug.1760322018.test
+    nats_order_debug_test.go:145: 📤 开始发送消息...
+    nats_order_debug_test.go:181: ✅ 发送完成: 500 条消息, 耗时: 95.4362ms
+    nats_order_debug_test.go:184: ⏳ 等待消息处理完成...
+    nats_order_debug_test.go:197: 📊 进度: 接收 500/500, 顺序违反 0
+    nats_order_debug_test.go:199: ✅ 所有消息已接收
+    nats_order_debug_test.go:207: 
+        ================================================================================
+    nats_order_debug_test.go:208: 📊 测试结果分析
+    nats_order_debug_test.go:209: ================================================================================
+    nats_order_debug_test.go:214: 发送消息数: 500
+    nats_order_debug_test.go:215: 接收消息数: 500
+    nats_order_debug_test.go:216: 成功率: 100.00%
+    nats_order_debug_test.go:217: 顺序违反: 0
+    nats_order_debug_test.go:218: 顺序违反率: 0.00%
+    nats_order_debug_test.go:221: 
+        📊 每个聚合的接收情况:
+    nats_order_debug_test.go:267: ✅ agg-2: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-8: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-5: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-6: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-1: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-0: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-7: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-4: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-3: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:267: ✅ agg-9: 接收=50/50, 顺序违反=0, 缺失=0, 重复=0
+    nats_order_debug_test.go:279: 
+        📊 接收时间分析:
+    nats_order_debug_test.go:287: 首条消息接收时间: 10:20:22.607
+    nats_order_debug_test.go:288: 末条消息接收时间: 10:20:22.661
+    nats_order_debug_test.go:289: 接收耗时: 54.1306ms
+    nats_order_debug_test.go:291: 接收吞吐量: 9236.92 msg/s
+    nats_order_debug_test.go:295: ================================================================================
+--- PASS: TestNATSOrderDebug (5.14s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests	5.883s

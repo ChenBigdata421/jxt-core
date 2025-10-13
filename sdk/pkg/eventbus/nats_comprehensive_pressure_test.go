@@ -41,36 +41,19 @@ type ComprehensivePressureMetricsNATS struct {
 	GoroutinesDelta  int
 }
 
-// TestNATSComprehensivePressure NATS全面压力测试（与Kafka测试完全相同的场景）
+// TestNATSComprehensivePressure NATS全面压力测试（第一阶段优化：优化 2、3、8）
 func TestNATSComprehensivePressure(t *testing.T) {
-	t.Log("🚀 EVENTBUS + NATS JETSTREAM 全面压力测试")
+	t.Log("🚀 EVENTBUS + NATS JETSTREAM 全面压力测试（第一阶段优化）")
 	t.Log("=" + string(make([]byte, 100)))
 	t.Log("📊 测试统一JetStream架构 + 磁盘持久化")
+	t.Log("✅ 优化 2: 增大批量拉取大小（10 → 500）")
+	t.Log("✅ 优化 3: 缩短 MaxWait 时间（1s → 100ms）")
+	t.Log("✅ 优化 8: 配置优化（MaxAckPending: 500→10000, MaxWaiting: 200→1000）")
 	t.Log("")
 
 	// 定义压力级别（与Kafka测试完全相同）
+	// 🎯 第一阶段优化测试：先测试"极限"场景验证优化效果
 	pressureLevels := []PressureLevelNATS{
-		{
-			Name:         "低压",
-			MessageCount: 500,
-			Concurrency:  5,
-			MessageSize:  1024,
-			Timeout:      2 * time.Minute,
-		},
-		{
-			Name:         "中压",
-			MessageCount: 2000,
-			Concurrency:  10,
-			MessageSize:  2048,
-			Timeout:      3 * time.Minute,
-		},
-		{
-			Name:         "高压",
-			MessageCount: 5000,
-			Concurrency:  20,
-			MessageSize:  4096,
-			Timeout:      5 * time.Minute,
-		},
 		{
 			Name:         "极限",
 			MessageCount: 10000,
@@ -126,10 +109,13 @@ func runNATSFullPressureTest(t *testing.T, level PressureLevelNATS) *Comprehensi
 	subjectPrefix := fmt.Sprintf("pressure.%s.%d", levelNameEn, timestamp)
 	subject := fmt.Sprintf("%s.test", subjectPrefix)
 
-	// 创建NATS JetStream配置（磁盘持久化）
+	// 创建NATS JetStream配置（磁盘持久化 + 第一阶段优化）
+	// ✅ 优化 2: 增大批量拉取大小（10 → 500）
+	// ✅ 优化 3: 缩短 MaxWait 时间（1s → 100ms）
+	// ✅ 优化 8: 配置优化（MaxAckPending: 500→10000, MaxWaiting: 200→1000）
 	config := &NATSConfig{
 		URLs:                []string{"nats://localhost:4223"},
-		ClientID:            fmt.Sprintf("pressure-test-%s-%d", levelNameEn, timestamp),
+		ClientID:            fmt.Sprintf("pressure-test-optimized-%s-%d", levelNameEn, timestamp),
 		MaxReconnects:       5,
 		ReconnectWait:       2 * time.Second,
 		ConnectionTimeout:   10 * time.Second,
@@ -137,26 +123,26 @@ func runNATSFullPressureTest(t *testing.T, level PressureLevelNATS) *Comprehensi
 		JetStream: JetStreamConfig{
 			Enabled:        true,
 			PublishTimeout: 10 * time.Second,
-			AckWait:        15 * time.Second,
+			AckWait:        30 * time.Second, // ✅ 优化 8: 增加到 30 秒（确保足够的处理时间）
 			MaxDeliver:     3,
 			Stream: StreamConfig{
-				Name:      fmt.Sprintf("PRESSURE_STREAM_%s_%d", levelNameEn, timestamp),
+				Name:      fmt.Sprintf("PRESSURE_STREAM_OPT_%s_%d", levelNameEn, timestamp),
 				Subjects:  []string{fmt.Sprintf("%s.>", subjectPrefix)},
 				Retention: "limits",
 				Storage:   "file", // 磁盘持久化
 				Replicas:  1,
 				MaxAge:    30 * time.Minute,
-				MaxBytes:  512 * 1024 * 1024, // 512MB
-				MaxMsgs:   100000,
+				MaxBytes:  1024 * 1024 * 1024, // ✅ 优化 8: 增大到 1GB（更大的缓冲）
+				MaxMsgs:   1000000,            // ✅ 优化 8: 增大到 100万条消息
 				Discard:   "old",
 			},
 			Consumer: NATSConsumerConfig{
-				DurableName:   fmt.Sprintf("pressure_consumer_%s_%d", levelNameEn, timestamp),
+				DurableName:   fmt.Sprintf("pressure_consumer_opt_%s_%d", levelNameEn, timestamp),
 				DeliverPolicy: "all",
 				AckPolicy:     "explicit",
 				ReplayPolicy:  "instant",
-				MaxAckPending: 500,
-				MaxWaiting:    200,
+				MaxAckPending: 10000, // ✅ 优化 8: 增大到 10000（允许更多未确认消息）
+				MaxWaiting:    1000,  // ✅ 优化 8: 增大到 1000（允许更多并发拉取请求）
 				MaxDeliver:    3,
 			},
 		},
@@ -312,7 +298,10 @@ func printNATSFullPressureMetrics(t *testing.T, m *ComprehensivePressureMetricsN
 
 // generateNATSFinalPressureReport 生成最终压力测试报告
 func generateNATSFinalPressureReport(t *testing.T, results []*ComprehensivePressureMetricsNATS) {
-	t.Logf("\n📊 ===== EVENTBUS + NATS JETSTREAM 全面压力测试总结 =====")
+	t.Logf("\n📊 ===== EVENTBUS + NATS JETSTREAM 全面压力测试总结（第一阶段优化）=====")
+	t.Logf("✅ 优化 2: 批量拉取大小 500（原 10）")
+	t.Logf("✅ 优化 3: MaxWait 100ms（原 1s）")
+	t.Logf("✅ 优化 8: MaxAckPending 10000（原 500）, MaxWaiting 1000（原 200）")
 	t.Logf("")
 
 	// 表头
@@ -401,6 +390,15 @@ func generateNATSFinalPressureReport(t *testing.T, results []*ComprehensivePress
 	t.Logf("   ✅ 1个NATS连接")
 	t.Logf("   ✅ 1个JetStream Context")
 	t.Logf("   ✅ 1个Consumer (Durable)")
+	t.Logf("")
+	t.Logf("🎯 第一阶段优化:")
+	t.Logf("   ✅ 优化 2: 批量拉取大小 500（原 10）")
+	t.Logf("   ✅ 优化 3: MaxWait 100ms（原 1s）")
+	t.Logf("   ✅ 优化 8: MaxAckPending 10000（原 500）")
+	t.Logf("   ✅ 优化 8: MaxWaiting 1000（原 200）")
+	t.Logf("   ✅ 优化 8: AckWait 30s（原 15s）")
+	t.Logf("   ✅ 优化 8: MaxBytes 1GB（原 512MB）")
+	t.Logf("   ✅ 优化 8: MaxMsgs 100万（原 10万）")
 
 	t.Logf("")
 	separator := string(make([]byte, 100))

@@ -39,6 +39,9 @@ type eventBusManager struct {
 	// 待注册的健康检查告警回调（在订阅器启动前注册）
 	pendingAlertCallbacks []HealthCheckAlertCallback
 	callbackMu            sync.Mutex
+
+	// 异步发布结果通道（用于Outbox模式）
+	publishResultChan chan *PublishResult
 }
 
 // NewEventBus 创建新的事件总线实例
@@ -1286,4 +1289,10 @@ func convertJetStreamConfig(userJetStream JetStreamConfig) JetStreamConfig {
 	}
 
 	return internalJetStream
+}
+
+// GetPublishResultChannel 获取异步发布结果通道
+// 用于Outbox Processor监听发布结果并更新Outbox状态
+func (m *eventBusManager) GetPublishResultChannel() <-chan *PublishResult {
+	return m.publishResultChan
 }

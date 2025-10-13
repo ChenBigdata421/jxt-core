@@ -1,0 +1,10 @@
+=== RUN   TestNATSPublishEnvelopeProfiler
+    nats_publish_profiling_test.go:39: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/nats_publish_profiling_test.go:39
+        	Error:      	Received unexpected error:
+        	            	failed to connect to NATS: dial tcp 127.0.0.1:4222: connectex: No connection could be made because the target machine actively refused it.
+        	Test:       	TestNATSPublishEnvelopeProfiler
+--- FAIL: TestNATSPublishEnvelopeProfiler (0.02s)
+FAIL
+exit status 1
+FAIL	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests	0.785s

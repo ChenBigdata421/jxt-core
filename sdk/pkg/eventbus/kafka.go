@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// 🚀 动态订阅更新类型
+// 动态订阅更新类型
 type subscriptionUpdate struct {
 	action  string // "add" or "remove"
 	topic   string
@@ -99,7 +99,7 @@ func (p *GlobalWorkerPool) start() {
 }
 
 // dispatcher 工作分发器
-// 🚀 优化：移除goroutine创建，使用轮询分发
+// 优化：移除goroutine创建，使用轮询分发
 func (p *GlobalWorkerPool) dispatcher() {
 	workerIndex := 0
 	for {
@@ -129,7 +129,7 @@ func (p *GlobalWorkerPool) dispatcher() {
 }
 
 // SubmitWork 提交工作到全局Worker池
-// 🚀 优化：添加背压机制，等待而非丢弃
+// 优化：添加背压机制，等待而非丢弃
 func (p *GlobalWorkerPool) SubmitWork(work WorkItem) bool {
 	select {
 	case p.workQueue <- work:
@@ -271,40 +271,42 @@ type kafkaEventBus struct {
 	lastReconnectTime atomic.Value // time.Time
 	reconnectCallback ReconnectCallback
 
-	// 🚀 预订阅模式 - 统一消费者组管理
+	// 预订阅模式 - 统一消费者组管理
 	unifiedConsumerGroup sarama.ConsumerGroup
 
-	// 🚀 全局Worker池
+	// 全局Worker池
 	globalWorkerPool *GlobalWorkerPool
 
-	// 🚀 预订阅topic管理
+	// 预订阅topic管理
 	allPossibleTopics   []string                  // 所有可能的topic列表（预订阅）
 	activeTopicHandlers map[string]MessageHandler // 激活的topic处理器
 	topicHandlersMu     sync.RWMutex
 
-	// 🚀 预订阅消费控制
+	// 预订阅消费控制
 	consumerCtx     context.Context
 	consumerCancel  context.CancelFunc
 	consumerDone    chan struct{}
 	consumerMu      sync.Mutex
 	consumerStarted bool
 
-	// 🚀 预订阅配置
+	// 预订阅配置
 	preSubscriptionEnabled bool
 	maxTopicsPerGroup      int
 
-	// 🚀 优化4：预热状态监控
+	// 优化4：预热状态监控
 	warmupCompleted bool
 	warmupStartTime time.Time
 	warmupMu        sync.RWMutex
+
+	// 异步发布结果通道（用于Outbox模式）
+	publishResultChan chan *PublishResult
 
 	// 订阅管理（用于重连后恢复订阅）- 保持兼容性
 	subscriptions   map[string]MessageHandler // topic -> handler
 	subscriptionsMu sync.RWMutex
 
-	// Keyed worker pools (per topic)
-	keyedPools   map[string]*KeyedWorkerPool
-	keyedPoolsMu sync.RWMutex
+	// 全局 Keyed-Worker Pool（所有 topic 共享）
+	globalKeyedPool *KeyedWorkerPool
 
 	// 主题配置管理
 	topicConfigs          map[string]TopicOptions
@@ -327,17 +329,17 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	// 创建Sarama配置
 	saramaConfig := sarama.NewConfig()
 
-	// 🚀 优化1：AsyncProducer配置（Confluent官方推荐）
+	// 优化1：AsyncProducer配置（Confluent官方推荐）
 	saramaConfig.Producer.RequiredAcks = sarama.RequiredAcks(cfg.Producer.RequiredAcks)
 
-	// 🚀 优化2：LZ4压缩（Confluent官方首选）
+	// 优化2：LZ4压缩（Confluent官方首选）
 	if cfg.Producer.Compression == "" || cfg.Producer.Compression == "none" {
 		saramaConfig.Producer.Compression = sarama.CompressionLZ4 // Confluent推荐：性能最佳
 	} else {
 		saramaConfig.Producer.Compression = getCompressionCodec(cfg.Producer.Compression)
 	}
 
-	// 🚀 优化3：批处理配置（Confluent官方推荐值）
+	// 优化3：批处理配置（Confluent官方推荐值）
 	if cfg.Producer.FlushFrequency > 0 {
 		saramaConfig.Producer.Flush.Frequency = cfg.Producer.FlushFrequency
 	} else {
@@ -361,18 +363,21 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	saramaConfig.Producer.MaxMessageBytes = cfg.Producer.MaxMessageBytes
 	saramaConfig.Producer.Idempotent = cfg.Producer.Idempotent
 
+	// 配置 Hash Partitioner（保证相同 key 路由到同一 partition，确保顺序）
+	saramaConfig.Producer.Partitioner = sarama.NewHashPartitioner
+
 	// AsyncProducer需要配置成功和错误channel
 	saramaConfig.Producer.Return.Successes = true
 	saramaConfig.Producer.Return.Errors = true
 
-	// 🚀 优化4：并发请求数（业界最佳实践）
+	// 优化4：并发请求数（业界最佳实践）
 	if cfg.Producer.MaxInFlight <= 0 {
 		saramaConfig.Net.MaxOpenRequests = 100 // 业界推荐：100并发请求
 	} else {
 		saramaConfig.Net.MaxOpenRequests = cfg.Producer.MaxInFlight
 	}
 
-	// 🚀 优化5：Consumer配置（Confluent官方推荐）
+	// 优化5：Consumer配置（Confluent官方推荐）
 	saramaConfig.Consumer.Group.Session.Timeout = cfg.Consumer.SessionTimeout
 	saramaConfig.Consumer.Group.Heartbeat.Interval = cfg.Consumer.HeartbeatInterval
 	if cfg.Consumer.MaxProcessingTime > 0 {
@@ -381,7 +386,7 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		saramaConfig.Consumer.MaxProcessingTime = 1 * time.Second // 默认1秒
 	}
 
-	// 🚀 优化6：Fetch配置（Confluent官方推荐值）
+	// 优化6：Fetch配置（Confluent官方推荐值）
 	if cfg.Consumer.FetchMinBytes > 0 {
 		saramaConfig.Consumer.Fetch.Min = int32(cfg.Consumer.FetchMinBytes)
 	} else {
@@ -398,21 +403,21 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		saramaConfig.Consumer.MaxWaitTime = 500 * time.Millisecond // Confluent推荐：500ms
 	}
 
-	// 🚀 优化7：预取缓冲（业界最佳实践）
+	// 优化7：预取缓冲（业界最佳实践）
 	saramaConfig.ChannelBufferSize = 1000 // 预取1000条消息
 
 	saramaConfig.Consumer.Offsets.Initial = getOffsetInitial(cfg.Consumer.AutoOffsetReset)
 	saramaConfig.Consumer.Group.Rebalance.Strategy = getRebalanceStrategy(cfg.Consumer.RebalanceStrategy)
 	saramaConfig.Consumer.IsolationLevel = getIsolationLevel(cfg.Consumer.IsolationLevel)
 
-	// 🔧 优化Consumer稳定性配置
+	// 优化Consumer稳定性配置
 	saramaConfig.Consumer.Return.Errors = true                            // 启用错误返回
 	saramaConfig.Consumer.Offsets.Retry.Max = 3                           // 增加重试次数
 	saramaConfig.Consumer.Group.Rebalance.Timeout = 60 * time.Second      // 增加重平衡超时
 	saramaConfig.Consumer.Group.Rebalance.Retry.Max = 4                   // 增加重平衡重试次数
 	saramaConfig.Consumer.Group.Rebalance.Retry.Backoff = 2 * time.Second // 重平衡重试间隔
 
-	// 🚀 优化8：网络超时配置（Confluent官方推荐）
+	// 优化8：网络超时配置（Confluent官方推荐）
 	// 根据部署环境调整超时时间
 	if cfg.Net.DialTimeout > 0 {
 		saramaConfig.Net.DialTimeout = cfg.Net.DialTimeout
@@ -453,7 +458,7 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		return nil, fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
-	// 🚀 优化1：创建AsyncProducer（Confluent官方推荐）
+	// 优化1：创建AsyncProducer（Confluent官方推荐）
 	asyncProducer, err := sarama.NewAsyncProducerFromClient(client)
 	if err != nil {
 		client.Close()
@@ -480,7 +485,7 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		closed:               false,
 		logger:               zap.NewNop(), // 使用无操作logger
 
-		// 🚀 预订阅模式字段
+		// 预订阅模式字段
 		globalWorkerPool:       globalWorkerPool,
 		allPossibleTopics:      make([]string, 0),
 		activeTopicHandlers:    make(map[string]MessageHandler),
@@ -490,13 +495,23 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 
 		// 兼容性字段
 		subscriptions: make(map[string]MessageHandler),
-		keyedPools:    make(map[string]*KeyedWorkerPool),
 		topicConfigs:  make(map[string]TopicOptions),
 		// topicConfigStrategy:   StrategyCreateOrUpdate,
 		// topicConfigOnMismatch: ActionLogWarning,
+
+		// 🚀 异步发布结果通道（缓冲区大小：10000）
+		publishResultChan: make(chan *PublishResult, 10000),
 	}
 
-	// 🚀 优化1：启动AsyncProducer的成功和错误处理goroutine
+	// 创建全局 Keyed-Worker Pool（所有 topic 共享）
+	// 使用较大的 worker 数量以支持多个 topic 的并发处理
+	bus.globalKeyedPool = NewKeyedWorkerPool(KeyedWorkerPoolConfig{
+		WorkerCount: 256,                    // 全局 worker 数量（支持多个 topic）
+		QueueSize:   1000,                   // 每个 worker 的队列大小
+		WaitTimeout: 500 * time.Millisecond, // 等待超时
+	}, nil) // handler 将在处理消息时动态传入
+
+	// 优化1：启动AsyncProducer的成功和错误处理goroutine
 	go bus.handleAsyncProducerSuccess()
 	go bus.handleAsyncProducerErrors()
 
@@ -512,7 +527,7 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	return bus, nil
 }
 
-// 🚀 优化1：处理AsyncProducer成功消息
+// 优化1：处理AsyncProducer成功消息
 func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 	for success := range k.asyncProducer.Successes() {
 		// 记录成功指标
@@ -530,7 +545,7 @@ func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 	}
 }
 
-// 🚀 优化1：处理AsyncProducer错误
+// 优化1：处理AsyncProducer错误
 func (k *kafkaEventBus) handleAsyncProducerErrors() {
 	for err := range k.asyncProducer.Errors() {
 		// 记录错误
@@ -617,190 +632,6 @@ func getIsolationLevel(level string) sarama.IsolationLevel {
 	}
 }
 
-// NewKafkaEventBusWithFullConfig 创建企业级Kafka事件总线（带完整配置）
-// 已废弃：使用NewKafkaEventBus代替，新版本使用内部配置结构实现解耦
-// 暂时注释掉以避免编译错误，将来可能完全移除
-/*
-func NewKafkaEventBusWithFullConfig(cfg *config.KafkaConfig, fullConfig *EventBusConfig) (EventBus, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("kafka config cannot be nil")
-	}
-
-	if len(cfg.Brokers) == 0 {
-		return nil, fmt.Errorf("kafka brokers cannot be empty")
-	}
-
-	// 创建Sarama配置
-	saramaConfig := sarama.NewConfig()
-	// 已废弃：使用新的直接配置方式
-	// if err := configureSarama(saramaConfig, cfg); err != nil {
-	//	return nil, fmt.Errorf("failed to configure sarama: %w", err)
-	// }
-
-	// 创建客户端
-	client, err := sarama.NewClient(cfg.Brokers, saramaConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kafka client: %w", err)
-	}
-
-	// 创建生产者
-	producer, err := sarama.NewSyncProducerFromClient(client)
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to create kafka producer: %w", err)
-	}
-
-	// 创建消费者
-	consumer, err := sarama.NewConsumerFromClient(client)
-	if err != nil {
-		producer.Close()
-		client.Close()
-		return nil, fmt.Errorf("failed to create kafka consumer: %w", err)
-	}
-
-	// 创建管理客户端
-	admin, err := sarama.NewClusterAdminFromClient(client)
-	if err != nil {
-		consumer.Close()
-		producer.Close()
-		client.Close()
-		return nil, fmt.Errorf("failed to create kafka admin: %w", err)
-	}
-
-	// 获取配置策略（从环境变量或使用默认值）
-	configStrategy := StrategyCreateOrUpdate
-	configOnMismatch := TopicConfigMismatchAction{
-		LogLevel: "warn",
-		FailFast: false,
-	}
-
-	// 🔥 创建统一消费者组
-	unifiedConsumerGroup, err := sarama.NewConsumerGroupFromClient(cfg.Consumer.GroupID, client)
-	if err != nil {
-		client.Close()
-		admin.Close()
-		producer.Close()
-		return nil, fmt.Errorf("failed to create unified consumer group: %w", err)
-	}
-
-	// 创建EventBus实例
-	eventBus := &kafkaEventBus{
-		config:                cfg,
-		fullConfig:            fullConfig,
-		producer:              producer,
-		consumer:              consumer,
-		client:                client,
-		admin:                 admin,
-		logger:                logger.Logger,
-		reconnectConfig:       DefaultReconnectConfig(),
-
-		// 🔥 统一消费者组管理
-		unifiedConsumerGroup: unifiedConsumerGroup,
-		topicHandlers:        make(map[string]MessageHandler),
-		subscribedTopics:     make([]string, 0),
-		unifiedConsumerDone:  make(chan struct{}),
-
-		// 保持兼容性
-		subscriptions:         make(map[string]MessageHandler),
-		keyedPools:            make(map[string]*KeyedWorkerPool),
-		topicConfigs:          make(map[string]TopicOptions),
-		topicConfigStrategy:   configStrategy,
-		topicConfigOnMismatch: configOnMismatch,
-	}
-
-	// 初始化时间戳
-	eventBus.lastReconnectTime.Store(time.Time{})
-
-	// 初始化企业级特性
-	if err := eventBus.initEnterpriseFeatures(); err != nil {
-		eventBus.Close()
-		return nil, fmt.Errorf("failed to initialize enterprise features: %w", err)
-	}
-
-	return eventBus, nil
-}
-*/
-
-// configureSarama 配置Sarama
-// 已废弃：新版本在NewKafkaEventBus中直接配置Sarama
-/*
-func configureSarama(config *sarama.Config, cfg *config.KafkaConfig) error {
-	// 生产者配置
-	config.Producer.RequiredAcks = sarama.RequiredAcks(cfg.Producer.RequiredAcks)
-	config.Producer.Timeout = cfg.Producer.Timeout
-	config.Producer.Retry.Max = cfg.Producer.RetryMax
-	config.Producer.Return.Successes = true
-	config.Producer.Return.Errors = true
-
-	// 设置压缩算法
-	switch cfg.Producer.Compression {
-	case "gzip":
-		config.Producer.Compression = sarama.CompressionGZIP
-	case "snappy":
-		config.Producer.Compression = sarama.CompressionSnappy
-	case "lz4":
-		config.Producer.Compression = sarama.CompressionLZ4
-	case "zstd":
-		config.Producer.Compression = sarama.CompressionZSTD
-	default:
-		config.Producer.Compression = sarama.CompressionNone
-	}
-
-	// 幂等性配置
-	config.Producer.Idempotent = cfg.Producer.Idempotent
-	if cfg.Producer.Idempotent {
-		config.Producer.RequiredAcks = sarama.WaitForAll
-		config.Producer.Retry.Max = 5
-		config.Net.MaxOpenRequests = 1
-	}
-
-	// 批处理配置
-	if cfg.Producer.FlushFrequency > 0 {
-		config.Producer.Flush.Frequency = cfg.Producer.FlushFrequency
-	}
-	if cfg.Producer.FlushMessages > 0 {
-		config.Producer.Flush.Messages = cfg.Producer.FlushMessages
-	}
-	if cfg.Producer.FlushBytes > 0 {
-		config.Producer.Flush.Bytes = cfg.Producer.FlushBytes
-	}
-
-	// 消费者配置
-	config.Consumer.Group.Session.Timeout = cfg.Consumer.SessionTimeout
-	config.Consumer.Group.Heartbeat.Interval = cfg.Consumer.HeartbeatInterval
-	config.Consumer.MaxProcessingTime = cfg.Consumer.MaxProcessingTime
-	config.Consumer.Fetch.Min = int32(cfg.Consumer.FetchMinBytes)
-	config.Consumer.Fetch.Max = int32(cfg.Consumer.FetchMaxBytes)
-	config.Consumer.MaxWaitTime = cfg.Consumer.FetchMaxWait
-
-	// 设置偏移量重置策略
-	switch cfg.Consumer.AutoOffsetReset {
-	case "earliest":
-		config.Consumer.Offsets.Initial = sarama.OffsetOldest
-	case "latest":
-		config.Consumer.Offsets.Initial = sarama.OffsetNewest
-	default:
-		config.Consumer.Offsets.Initial = sarama.OffsetNewest
-	}
-
-	// 网络配置
-	if cfg.Net.DialTimeout > 0 {
-		config.Net.DialTimeout = cfg.Net.DialTimeout
-	}
-	if cfg.Net.ReadTimeout > 0 {
-		config.Net.ReadTimeout = cfg.Net.ReadTimeout
-	}
-	if cfg.Net.WriteTimeout > 0 {
-		config.Net.WriteTimeout = cfg.Net.WriteTimeout
-	}
-
-	// 版本配置
-	config.Version = sarama.V2_6_0_0
-
-	return nil
-}
-*/
-
 // kafkaConsumerHandler Kafka消费者处理器
 type kafkaConsumerHandler struct {
 	eventBus *kafkaEventBus
@@ -855,7 +686,7 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 		}
 	}
 
-	// ⭐ 智能路由决策：根据聚合ID提取结果决定处理模式
+	// 智能路由决策：根据聚合ID提取结果决定处理模式
 	// 构建headers映射
 	headersMap := make(map[string]string, len(message.Headers))
 	for _, header := range message.Headers {
@@ -865,15 +696,13 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 	// 尝试提取聚合ID（优先级：Envelope > Header > Kafka Key）
 	aggregateID, _ := ExtractAggregateID(message.Value, headersMap, message.Key, "")
 	if aggregateID != "" {
-		// ✅ 有聚合ID：使用Keyed-Worker池进行顺序处理
+		// 有聚合ID：使用Keyed-Worker池进行顺序处理
 		// 这种情况通常发生在：
 		// 1. SubscribeEnvelope订阅的Envelope消息
 		// 2. 手动在Header中设置了聚合ID的消息
 		// 3. Kafka Key恰好是有效的聚合ID
-		// 获取该 topic 的 keyed 池
-		h.eventBus.keyedPoolsMu.RLock()
-		pool := h.eventBus.keyedPools[h.topic]
-		h.eventBus.keyedPoolsMu.RUnlock()
+		// 使用全局 Keyed-Worker 池处理
+		pool := h.eventBus.globalKeyedPool
 		if pool != nil {
 			// 使用 Keyed-Worker 池处理
 			aggMsg := &AggregateMessage{
@@ -887,6 +716,7 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 				AggregateID: aggregateID,
 				Context:     ctx,
 				Done:        make(chan error, 1),
+				Handler:     h.handler, // 携带 topic 的 handler
 			}
 			for _, header := range message.Headers {
 				aggMsg.Headers[string(header.Key)] = header.Value
@@ -903,7 +733,7 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 		}
 	}
 
-	// ❌ 无聚合ID：直接并发处理（不使用Keyed-Worker池）
+	// 无聚合ID：直接并发处理（不使用Keyed-Worker池）
 	// 这种情况通常发生在：
 	// 1. Subscribe订阅的原始消息（如JSON、文本等）
 	// 2. 无法从消息中提取有效聚合ID的情况
@@ -911,7 +741,7 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 	return h.handler(ctx, message.Value)
 }
 
-// 🚀 preSubscriptionConsumerHandler 预订阅消费者处理器 - 预订阅模式
+// preSubscriptionConsumerHandler 预订阅消费者处理器 - 预订阅模式
 type preSubscriptionConsumerHandler struct {
 	eventBus *kafkaEventBus
 }
@@ -930,6 +760,8 @@ func (h *preSubscriptionConsumerHandler) Cleanup(sarama.ConsumerGroupSession) er
 
 // ConsumeClaim 预订阅消费消息 - 根据topic路由到激活的handler
 func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	ctx := session.Context()
+
 	for {
 		select {
 		case message := <-claim.Messages():
@@ -937,33 +769,26 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 				return nil
 			}
 
-			// 🚀 根据topic路由到激活的handler
+			// 根据topic路由到激活的handler
 			h.eventBus.topicHandlersMu.RLock()
 			handler, exists := h.eventBus.activeTopicHandlers[message.Topic]
 			h.eventBus.topicHandlersMu.RUnlock()
 
 			if exists {
-				// 🔧 优化：增强消息处理错误处理和监控
+				// 优化：增强消息处理错误处理和监控
 				h.eventBus.logger.Debug("Processing message",
 					zap.String("topic", message.Topic),
 					zap.Int64("offset", message.Offset),
 					zap.Int32("partition", message.Partition))
 
-				// 🚀 使用全局Worker池处理消息
-				workItem := WorkItem{
-					Topic:   message.Topic,
-					Message: message,
-					Handler: handler,
-					Session: session,
-				}
-
-				// 提交到全局Worker池
-				if !h.eventBus.globalWorkerPool.SubmitWork(workItem) {
-					h.eventBus.logger.Warn("Failed to submit work to global worker pool, using direct processing",
+				// 关键修复：尝试使用 Keyed-Worker 池处理（确保聚合ID顺序）
+				if err := h.processMessageWithKeyedPool(ctx, message, handler, session); err != nil {
+					h.eventBus.logger.Error("Failed to process message",
 						zap.String("topic", message.Topic),
-						zap.Int64("offset", message.Offset))
-					// 如果Worker池满了，直接在当前goroutine处理
-					h.processMessageDirectly(session.Context(), message, handler, session)
+						zap.Int64("offset", message.Offset),
+						zap.Error(err))
+					// 处理失败，仍然标记消息（避免阻塞）
+					session.MarkMessage(message, "")
 				}
 			} else {
 				// 未激活的topic，直接标记为已处理（预订阅模式的优势）
@@ -973,10 +798,85 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 				session.MarkMessage(message, "")
 			}
 
-		case <-session.Context().Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
+}
+
+// processMessageWithKeyedPool 使用 Keyed-Worker 池处理消息（确保聚合ID顺序）
+func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context.Context, message *sarama.ConsumerMessage, handler MessageHandler, session sarama.ConsumerGroupSession) error {
+	// 转换 Headers 为 map
+	headersMap := make(map[string]string, len(message.Headers))
+	for _, header := range message.Headers {
+		headersMap[string(header.Key)] = string(header.Value)
+	}
+
+	// 尝试提取聚合ID（优先级：Envelope > Header > Kafka Key）
+	aggregateID, _ := ExtractAggregateID(message.Value, headersMap, message.Key, "")
+
+	if aggregateID != "" {
+		// 有聚合ID：使用Keyed-Worker池进行顺序处理
+		// 使用全局 Keyed-Worker 池处理
+		pool := h.eventBus.globalKeyedPool
+
+		if pool != nil {
+			// 使用 Keyed-Worker 池处理
+			aggMsg := &AggregateMessage{
+				Topic:       message.Topic,
+				Partition:   message.Partition,
+				Offset:      message.Offset,
+				Key:         message.Key,
+				Value:       message.Value,
+				Headers:     make(map[string][]byte),
+				Timestamp:   message.Timestamp,
+				AggregateID: aggregateID,
+				Context:     ctx,
+				Done:        make(chan error, 1),
+				Handler:     handler, // 携带 topic 的 handler
+			}
+			for _, header := range message.Headers {
+				aggMsg.Headers[string(header.Key)] = header.Value
+			}
+
+			// 提交到 Keyed-Worker 池
+			if err := pool.ProcessMessage(ctx, aggMsg); err != nil {
+				return err
+			}
+
+			// 等待处理完成
+			select {
+			case err := <-aggMsg.Done:
+				if err != nil {
+					return err
+				}
+				// 处理成功，标记消息
+				session.MarkMessage(message, "")
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+
+	// 无聚合ID 或 无Keyed-Worker池：使用全局Worker池处理
+	workItem := WorkItem{
+		Topic:   message.Topic,
+		Message: message,
+		Handler: handler,
+		Session: session,
+	}
+
+	// 提交到全局Worker池
+	if !h.eventBus.globalWorkerPool.SubmitWork(workItem) {
+		h.eventBus.logger.Warn("Failed to submit work to global worker pool, using direct processing",
+			zap.String("topic", message.Topic),
+			zap.Int64("offset", message.Offset))
+		// 如果Worker池满了，直接在当前goroutine处理
+		h.processMessageDirectly(ctx, message, handler, session)
+	}
+
+	return nil
 }
 
 // processMessageDirectly 直接处理消息（当Worker池满时的后备方案）
@@ -1058,7 +958,7 @@ func (k *kafkaEventBus) Publish(ctx context.Context, topic string, message []byt
 		Value: sarama.ByteEncoder(message),
 	}
 
-	// 🚀 优化1：使用AsyncProducer异步发送（非阻塞）
+	// 优化1：使用AsyncProducer异步发送（非阻塞）
 	select {
 	case k.asyncProducer.Input() <- msg:
 		// 消息已提交到发送队列，成功/失败由后台goroutine处理
@@ -1076,7 +976,7 @@ func (k *kafkaEventBus) Publish(ctx context.Context, topic string, message []byt
 	}
 }
 
-// 🚀 startPreSubscriptionConsumer 启动预订阅消费循环
+// startPreSubscriptionConsumer 启动预订阅消费循环
 func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error {
 	k.consumerMu.Lock()
 	defer k.consumerMu.Unlock()
@@ -1095,64 +995,66 @@ func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error 
 		eventBus: k,
 	}
 
-	// 🚀 启动预订阅消费循环 - 一次性订阅所有可能的topic
+	// 业界最佳实践：在循环中调用 Consume，支持重平衡后重新订阅
+	// 参考：https://pkg.go.dev/github.com/IBM/sarama#ConsumerGroup
+	// "Consume should be called inside an infinite loop, when a server-side rebalance happens,
+	// the consumer session will need to be recreated to get the new claims"
 	go func() {
 		defer close(k.consumerDone)
-		k.logger.Info("Pre-subscription consumer started")
+		k.logger.Info("Pre-subscription consumer started",
+			zap.Int("topicCount", len(k.allPossibleTopics)),
+			zap.Strings("topics", k.allPossibleTopics))
 
-		// 🔧 添加Consumer错误监控和重试机制
-		retryCount := 0
-		maxRetries := 3
+		for {
+			// 检查 context 是否已取消
+			if k.consumerCtx.Err() != nil {
+				k.logger.Info("Pre-subscription consumer context cancelled")
+				return
+			}
 
-		for retryCount < maxRetries {
-			// 🚀 关键改进：只调用一次Consume，避免频繁重平衡
-			// 预订阅所有可能的topic，消息路由在handler中处理
-			if len(k.allPossibleTopics) > 0 {
-				k.logger.Info("Pre-subscription consumer consuming all possible topics",
-					zap.Strings("topics", k.allPossibleTopics),
-					zap.Int("retryCount", retryCount))
-
-				// 🚀 一次性订阅，持续运行，无重平衡
-				err := k.unifiedConsumerGroup.Consume(k.consumerCtx, k.allPossibleTopics, handler)
-				if err != nil {
-					if k.consumerCtx.Err() != nil {
-						k.logger.Info("Pre-subscription consumer context cancelled")
-						return
-					}
-
-					retryCount++
-					k.logger.Error("Pre-subscription consumer error, retrying",
-						zap.Error(err),
-						zap.Int("retryCount", retryCount),
-						zap.Int("maxRetries", maxRetries))
-
-					if retryCount < maxRetries {
-						// 指数退避重试
-						backoffTime := time.Duration(retryCount) * 2 * time.Second
-						k.logger.Info("Backing off before retry", zap.Duration("backoffTime", backoffTime))
-						time.Sleep(backoffTime)
-					}
-				} else {
-					// 成功，重置重试计数
-					retryCount = 0
-				}
-			} else {
+			// 检查是否有 topic 需要订阅
+			if len(k.allPossibleTopics) == 0 {
 				k.logger.Warn("No topics configured for pre-subscription, consumer will wait")
-				// 等待context取消
+				// 等待 context 取消
 				<-k.consumerCtx.Done()
 				return
 			}
-		}
 
-		if retryCount >= maxRetries {
-			k.logger.Error("Pre-subscription consumer failed after max retries", zap.Int("maxRetries", maxRetries))
+			// 关键：调用 Consume 订阅所有预配置的 topic
+			// 这会阻塞直到发生重平衡或 context 取消
+			k.logger.Info("Pre-subscription consumer consuming topics",
+				zap.Strings("topics", k.allPossibleTopics),
+				zap.Int("topicCount", len(k.allPossibleTopics)))
+
+			err := k.unifiedConsumerGroup.Consume(k.consumerCtx, k.allPossibleTopics, handler)
+			if err != nil {
+				if k.consumerCtx.Err() != nil {
+					k.logger.Info("Pre-subscription consumer context cancelled during Consume")
+					return
+				}
+
+				k.logger.Error("Pre-subscription consumer error, will retry",
+					zap.Error(err))
+
+				// 短暂等待后重试
+				select {
+				case <-k.consumerCtx.Done():
+					return
+				case <-time.After(2 * time.Second):
+					continue
+				}
+			}
+
+			// Consume 正常返回（通常是因为重平衡），继续循环
+			k.logger.Info("Pre-subscription consumer session ended, restarting...")
 		}
 	}()
 
 	k.consumerStarted = true
-	k.logger.Info("Pre-subscription consumer system started")
+	k.logger.Info("Pre-subscription consumer system started",
+		zap.Int("topicCount", len(k.allPossibleTopics)))
 
-	// 🚀 优化1&4：添加3秒Consumer预热机制 + 状态监控
+	// 优化1&4：添加3秒Consumer预热机制 + 状态监控
 	k.warmupMu.Lock()
 	k.warmupStartTime = time.Now()
 	k.warmupCompleted = false
@@ -1174,14 +1076,14 @@ func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error 
 	return nil
 }
 
-// 🚀 优化4：IsWarmupCompleted 检查预热状态
+// 优化4：IsWarmupCompleted 检查预热状态
 func (k *kafkaEventBus) IsWarmupCompleted() bool {
 	k.warmupMu.RLock()
 	defer k.warmupMu.RUnlock()
 	return k.warmupCompleted
 }
 
-// 🚀 优化4：GetWarmupInfo 获取预热信息
+// 优化4：GetWarmupInfo 获取预热信息
 func (k *kafkaEventBus) GetWarmupInfo() (completed bool, duration time.Duration) {
 	k.warmupMu.RLock()
 	defer k.warmupMu.RUnlock()
@@ -1197,7 +1099,7 @@ func (k *kafkaEventBus) GetWarmupInfo() (completed bool, duration time.Duration)
 	return
 }
 
-// 🚀 activateTopicHandler 激活topic处理器（预订阅模式）
+// activateTopicHandler 激活topic处理器（预订阅模式）
 func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandler) {
 	k.topicHandlersMu.Lock()
 	k.activeTopicHandlers[topic] = handler
@@ -1208,7 +1110,7 @@ func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandle
 		zap.Int("totalActiveTopics", len(k.activeTopicHandlers)))
 }
 
-// 🚀 deactivateTopicHandler 停用topic处理器（预订阅模式）
+// deactivateTopicHandler 停用topic处理器（预订阅模式）
 func (k *kafkaEventBus) deactivateTopicHandler(topic string) {
 	k.topicHandlersMu.Lock()
 	delete(k.activeTopicHandlers, topic)
@@ -1219,7 +1121,41 @@ func (k *kafkaEventBus) deactivateTopicHandler(topic string) {
 		zap.Int("totalActiveTopics", len(k.activeTopicHandlers)))
 }
 
-// 🚀 addTopicToPreSubscription 添加topic到预订阅列表
+// SetPreSubscriptionTopics 设置预订阅topic列表（企业级生产环境API）
+//
+// 业界最佳实践：在调用 Subscribe 之前，先设置所有需要订阅的 topic
+// 这样可以避免 Kafka Consumer Group 的频繁重平衡，提高性能和稳定性
+//
+// 使用场景：
+//  1. 创建 EventBus 实例
+//  2. 调用 SetPreSubscriptionTopics 设置所有 topic
+//  3. 调用 Subscribe 订阅各个 topic（消费者会一次性订阅所有 topic）
+//
+// 示例：
+//
+//	eventBus, _ := NewKafkaEventBus(config)
+//	eventBus.SetPreSubscriptionTopics([]string{"topic1", "topic2", "topic3"})
+//	eventBus.Subscribe(ctx, "topic1", handler1)
+//	eventBus.Subscribe(ctx, "topic2", handler2)
+//	eventBus.Subscribe(ctx, "topic3", handler3)
+//
+// 参考：
+//   - Confluent 官方文档：预订阅模式避免重平衡
+//   - LinkedIn 实践：一次性订阅所有 topic
+//   - Uber 实践：预配置 topic 列表
+func (k *kafkaEventBus) SetPreSubscriptionTopics(topics []string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	k.allPossibleTopics = make([]string, len(topics))
+	copy(k.allPossibleTopics, topics)
+
+	k.logger.Info("Pre-subscription topics configured",
+		zap.Strings("topics", k.allPossibleTopics),
+		zap.Int("topicCount", len(k.allPossibleTopics)))
+}
+
+// addTopicToPreSubscription 添加topic到预订阅列表（内部方法）
 func (k *kafkaEventBus) addTopicToPreSubscription(topic string) {
 	// 检查是否已存在
 	for _, existingTopic := range k.allPossibleTopics {
@@ -1235,7 +1171,7 @@ func (k *kafkaEventBus) addTopicToPreSubscription(topic string) {
 		zap.Int("totalTopics", len(k.allPossibleTopics)))
 }
 
-// 🚀 stopPreSubscriptionConsumer 停止预订阅消费循环
+// stopPreSubscriptionConsumer 停止预订阅消费循环
 func (k *kafkaEventBus) stopPreSubscriptionConsumer() {
 	k.consumerMu.Lock()
 	defer k.consumerMu.Unlock()
@@ -1289,32 +1225,25 @@ func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler Mes
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
-	// 🚀 预订阅模式 - 激活topic处理器
+	// 预订阅模式 - 激活topic处理器
 
 	// 记录订阅信息（用于重连后恢复）- 保持兼容性
 	k.subscriptionsMu.Lock()
 	k.subscriptions[topic] = handler
 	k.subscriptionsMu.Unlock()
 
-	// Create per-topic Keyed-Worker pool (Phase 1) - 保持现有逻辑
-	k.keyedPoolsMu.Lock()
-	if _, ok := k.keyedPools[topic]; !ok {
-		pool := NewKeyedWorkerPool(KeyedWorkerPoolConfig{
-			WorkerCount: 64, // 🚀 减少worker数量，避免资源爆炸
-			QueueSize:   500,
-			WaitTimeout: 200 * time.Millisecond,
-		}, handler)
-		k.keyedPools[topic] = pool
-	}
-	k.keyedPoolsMu.Unlock()
+	// 全局 Keyed-Worker Pool 已在初始化时创建，无需为每个 topic 创建独立池
 
-	// 🚀 启动预订阅消费者（如果还未启动）
+	// 关键修复：添加 topic 到预订阅列表
+	k.addTopicToPreSubscription(topic)
+
+	// 激活topic处理器（立即生效）
+	k.activateTopicHandler(topic, handler)
+
+	// 启动预订阅消费者（如果还未启动）
 	if err := k.startPreSubscriptionConsumer(ctx); err != nil {
 		return fmt.Errorf("failed to start pre-subscription consumer: %w", err)
 	}
-
-	// 🚀 激活topic处理器（立即生效，无重平衡）
-	k.activateTopicHandler(topic, handler)
 
 	k.logger.Info("Subscribed to topic via pre-subscription consumer",
 		zap.String("topic", topic),
@@ -1561,23 +1490,18 @@ func (k *kafkaEventBus) GetEventBusMetrics() EventBusHealthMetrics {
 func (k *kafkaEventBus) Close() error {
 	k.mu.Lock()
 
-	// 🚀 停止预订阅消费者组
+	// 停止预订阅消费者组
 	k.stopPreSubscriptionConsumer()
 
-	// 🚀 停止全局Worker池
+	// 停止全局Worker池
 	if k.globalWorkerPool != nil {
 		k.globalWorkerPool.Close()
 	}
 
-	// Stop keyed worker pools
-	k.keyedPoolsMu.Lock()
-	for topic, pool := range k.keyedPools {
-		if pool != nil {
-			pool.Stop()
-		}
-		delete(k.keyedPools, topic)
+	// 关闭全局 Keyed-Worker Pool
+	if k.globalKeyedPool != nil {
+		k.globalKeyedPool.Stop()
 	}
-	k.keyedPoolsMu.Unlock()
 
 	defer k.mu.Unlock()
 
@@ -1587,7 +1511,7 @@ func (k *kafkaEventBus) Close() error {
 
 	var errors []error
 
-	// 🔥 关闭统一消费者组
+	// 关闭统一消费者组
 	if k.unifiedConsumerGroup != nil {
 		if err := k.unifiedConsumerGroup.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close unified consumer group: %w", err))
@@ -1608,7 +1532,7 @@ func (k *kafkaEventBus) Close() error {
 		}
 	}
 
-	// 🚀 优化1：关闭AsyncProducer
+	// 优化1：关闭AsyncProducer
 	if k.asyncProducer != nil {
 		if err := k.asyncProducer.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close kafka async producer: %w", err))
@@ -1732,7 +1656,7 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 		return fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
-	// 🚀 优化1：重新创建AsyncProducer
+	// 优化1：重新创建AsyncProducer
 	asyncProducer, err := sarama.NewAsyncProducerFromClient(client)
 	if err != nil {
 		client.Close()
@@ -1762,7 +1686,7 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 	k.consumer = consumer
 	k.admin = admin
 
-	// 🚀 优化1：重新启动AsyncProducer处理goroutine
+	// 优化1：重新启动AsyncProducer处理goroutine
 	go k.handleAsyncProducerSuccess()
 	go k.handleAsyncProducerErrors()
 
@@ -1911,7 +1835,7 @@ func (k *kafkaEventBus) PublishWithOptions(ctx context.Context, topic string, me
 		}
 	}
 
-	// 🚀 优化1：使用AsyncProducer异步发布
+	// 优化1：使用AsyncProducer异步发布
 	select {
 	case k.asyncProducer.Input() <- kafkaMsg:
 		// 消息已提交到发送队列
@@ -2027,24 +1951,6 @@ func (k *kafkaEventBus) StopSubscriberBacklogMonitoring() error {
 	}
 	k.logger.Info("Subscriber backlog monitoring not available")
 	return nil
-}
-
-// RegisterBacklogCallback 注册订阅端积压回调（已废弃，向后兼容）
-func (k *kafkaEventBus) RegisterBacklogCallback(callback BacklogStateCallback) error {
-	k.logger.Warn("RegisterBacklogCallback is deprecated, use RegisterSubscriberBacklogCallback instead")
-	return k.RegisterSubscriberBacklogCallback(callback)
-}
-
-// StartBacklogMonitoring 启动订阅端积压监控（已废弃，向后兼容）
-func (k *kafkaEventBus) StartBacklogMonitoring(ctx context.Context) error {
-	k.logger.Warn("StartBacklogMonitoring is deprecated, use StartSubscriberBacklogMonitoring instead")
-	return k.StartSubscriberBacklogMonitoring(ctx)
-}
-
-// StopBacklogMonitoring 停止订阅端积压监控（已废弃，向后兼容）
-func (k *kafkaEventBus) StopBacklogMonitoring() error {
-	k.logger.Warn("StopBacklogMonitoring is deprecated, use StopSubscriberBacklogMonitoring instead")
-	return k.StopSubscriberBacklogMonitoring()
 }
 
 // RegisterPublisherBacklogCallback 注册发送端积压回调
@@ -2406,7 +2312,7 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 		})
 	}
 
-	// 🚀 优化1：使用AsyncProducer异步发送
+	// 优化1：使用AsyncProducer异步发送
 	select {
 	case k.asyncProducer.Input() <- msg:
 		// 消息已提交到发送队列
@@ -2889,6 +2795,15 @@ func (k *kafkaEventBus) getActualTopicConfig(ctx context.Context, topic string) 
 	}
 
 	return actualConfig, nil
+}
+
+// GetPublishResultChannel 获取异步发布结果通道
+// 用于Outbox Processor监听发布结果并更新Outbox状态
+// 注意：Kafka 使用 AsyncProducer，发布结果通过 Successes/Errors channel 处理
+// 此方法返回的通道用于与 NATS 保持接口一致，但 Kafka 不会主动推送结果
+// 如需监听 Kafka 发布结果，请使用 AsyncProducer 的 Successes() 和 Errors() channel
+func (k *kafkaEventBus) GetPublishResultChannel() <-chan *PublishResult {
+	return k.publishResultChan
 }
 
 // SetTopicConfigStrategy 设置主题配置策略

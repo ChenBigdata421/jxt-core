@@ -1,0 +1,63 @@
+=== RUN   TestNATSGoroutineLeakDetection
+    goroutine_leak_detection_test.go:18: NATS EventBus Goroutine Leak Detection
+    goroutine_leak_detection_test.go:28: Initial goroutine count: 2
+    goroutine_leak_detection_test.go:90: 
+        initial Goroutine stacks (total: 2):
+    goroutine_leak_detection_test.go:98:   goroutine 22 [running]:
+    goroutine_leak_detection_test.go:98:   github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests.printGoroutineStacks(0xc000107180, {0x126c91a, 0x7}, 0x2)
+    goroutine_leak_detection_test.go:98:   	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/goroutine_leak_detection_test.go:87 +0x65
+    goroutine_leak_detection_test.go:98:   github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests.TestNATSGoroutineLeakDetection(0xc000107180)
+    goroutine_leak_detection_test.go:98:   	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/goroutine_leak_detection_test.go:30 +0x216
+    goroutine_leak_detection_test.go:98:   testing.tRunner(0xc000107180, 0x12b77d0)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+    goroutine_leak_detection_test.go:98:   created by testing.(*T).Run in goroutine 1
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1851 +0x3f6
+    goroutine_leak_detection_test.go:98:   
+    goroutine_leak_detection_test.go:98:   goroutine 1 [chan receive]:
+    goroutine_leak_detection_test.go:98:   testing.(*T).Run(0xc000106fc0, {0x1285580?, 0x7ffcdf8f3fb0?}, 0x12b77d0)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1859 +0x414
+    goroutine_leak_detection_test.go:98:   testing.runTests.func1(0xc000106fc0)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:2279 +0x37
+    goroutine_leak_detection_test.go:98:   testing.tRunner(0xc000106fc0, 0xc000517c70)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+    goroutine_leak_detection_test.go:98:   testing.runTests(0xc000125470, {0x1a1e840, 0xd, 0xd}, {0x1a2b720?, 0x7?, 0x1a29ce0?})
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:2277 +0x4b4
+    goroutine_leak_detection_test.go:98:   testing.(*M).Run(0xc0000c2140)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:2142 +0x64a
+    goroutine_leak_detection_test.go:98:   main.main()
+    goroutine_leak_detection_test.go:98:   	_testmain.go:69 +0x9b
+    goroutine_leak_detection_test.go:98:   
+2025-10-13T14:15:18.655+0800	INFO	logger/logger.go:48	NATS JetStream configured with global async publish handler{maxPending 11 50000  <nil>}
+2025-10-13T14:15:18.670+0800	INFO	logger/logger.go:48	NATS EventBus created successfullyurls[nats://localhost:4223]clientIdnats-leak-test-1760336118
+    goroutine_leak_detection_test.go:50: After create goroutine count: 775 (delta: 773)
+    goroutine_leak_detection_test.go:76: 
+        Final goroutine count: 2 (leak: 0)
+    goroutine_leak_detection_test.go:90: 
+        final Goroutine stacks (total: 2):
+    goroutine_leak_detection_test.go:98:   goroutine 22 [running]:
+    goroutine_leak_detection_test.go:98:   github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests.printGoroutineStacks(0xc000107180, {0x126a893, 0x5}, 0x2)
+    goroutine_leak_detection_test.go:98:   	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/goroutine_leak_detection_test.go:87 +0x65
+    goroutine_leak_detection_test.go:98:   github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests.TestNATSGoroutineLeakDetection(0xc000107180)
+    goroutine_leak_detection_test.go:98:   	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/goroutine_leak_detection_test.go:78 +0x931
+    goroutine_leak_detection_test.go:98:   testing.tRunner(0xc000107180, 0x12b77d0)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+    goroutine_leak_detection_test.go:98:   created by testing.(*T).Run in goroutine 1
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1851 +0x3f6
+    goroutine_leak_detection_test.go:98:   
+    goroutine_leak_detection_test.go:98:   goroutine 1 [chan receive]:
+    goroutine_leak_detection_test.go:98:   testing.(*T).Run(0xc000106fc0, {0x1285580?, 0x7ffcdf8f3fb0?}, 0x12b77d0)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1859 +0x414
+    goroutine_leak_detection_test.go:98:   testing.runTests.func1(0xc000106fc0)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:2279 +0x37
+    goroutine_leak_detection_test.go:98:   testing.tRunner(0xc000106fc0, 0xc000517c70)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+    goroutine_leak_detection_test.go:98:   testing.runTests(0xc000125470, {0x1a1e840, 0xd, 0xd}, {0x1a2b720?, 0x7?, 0x1a29ce0?})
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:2277 +0x4b4
+    goroutine_leak_detection_test.go:98:   testing.(*M).Run(0xc0000c2140)
+    goroutine_leak_detection_test.go:98:   	C:/Program Files/Go/src/testing/testing.go:2142 +0x64a
+    goroutine_leak_detection_test.go:98:   main.main()
+    goroutine_leak_detection_test.go:98:   	_testmain.go:69 +0x9b
+    goroutine_leak_detection_test.go:98:   
+--- PASS: TestNATSGoroutineLeakDetection (7.24s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests	7.896s

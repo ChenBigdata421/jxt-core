@@ -1,0 +1,7 @@
+=== RUN   TestOrderViolationDebug
+    order_violation_debug_test.go:17: 🔍 开始调试顺序违反问题...
+    order_violation_debug_test.go:47: Failed to create Kafka EventBus: failed to create kafka client: kafka: invalid configuration (Consumer.Group.Session.Timeout must be >= 2ms)
+--- FAIL: TestOrderViolationDebug (0.00s)
+FAIL
+exit status 1
+FAIL	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests	0.733s

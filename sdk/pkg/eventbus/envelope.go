@@ -125,6 +125,7 @@ func ExtractAggregateID(msgBytes []byte, headers map[string]string, kafkaKey []b
 	}
 
 	// 4. 从 NATS Subject 启发式提取（最后兜底）
+	// 注意：只有当明确传递natsSubject时才提取，Subscribe调用应该传递空字符串
 	if natsSubject != "" {
 		parts := strings.Split(natsSubject, ".")
 		for i := len(parts) - 1; i >= 0; i-- {

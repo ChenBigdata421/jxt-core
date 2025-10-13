@@ -15,6 +15,11 @@ import (
 
 // 🎯 NATS vs Kafka 高压力对比测试
 // 公平对比两种消息中间件在相同高压力下的表现
+//
+// 测试场景：
+// 1. NATS Basic（非 JetStream）- 最高性能基准
+// 2. NATS JetStream（第一阶段优化）- 优化 2、3、8
+// 3. Kafka - 对比基准
 
 // HighPressureComparisonMetrics 高压力对比测试指标
 type HighPressureComparisonMetrics struct {
@@ -69,7 +74,7 @@ func TestNATSHighPressureBasic(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	t.Logf("🚀 Starting NATS High Pressure Basic Test")
-	
+
 	// 运行高压力测试
 	runHighPressureComparisonTest(t, eventBus, "NATS", metrics)
 
@@ -108,10 +113,10 @@ func TestKafkaHighPressureComparison(t *testing.T) {
 			MaxInFlight:      3,
 		},
 		Consumer: ConsumerConfig{
-			GroupID:           "kafka-high-pressure-comparison-group",
-			AutoOffsetReset:   "earliest",
-			SessionTimeout:    60 * time.Second,
-			HeartbeatInterval: 20 * time.Second,
+			GroupID:            "kafka-high-pressure-comparison-group",
+			AutoOffsetReset:    "earliest",
+			SessionTimeout:     60 * time.Second,
+			HeartbeatInterval:  20 * time.Second,
 			MaxProcessingTime:  90 * time.Second,
 			FetchMinBytes:      1,
 			FetchMaxBytes:      5 * 1024 * 1024,
@@ -145,7 +150,7 @@ func TestKafkaHighPressureComparison(t *testing.T) {
 	time.Sleep(5 * time.Second)
 
 	t.Logf("🚀 Starting Kafka High Pressure Comparison Test")
-	
+
 	// 运行高压力测试
 	runHighPressureComparisonTest(t, eventBus, "Kafka", metrics)
 
@@ -206,9 +211,9 @@ func setupHighPressureComparisonHandlers(t *testing.T, eventBus EventBus, topics
 		wg.Add(1)
 		go func(topicName string) {
 			defer wg.Done()
-			
+
 			var lastSequence int64 = -1
-			
+
 			handler := func(ctx context.Context, message []byte) error {
 				// 解析消息
 				var testMsg HighPressureTestMessage
@@ -216,19 +221,19 @@ func setupHighPressureComparisonHandlers(t *testing.T, eventBus EventBus, topics
 					atomic.AddInt64(&metrics.ProcessErrors, 1)
 					return err
 				}
-				
+
 				// 检测顺序违反
 				if lastSequence >= 0 && testMsg.Sequence <= lastSequence {
 					atomic.AddInt64(&metrics.OrderViolations, 1)
 				}
 				lastSequence = testMsg.Sequence
-				
+
 				// 更新接收计数
 				atomic.AddInt64(&metrics.MessagesReceived, 1)
-				
+
 				return nil
 			}
-			
+
 			err := eventBus.Subscribe(context.Background(), topicName, handler)
 			if err != nil {
 				t.Errorf("Failed to subscribe to topic %s: %v", topicName, err)
@@ -240,12 +245,12 @@ func setupHighPressureComparisonHandlers(t *testing.T, eventBus EventBus, topics
 // sendHighPressureComparisonMessages 发送高压力对比消息
 func sendHighPressureComparisonMessages(t *testing.T, eventBus EventBus, topics []string, messagesPerTopic int, metrics *HighPressureComparisonMetrics) {
 	var sendWg sync.WaitGroup
-	
+
 	for _, topic := range topics {
 		sendWg.Add(1)
 		go func(topicName string) {
 			defer sendWg.Done()
-			
+
 			for i := 0; i < messagesPerTopic; i++ {
 				testMsg := HighPressureTestMessage{
 					ID:        fmt.Sprintf("%s-%d", topicName, i),
@@ -254,17 +259,17 @@ func sendHighPressureComparisonMessages(t *testing.T, eventBus EventBus, topics 
 					Timestamp: time.Now(),
 					Data:      fmt.Sprintf("high-pressure-comparison-data-%d", i),
 				}
-				
+
 				messageBytes, err := json.Marshal(testMsg)
 				if err != nil {
 					atomic.AddInt64(&metrics.SendErrors, 1)
 					continue
 				}
-				
+
 				startTime := time.Now()
 				err = eventBus.Publish(context.Background(), topicName, messageBytes)
 				sendTime := time.Since(startTime).Microseconds()
-				
+
 				if err != nil {
 					atomic.AddInt64(&metrics.SendErrors, 1)
 				} else {
@@ -272,12 +277,12 @@ func sendHighPressureComparisonMessages(t *testing.T, eventBus EventBus, topics 
 					atomic.AddInt64(&metrics.SendLatencySum, sendTime)
 					atomic.AddInt64(&metrics.SendLatencyCount, 1)
 				}
-				
+
 				// 🔥 无速率限制 - 最大压力测试
 			}
 		}(topic)
 	}
-	
+
 	sendWg.Wait()
 	t.Logf("📤 Finished sending high pressure comparison messages")
 }
@@ -287,9 +292,9 @@ func analyzeHighPressureComparisonResults(t *testing.T, system string, metrics *
 	duration := metrics.EndTime.Sub(metrics.StartTime)
 	successRate := float64(metrics.MessagesReceived) / float64(metrics.MessagesSent) * 100
 	throughput := float64(metrics.MessagesReceived) / duration.Seconds()
-	
+
 	avgSendLatency := float64(metrics.SendLatencySum) / float64(metrics.SendLatencyCount) / 1000.0 // ms
-	
+
 	t.Logf("\n🎯 ===== %s High Pressure Comparison Results =====", system)
 	t.Logf("⏱️  Test Duration: %v", duration)
 	t.Logf("📤 Messages Sent: %d", metrics.MessagesSent)
@@ -300,7 +305,7 @@ func analyzeHighPressureComparisonResults(t *testing.T, system string, metrics *
 	t.Logf("🚀 Throughput: %.2f msg/s", throughput)
 	t.Logf("⚡ Avg Send Latency: %.2f ms", avgSendLatency)
 	t.Logf("⚠️ Order Violations: %d", metrics.OrderViolations)
-	
+
 	// 🏆 性能评估
 	t.Logf("\n🏆 %s Performance Evaluation:", system)
 	if successRate >= 95.0 {
@@ -314,10 +319,10 @@ func analyzeHighPressureComparisonResults(t *testing.T, system string, metrics *
 	} else {
 		t.Logf("❌ %s需要优化，成功率仅为 %.2f%%", system, successRate)
 	}
-	
+
 	// 基本验证
 	assert.Greater(t, metrics.MessagesSent, int64(0), "Should send messages")
 	assert.Greater(t, metrics.MessagesReceived, int64(0), "Should receive messages")
-	
+
 	t.Logf("✅ %s High Pressure Comparison Test Completed!", system)
 }

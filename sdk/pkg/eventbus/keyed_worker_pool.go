@@ -20,6 +20,7 @@ type AggregateMessage struct {
 	AggregateID string
 	Context     context.Context
 	Done        chan error
+	Handler     MessageHandler // 🔑 新增：每个消息携带自己的 handler（支持全局池）
 }
 
 // KeyedWorkerPool implements Phase 1: a fixed-size keyed worker pool.
@@ -86,7 +87,19 @@ func (kp *KeyedWorkerPool) runWorker(ch chan *AggregateMessage) {
 				return
 			}
 			// Process sequentially; guarantee per-key ordering because routing is stable.
-			err := kp.handler(msg.Context, msg.Value)
+			// 🔑 优先使用消息携带的 handler，如果没有则使用池的默认 handler
+			handler := msg.Handler
+			if handler == nil {
+				handler = kp.handler
+			}
+
+			var err error
+			if handler != nil {
+				err = handler(msg.Context, msg.Value)
+			} else {
+				err = errors.New("no handler available for message")
+			}
+
 			// return result to caller (non-blocking)
 			select {
 			case msg.Done <- err:

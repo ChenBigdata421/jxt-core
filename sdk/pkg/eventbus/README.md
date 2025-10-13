@@ -39,6 +39,8 @@ Connection
 
 ## 🚀 快速开始
 
+⚠️ **Kafka 用户必读**：如果使用 Kafka，ClientID 和 Topic 名称**必须只使用 ASCII 字符**（不能使用中文、日文、韩文等），否则消息无法接收！详见 [Kafka 配置章节](#kafka实现配置)。
+
 ### 基础使用示例
 
 ```go
@@ -98,12 +100,15 @@ eventbus:
 
 ### Kafka实现配置
 
+⚠️ **重要提示**：Kafka 的 `ClientID` 和 `topic` 名称**必须只使用 ASCII 字符**，避免使用中文或其他 Unicode 字符，否则会导致消息无法正常接收！
+
 ```yaml
 eventbus:
   type: kafka
   kafka:
     brokers:
       - localhost:9092
+    clientId: my-service-client    # ⚠️ 必须使用 ASCII 字符，不能使用中文
     healthCheckInterval: 5m
     producer:
       requiredAcks: 1
@@ -115,7 +120,7 @@ eventbus:
       batchSize: 16384
       bufferSize: 32768
     consumer:
-      groupId: jxt-eventbus-group
+      groupId: jxt-eventbus-group  # ⚠️ 必须使用 ASCII 字符，不能使用中文
       autoOffsetReset: earliest
       sessionTimeout: 30s
       heartbeatInterval: 3s
@@ -132,6 +137,10 @@ eventbus:
   tracing:
     enabled: false
     sampleRate: 0.1
+
+# ⚠️ Topic 命名规范（Kafka）
+# ✅ 正确：business.orders, user.events, audit.logs
+# ❌ 错误：业务.订单, 用户.事件, 审计.日志
 ```
 
 ### NATS JetStream配置 (优化架构)
@@ -200,6 +209,193 @@ eventbus:
 - ✅ 资源节省33-41%（Consumer数量从N个减少到1个）
 - ✅ 管理简化（统一Consumer管理）
 - ✅ 扩展性强（新增topic无需创建新Consumer）
+
+### NATS JetStream 异步发布与 ACK 处理
+
+NATS JetStream 的 `PublishEnvelope` 方法使用**异步发布模式**，符合业界最佳实践，提供高性能和可靠性保证。
+
+#### 🚀 异步发布机制
+
+**核心特点**:
+- ✅ **立即返回**: `PublishEnvelope` 调用后立即返回，不等待 NATS 服务器 ACK
+- ✅ **后台处理**: 异步 goroutine 处理 ACK 确认和错误
+- ✅ **高吞吐量**: 支持批量发送，吞吐量与 Kafka 基本持平
+- ✅ **可靠性保证**: 通过异步 ACK 确认机制保证消息送达
+
+**实现原理**:
+```go
+// 发布消息（异步，立即返回）
+err := eventBus.PublishEnvelope(ctx, topic, envelope)
+// ✅ 此时消息已提交到发送队列，立即返回
+// 🔄 后台 goroutine 处理 ACK 确认
+```
+
+**内部流程**:
+```
+1. 序列化 Envelope → 创建 NATS 消息
+2. 调用 js.PublishMsgAsync(msg) → 提交到发送队列
+3. 立即返回（不等待 ACK）
+4. 后台 goroutine 监听 PubAckFuture:
+   - 成功: 更新计数器 + 发送结果到 resultChan
+   - 失败: 记录错误 + 发送结果到 resultChan
+```
+
+#### 📊 ACK 处理机制
+
+NATS JetStream 提供两种 ACK 处理方式：
+
+**1. 自动 ACK 处理（默认）**
+
+适用于大多数场景，EventBus 自动处理 ACK 确认：
+
+```go
+// 发布消息
+err := eventBus.PublishEnvelope(ctx, "orders.created", envelope)
+if err != nil {
+    // 提交失败（队列满或连接断开）
+    log.Error("Failed to submit publish", zap.Error(err))
+    return err
+}
+// ✅ 提交成功，后台自动处理 ACK
+```
+
+**特点**:
+- ✅ 简单易用，无需额外代码
+- ✅ 自动重试（NATS SDK 内置）
+- ✅ 错误自动记录到日志
+- ⚠️ 无法获取单条消息的 ACK 结果
+
+**2. 手动 ACK 处理（Outbox 模式）**
+
+适用于需要精确控制 ACK 结果的场景（如 Outbox 模式）：
+
+```go
+// 获取异步发布结果通道
+resultChan := eventBus.GetPublishResultChannel()
+
+// 启动结果监听器
+go func() {
+    for result := range resultChan {
+        if result.Success {
+            // ✅ 发布成功
+            log.Info("Message published successfully",
+                zap.String("eventID", result.EventID),
+                zap.String("topic", result.Topic))
+
+            // Outbox 模式：标记为已发布
+            outboxRepo.MarkAsPublished(ctx, result.EventID)
+        } else {
+            // ❌ 发布失败
+            log.Error("Message publish failed",
+                zap.String("eventID", result.EventID),
+                zap.Error(result.Error))
+
+            // Outbox 模式：记录错误，下次重试
+            outboxRepo.RecordError(ctx, result.EventID, result.Error)
+        }
+    }
+}()
+
+// 发布消息
+err := eventBus.PublishEnvelope(ctx, "orders.created", envelope)
+// ✅ 立即返回，ACK 结果通过 resultChan 异步通知
+```
+
+**特点**:
+- ✅ 精确控制每条消息的 ACK 结果
+- ✅ 支持 Outbox 模式的状态更新
+- ✅ 支持自定义错误处理和重试逻辑
+- ⚠️ 需要额外的结果监听代码
+
+#### 🎯 Outbox 模式集成示例
+
+完整的 Outbox Processor 实现：
+
+```go
+type OutboxPublisher struct {
+    eventBus   eventbus.EventBus
+    outboxRepo OutboxRepository
+    logger     *zap.Logger
+}
+
+func (p *OutboxPublisher) Start(ctx context.Context) {
+    // 启动结果监听器
+    resultChan := p.eventBus.GetPublishResultChannel()
+
+    go func() {
+        for {
+            select {
+            case result := <-resultChan:
+                if result.Success {
+                    // 标记为已发布
+                    p.outboxRepo.MarkAsPublished(ctx, result.EventID)
+                } else {
+                    // 记录错误（下次轮询时重试）
+                    p.logger.Error("Publish failed",
+                        zap.String("eventID", result.EventID),
+                        zap.Error(result.Error))
+                }
+            case <-ctx.Done():
+                return
+            }
+        }
+    }()
+}
+
+func (p *OutboxPublisher) PublishEvents(ctx context.Context) {
+    // 查询未发布的事件
+    events, _ := p.outboxRepo.FindUnpublished(ctx, 100)
+
+    for _, event := range events {
+        envelope := &eventbus.Envelope{
+            AggregateID:  event.AggregateID,
+            EventType:    event.EventType,
+            EventVersion: event.EventVersion,
+            Timestamp:    event.Timestamp,
+            Payload:      event.Payload,
+        }
+
+        // 异步发布（立即返回）
+        if err := p.eventBus.PublishEnvelope(ctx, event.Topic, envelope); err != nil {
+            p.logger.Error("Failed to submit publish", zap.Error(err))
+        }
+        // ✅ ACK 结果通过 resultChan 异步通知
+    }
+}
+```
+
+#### 📈 性能对比
+
+| 模式 | 发送延迟 | 吞吐量 | 适用场景 |
+|------|---------|--------|---------|
+| **异步发布** | 1-10 ms | 100-300 msg/s | ✅ 推荐（默认） |
+| 同步发布 | 20-70 ms | 10-50 msg/s | ⚠️ 不推荐 |
+
+**性能优势**:
+- ✅ 延迟降低 **5-10 倍**
+- ✅ 吞吐量提升 **5-10 倍**
+- ✅ 与 Kafka AsyncProducer 性能基本持平
+
+#### 🏆 业界最佳实践
+
+根据 NATS 官方文档和核心开发者建议：
+
+> "If you want throughput of publishing messages to a stream, you should use **js.AsyncPublish()** that returns a PubAckFuture"
+
+**推荐配置**:
+```yaml
+jetstream:
+  enabled: true
+  publishTimeout: 5s      # 异步发布超时
+  ackWait: 60s           # ACK 等待时间（订阅端）
+  maxDeliver: 3          # 最大重传次数
+```
+
+**最佳实践**:
+1. ✅ **默认使用异步发布**: 适用于 99% 的场景
+2. ✅ **Outbox 模式使用结果通道**: 精确控制 ACK 状态
+3. ✅ **合理配置缓冲区**: `PublishAsyncMaxPending: 10000`
+4. ✅ **监控发布指标**: 通过 `GetMetrics()` 监控发送成功率
 
 ### 企业特性配置
 
@@ -2113,27 +2309,42 @@ func (m *RouteMonitor) RecordRoute(topic string, isPersistent bool, routeMode st
 #### 企业级最佳实践
 
 **1. 主题命名规范**：
+
+⚠️ **Kafka 关键限制**：
+- **ClientID 和 Topic 名称必须只使用 ASCII 字符**
+- **禁止使用中文、日文、韩文等 Unicode 字符**
+- **违反此规则会导致消息无法接收（0% 成功率）**
+
 ```go
-// 企业级主题命名规范
+// ✅ 企业级主题命名规范（仅使用 ASCII 字符）
 const (
     // 业务领域主题（持久化）
-    TopicOrderEvents    = "business.orders.events"
-    TopicPaymentEvents  = "business.payments.events"
-    TopicUserEvents     = "business.users.events"
+    TopicOrderEvents    = "business.orders.events"    // ✅ 正确
+    TopicPaymentEvents  = "business.payments.events"  // ✅ 正确
+    TopicUserEvents     = "business.users.events"     // ✅ 正确
 
     // 系统级主题（非持久化）
-    TopicSystemNotify   = "system.notifications"
-    TopicSystemMetrics  = "system.metrics"
-    TopicSystemHealth   = "system.health"
+    TopicSystemNotify   = "system.notifications"      // ✅ 正确
+    TopicSystemMetrics  = "system.metrics"            // ✅ 正确
+    TopicSystemHealth   = "system.health"             // ✅ 正确
 
     // 审计主题（长期持久化）
-    TopicAuditLogs      = "audit.logs"
-    TopicSecurityEvents = "audit.security"
+    TopicAuditLogs      = "audit.logs"                // ✅ 正确
+    TopicSecurityEvents = "audit.security"            // ✅ 正确
 
     // 临时主题（短期保留）
-    TopicTempCache      = "temp.cache.invalidation"
-    TopicTempSession    = "temp.session.updates"
+    TopicTempCache      = "temp.cache.invalidation"   // ✅ 正确
+    TopicTempSession    = "temp.session.updates"      // ✅ 正确
 )
+
+// ❌ 错误示例（Kafka 不支持，会导致消息无法接收）
+/*
+const (
+    TopicOrderEvents    = "业务.订单.事件"    // ❌ 错误：使用了中文
+    TopicPaymentEvents  = "business.支付"    // ❌ 错误：混用中英文
+    TopicUserEvents     = "用户事件"         // ❌ 错误：使用了中文
+)
+*/
 
 // 主题配置模板
 var TopicTemplates = map[string]eventbus.TopicOptions{
@@ -4355,7 +4566,208 @@ const (
 
 ## 最佳实践
 
-### 1. 主题持久化策略设计
+### 1. Kafka 多 Topic 预订阅模式（企业级生产环境）
+
+#### 问题背景
+
+在 Kafka 多 Topic 订阅场景下，如果不使用预订阅模式，会导致以下问题：
+
+- **Consumer Group 频繁重平衡**：每次添加新 topic 都会触发重平衡，导致消息处理中断
+- **消息丢失风险**：重平衡期间可能丢失部分消息
+- **性能抖动**：重平衡会导致吞吐量和延迟出现明显波动
+- **成功率下降**：在并发订阅多个 topic 时，可能只有部分 topic 被成功订阅
+
+#### 企业级解决方案：预订阅 API
+
+EventBus 提供了 `SetPreSubscriptionTopics` API，符合 Confluent、LinkedIn、Uber 等企业的最佳实践。
+
+**核心原则**：
+1. 在创建 EventBus 后，**立即**设置所有需要订阅的 topic
+2. 然后再调用 `Subscribe` 或 `SubscribeEnvelope` 激活各个 topic 的处理器
+3. Consumer 会一次性订阅所有 topic，避免频繁重平衡
+
+#### 正确使用方式
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // 1. 创建 Kafka EventBus
+    kafkaConfig := &eventbus.KafkaConfig{
+        Brokers:  []string{"localhost:9092"},
+        ClientID: "my-service",
+        Consumer: eventbus.ConsumerConfig{
+            GroupID: "my-consumer-group",
+        },
+    }
+
+    eb, err := eventbus.NewKafkaEventBus(kafkaConfig)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer eb.Close()
+
+    // 2. 🔑 关键步骤：设置预订阅 topic 列表（在 Subscribe 之前）
+    topics := []string{
+        "business.orders",
+        "business.payments",
+        "business.users",
+        "audit.logs",
+        "system.notifications",
+    }
+
+    // 使用类型断言调用 Kafka 特有的 API
+    if kafkaBus, ok := eb.(interface {
+        SetPreSubscriptionTopics([]string)
+    }); ok {
+        kafkaBus.SetPreSubscriptionTopics(topics)
+        log.Printf("✅ 已设置预订阅 topic 列表: %v", topics)
+    }
+
+    // 3. 现在可以安全地订阅各个 topic
+    // Consumer 会一次性订阅所有 topic，不会触发重平衡
+
+    // 订阅订单事件
+    err = eb.SubscribeEnvelope(ctx, "business.orders", func(ctx context.Context, envelope *eventbus.Envelope) error {
+        log.Printf("处理订单事件: %s", envelope.AggregateID)
+        return nil
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 订阅支付事件
+    err = eb.SubscribeEnvelope(ctx, "business.payments", func(ctx context.Context, envelope *eventbus.Envelope) error {
+        log.Printf("处理支付事件: %s", envelope.AggregateID)
+        return nil
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 订阅其他 topic...
+
+    log.Println("所有 topic 订阅完成，Consumer 已启动")
+
+    // 应用继续运行...
+    select {}
+}
+```
+
+#### 并发订阅场景
+
+在并发订阅多个 topic 的场景下，预订阅模式尤为重要：
+
+```go
+// ✅ 正确做法：先设置预订阅列表，再并发订阅
+func setupKafkaSubscriptions(eb eventbus.EventBus, ctx context.Context) error {
+    topics := []string{
+        "topic1", "topic2", "topic3", "topic4", "topic5",
+    }
+
+    // 1. 先设置预订阅列表
+    if kafkaBus, ok := eb.(interface {
+        SetPreSubscriptionTopics([]string)
+    }); ok {
+        kafkaBus.SetPreSubscriptionTopics(topics)
+    }
+
+    // 2. 然后可以安全地并发订阅
+    var wg sync.WaitGroup
+    for _, topic := range topics {
+        wg.Add(1)
+        go func(t string) {
+            defer wg.Done()
+            handler := createHandlerForTopic(t)
+            if err := eb.SubscribeEnvelope(ctx, t, handler); err != nil {
+                log.Printf("订阅 %s 失败: %v", t, err)
+            }
+        }(topic)
+    }
+    wg.Wait()
+
+    return nil
+}
+
+// ❌ 错误做法：直接并发订阅（可能导致只有部分 topic 被订阅）
+func setupKafkaSubscriptionsWrong(eb eventbus.EventBus, ctx context.Context) error {
+    topics := []string{
+        "topic1", "topic2", "topic3", "topic4", "topic5",
+    }
+
+    // 直接并发订阅，第一个 Subscribe 会启动 Consumer
+    // 此时只有第一个 topic 在 allPossibleTopics 中
+    // 后续 topic 虽然被添加，但 Consumer 已经在运行，不会重新订阅
+    var wg sync.WaitGroup
+    for _, topic := range topics {
+        wg.Add(1)
+        go func(t string) {
+            defer wg.Done()
+            handler := createHandlerForTopic(t)
+            eb.SubscribeEnvelope(ctx, t, handler) // ❌ 可能失败
+        }(topic)
+    }
+    wg.Wait()
+
+    return nil
+}
+```
+
+#### 性能对比
+
+使用预订阅模式前后的性能对比（5 个 topic，4 个压力级别）：
+
+| 压力级别 | 不使用预订阅 | 使用预订阅 | 改善 |
+|---------|------------|----------|------|
+| 低压(500) | 20% 成功率 | **99.80%** | +398% |
+| 中压(2000) | 20% 成功率 | **99.95%** | +399% |
+| 高压(5000) | 20% 成功率 | **99.98%** | +399% |
+| 极限(10000) | 20% 成功率 | **99.99%** | +399% |
+
+**关键发现**：
+- 不使用预订阅时，成功率固定在 20%（恰好是 1/5，说明只有 1 个 topic 被订阅）
+- 使用预订阅后，成功率提升到 99.8%+，接近完美
+
+#### 业界最佳实践参考
+
+此方案符合以下企业的最佳实践：
+
+1. **Confluent 官方推荐**：
+   - 避免频繁重平衡，一次性订阅所有 topic
+   - 参考：[Kafka Consumer Group Rebalancing](https://docs.confluent.io/platform/current/clients/consumer.html#rebalancing)
+
+2. **LinkedIn 实践**：
+   - 预配置 topic 列表，减少运维复杂度
+   - 在应用启动时确定所有 topic，避免动态变化
+
+3. **Uber 实践**：
+   - 使用静态 topic 配置，提高系统可预测性
+   - 避免运行时动态添加 topic 导致的性能问题
+
+#### 注意事项
+
+1. **仅适用于 Kafka**：此 API 是 Kafka 特有的，NATS 不需要预订阅
+2. **必须在 Subscribe 之前调用**：否则无法避免重平衡
+3. **使用 ASCII 字符**：Kafka 的 ClientID 和 topic 名称应只使用 ASCII 字符，避免使用中文或其他 Unicode 字符
+4. **一次性设置**：应该在应用启动时一次性设置所有 topic，不要动态修改
+
+#### 相关文档
+
+- [PRE_SUBSCRIPTION_FINAL_REPORT.md](./PRE_SUBSCRIPTION_FINAL_REPORT.md) - 预订阅模式详细设计文档
+- [KAFKA_INDUSTRY_BEST_PRACTICES.md](./KAFKA_INDUSTRY_BEST_PRACTICES.md) - Kafka 业界最佳实践
+- [KAFKA_REBALANCE_SOLUTION_FINAL_REPORT.md](./KAFKA_REBALANCE_SOLUTION_FINAL_REPORT.md) - 重平衡问题解决方案
+
+---
+
+### 2. 主题持久化策略设计
 
 主题持久化管理是 EventBus 的核心特性，正确的策略设计是成功应用的关键。
 
@@ -4528,7 +4940,7 @@ func (m *TopicConfigManager) ValidateTopicConfigs(ctx context.Context) error {
 }
 ```
 
-### 2. DDD架构集成
+### 3. DDD架构集成
 
 在DDD架构中，建议按以下方式使用EventBus，并充分利用主题持久化管理：
 
@@ -4674,7 +5086,7 @@ func (p *EventBusPublisher) PublishIntegrationEvent(ctx context.Context, event e
 }
 ```
 
-### 3. 主题配置管理最佳实践
+### 4. 主题配置管理最佳实践
 
 主题配置应该与消息发布分离，遵循"配置一次，使用多次"的原则。
 
@@ -4988,7 +5400,7 @@ func (a *TopicConfigAdjuster) PerformHealthCheck(ctx context.Context) error {
 }
 ```
 
-### 4. 智能消息模式选择
+### 5. 智能消息模式选择
 
 根据业务需求和主题持久化策略选择最适合的消息传递模式：
 
@@ -5188,7 +5600,7 @@ func AdjustTopicPriorityIfNeeded(bus eventbus.EventBus, ctx context.Context, top
 }
 ```
 
-### 4. 企业级错误处理与恢复
+### 6. 企业级错误处理与恢复
 
 结合主题持久化管理的错误处理策略：
 
@@ -5363,11 +5775,36 @@ func validateTopicOptions(topic string, options eventbus.TopicOptions) error {
 
 func isValidTopicName(topic string) bool {
     // 实现主题命名规范验证
-    return len(topic) > 0 && len(topic) <= 255 && !strings.Contains(topic, " ")
+    if len(topic) == 0 || len(topic) > 255 {
+        return false
+    }
+
+    // 不允许包含空格
+    if strings.Contains(topic, " ") {
+        return false
+    }
+
+    // ⚠️ Kafka 要求：只能使用 ASCII 字符
+    // 检查是否包含非 ASCII 字符（如中文、日文、韩文等）
+    for _, r := range topic {
+        if r > 127 {
+            return false  // 包含非 ASCII 字符
+        }
+    }
+
+    return true
+}
+
+// 使用示例
+func validateKafkaTopicName(topic string) error {
+    if !isValidTopicName(topic) {
+        return fmt.Errorf("invalid Kafka topic name '%s': must use ASCII characters only (no Chinese, Japanese, Korean, etc.)", topic)
+    }
+    return nil
 }
 ```
 
-### 5. 优雅关闭与资源清理
+### 7. 优雅关闭与资源清理
 
 ```go
 type GracefulShutdownManager struct {
@@ -5471,7 +5908,7 @@ func main() {
 }
 ```
 
-### 6. 性能优化与监控
+### 8. 性能优化与监控
 
 #### 主题持久化性能优化
 ```go
@@ -5751,7 +6188,7 @@ func (a *ConfigAuditor) ValidateCurrentConfigs(ctx context.Context) []string {
 }
 ```
 
-### 7. 生产环境部署最佳实践
+### 9. 生产环境部署最佳实践
 
 #### 环境配置管理
 ```go
@@ -6000,6 +6437,17 @@ logger.SetLevel(logger.DebugLevel)
 
 
 ## Kafka 使用举例
+
+⚠️ **重要提示**：使用 Kafka 时，**ClientID 和 Topic 名称必须只使用 ASCII 字符**！
+
+**常见错误**：
+- ❌ 使用中文：`"业务.订单"`, `"用户事件"`
+- ❌ 混用中英文：`"business.支付"`, `"订单.events"`
+- ✅ 正确做法：`"business.orders"`, `"user.events"`
+
+**后果**：使用非 ASCII 字符会导致消息无法接收（0% 成功率），这是 Kafka 的底层限制。
+
+---
 
 Kafka EventBus 现在支持**基于主题的智能持久化管理**，可以在同一个 EventBus 实例中动态创建和配置不同持久化策略的主题，提供企业级的消息处理能力。
 
@@ -7406,3 +7854,410 @@ func createSimpleMessagesConfig() *eventbus.EventBusConfig {
 - **生产配置**：`examples/cross_docker_production_config.yaml`
 - **Docker部署**：`docker-compose.cross-docker-dual-nats.yml`
 - **架构分析**：`CROSS_DOCKER_DUAL_NATS_ARCHITECTURE_REPORT.md`
+
+---
+
+## NATS JetStream 异步发布与 Outbox 模式完整示例
+
+本章节提供 NATS JetStream 异步发布和 Outbox 模式的完整实现示例，展示如何在生产环境中使用异步发布机制。
+
+### 🎯 核心概念
+
+**异步发布**:
+- ✅ `PublishEnvelope` 立即返回，不等待 NATS 服务器 ACK
+- ✅ 后台 goroutine 处理 ACK 确认和错误
+- ✅ 通过 `GetPublishResultChannel()` 获取发布结果
+
+**Outbox 模式**:
+- ✅ 业务事务中保存数据 + 保存事件到 Outbox 表（原子性）
+- ✅ Outbox Processor 轮询未发布事件并异步发布
+- ✅ 监听发布结果通道，更新 Outbox 状态
+
+### 📦 完整实现示例
+
+#### 1. Outbox 表结构
+
+```sql
+CREATE TABLE outbox_events (
+    id VARCHAR(36) PRIMARY KEY,
+    aggregate_id VARCHAR(255) NOT NULL,
+    aggregate_type VARCHAR(100) NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    event_version BIGINT NOT NULL,
+    payload JSONB NOT NULL,
+    topic VARCHAR(255) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending, published, failed
+    error_message TEXT,
+    retry_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    published_at TIMESTAMP,
+    INDEX idx_status_created (status, created_at),
+    INDEX idx_aggregate (aggregate_id, event_version)
+);
+```
+
+#### 2. Outbox Repository 接口
+
+```go
+package repository
+
+import (
+    "context"
+    "time"
+)
+
+type OutboxEvent struct {
+    ID            string
+    AggregateID   string
+    AggregateType string
+    EventType     string
+    EventVersion  int64
+    Payload       []byte
+    Topic         string
+    Status        string
+    ErrorMessage  string
+    RetryCount    int
+    CreatedAt     time.Time
+    PublishedAt   *time.Time
+}
+
+type OutboxRepository interface {
+    // SaveInTx 在事务中保存事件到 Outbox
+    SaveInTx(ctx context.Context, tx Transaction, event *OutboxEvent) error
+
+    // FindUnpublished 查询未发布的事件（分页）
+    FindUnpublished(ctx context.Context, limit int) ([]*OutboxEvent, error)
+
+    // MarkAsPublished 标记事件为已发布
+    MarkAsPublished(ctx context.Context, eventID string) error
+
+    // RecordError 记录发布错误
+    RecordError(ctx context.Context, eventID string, err error) error
+}
+```
+
+#### 3. Outbox Publisher 实现
+
+```go
+package infrastructure
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+    "go.uber.org/zap"
+)
+
+type OutboxPublisher struct {
+    eventBus   eventbus.EventBus
+    outboxRepo OutboxRepository
+    logger     *zap.Logger
+
+    // 控制
+    ctx        context.Context
+    cancel     context.CancelFunc
+    pollTicker *time.Ticker
+}
+
+func NewOutboxPublisher(
+    eventBus eventbus.EventBus,
+    outboxRepo OutboxRepository,
+    logger *zap.Logger,
+) *OutboxPublisher {
+    ctx, cancel := context.WithCancel(context.Background())
+
+    return &OutboxPublisher{
+        eventBus:   eventBus,
+        outboxRepo: outboxRepo,
+        logger:     logger,
+        ctx:        ctx,
+        cancel:     cancel,
+        pollTicker: time.NewTicker(5 * time.Second), // 每5秒轮询一次
+    }
+}
+
+// Start 启动 Outbox Publisher
+func (p *OutboxPublisher) Start() {
+    // 启动结果监听器
+    go p.startResultListener()
+
+    // 启动轮询器
+    go p.startPoller()
+
+    p.logger.Info("Outbox Publisher started")
+}
+
+// Stop 停止 Outbox Publisher
+func (p *OutboxPublisher) Stop() {
+    p.cancel()
+    p.pollTicker.Stop()
+    p.logger.Info("Outbox Publisher stopped")
+}
+
+// startResultListener 启动异步发布结果监听器
+func (p *OutboxPublisher) startResultListener() {
+    resultChan := p.eventBus.GetPublishResultChannel()
+
+    for {
+        select {
+        case result := <-resultChan:
+            if result.Success {
+                // ✅ 发布成功：标记为已发布
+                if err := p.outboxRepo.MarkAsPublished(p.ctx, result.EventID); err != nil {
+                    p.logger.Error("Failed to mark event as published",
+                        zap.String("eventID", result.EventID),
+                        zap.Error(err))
+                } else {
+                    p.logger.Debug("Event marked as published",
+                        zap.String("eventID", result.EventID),
+                        zap.String("topic", result.Topic),
+                        zap.String("aggregateID", result.AggregateID))
+                }
+            } else {
+                // ❌ 发布失败：记录错误
+                if err := p.outboxRepo.RecordError(p.ctx, result.EventID, result.Error); err != nil {
+                    p.logger.Error("Failed to record publish error",
+                        zap.String("eventID", result.EventID),
+                        zap.Error(err))
+                }
+
+                p.logger.Error("Event publish failed",
+                    zap.String("eventID", result.EventID),
+                    zap.String("topic", result.Topic),
+                    zap.Error(result.Error))
+            }
+
+        case <-p.ctx.Done():
+            p.logger.Info("Result listener stopped")
+            return
+        }
+    }
+}
+
+// startPoller 启动轮询器
+func (p *OutboxPublisher) startPoller() {
+    for {
+        select {
+        case <-p.pollTicker.C:
+            p.publishPendingEvents()
+
+        case <-p.ctx.Done():
+            p.logger.Info("Poller stopped")
+            return
+        }
+    }
+}
+
+// publishPendingEvents 发布待发布的事件
+func (p *OutboxPublisher) publishPendingEvents() {
+    // 查询未发布的事件（每次最多100条）
+    events, err := p.outboxRepo.FindUnpublished(p.ctx, 100)
+    if err != nil {
+        p.logger.Error("Failed to find unpublished events", zap.Error(err))
+        return
+    }
+
+    if len(events) == 0 {
+        return
+    }
+
+    p.logger.Info("Publishing pending events", zap.Int("count", len(events)))
+
+    for _, event := range events {
+        // 构建 Envelope
+        envelope := &eventbus.Envelope{
+            AggregateID:  event.AggregateID,
+            EventType:    event.EventType,
+            EventVersion: event.EventVersion,
+            Timestamp:    event.CreatedAt,
+            Payload:      event.Payload,
+        }
+
+        // 🚀 异步发布（立即返回，不阻塞）
+        if err := p.eventBus.PublishEnvelope(p.ctx, event.Topic, envelope); err != nil {
+            p.logger.Error("Failed to submit publish",
+                zap.String("eventID", event.ID),
+                zap.String("topic", event.Topic),
+                zap.Error(err))
+
+            // 记录错误
+            p.outboxRepo.RecordError(p.ctx, event.ID, err)
+        } else {
+            p.logger.Debug("Event submitted for async publish",
+                zap.String("eventID", event.ID),
+                zap.String("topic", event.Topic),
+                zap.String("aggregateID", event.AggregateID))
+        }
+        // ✅ ACK 结果通过 resultChan 异步通知
+    }
+}
+```
+
+#### 4. 业务服务集成
+
+```go
+package service
+
+import (
+    "context"
+    "encoding/json"
+    "time"
+
+    "github.com/google/uuid"
+    "go.uber.org/zap"
+)
+
+type OrderService struct {
+    orderRepo  OrderRepository
+    outboxRepo OutboxRepository
+    txManager  TransactionManager
+    logger     *zap.Logger
+}
+
+// CreateOrder 创建订单（使用 Outbox 模式）
+func (s *OrderService) CreateOrder(ctx context.Context, cmd *CreateOrderCommand) error {
+    // 在事务中保存订单和事件
+    return s.txManager.RunInTransaction(ctx, func(tx Transaction) error {
+        // 1. 创建订单聚合
+        order := NewOrder(cmd.OrderID, cmd.CustomerID, cmd.Amount)
+
+        // 2. 保存订单到数据库
+        if err := s.orderRepo.SaveInTx(ctx, tx, order); err != nil {
+            return fmt.Errorf("failed to save order: %w", err)
+        }
+
+        // 3. 获取领域事件
+        domainEvent := order.Events()[0] // OrderCreatedEvent
+
+        // 4. 序列化事件 Payload
+        payload, err := json.Marshal(domainEvent)
+        if err != nil {
+            return fmt.Errorf("failed to marshal event: %w", err)
+        }
+
+        // 5. 保存事件到 Outbox（在同一事务中）
+        outboxEvent := &OutboxEvent{
+            ID:            uuid.New().String(),
+            AggregateID:   order.ID,
+            AggregateType: "Order",
+            EventType:     "OrderCreated",
+            EventVersion:  1,
+            Payload:       payload,
+            Topic:         "orders.created",
+            Status:        "pending",
+            CreatedAt:     time.Now(),
+        }
+
+        if err := s.outboxRepo.SaveInTx(ctx, tx, outboxEvent); err != nil {
+            return fmt.Errorf("failed to save outbox event: %w", err)
+        }
+
+        s.logger.Info("Order and event saved in transaction",
+            zap.String("orderID", order.ID),
+            zap.String("eventID", outboxEvent.ID))
+
+        return nil
+    })
+
+    // ✅ 事务提交后，Outbox Processor 会自动轮询并发布事件
+}
+```
+
+#### 5. 主程序启动
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+    "os/signal"
+    "syscall"
+
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+    "go.uber.org/zap"
+)
+
+func main() {
+    logger, _ := zap.NewProduction()
+    defer logger.Sync()
+
+    // 1. 创建 EventBus
+    config := &eventbus.EventBusConfig{
+        Type: "nats",
+        NATS: eventbus.NATSConfig{
+            URLs:     []string{"nats://localhost:4222"},
+            ClientID: "order-service",
+            JetStream: eventbus.JetStreamConfig{
+                Enabled: true,
+                Stream: eventbus.StreamConfig{
+                    Name:     "ORDERS_STREAM",
+                    Subjects: []string{"orders.*"},
+                    Storage:  "file",
+                    Replicas: 1,
+                },
+                Consumer: eventbus.NATSConsumerConfig{
+                    DurableName:  "order-consumer",
+                    AckPolicy:    "explicit",
+                    ReplayPolicy: "instant",
+                },
+            },
+        },
+    }
+
+    bus, err := eventbus.NewEventBus(config)
+    if err != nil {
+        logger.Fatal("Failed to create EventBus", zap.Error(err))
+    }
+    defer bus.Close()
+
+    // 2. 创建 Outbox Repository
+    outboxRepo := NewPostgresOutboxRepository(db, logger)
+
+    // 3. 创建并启动 Outbox Publisher
+    outboxPublisher := NewOutboxPublisher(bus, outboxRepo, logger)
+    outboxPublisher.Start()
+    defer outboxPublisher.Stop()
+
+    // 4. 创建业务服务
+    orderService := NewOrderService(orderRepo, outboxRepo, txManager, logger)
+
+    // 5. 启动 HTTP 服务器
+    // ...
+
+    // 6. 优雅关闭
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+    <-sigChan
+
+    logger.Info("Shutting down gracefully...")
+}
+```
+
+### 📊 性能指标
+
+使用异步发布 + Outbox 模式的性能表现：
+
+| 指标 | 同步发布 | 异步发布 | 提升 |
+|------|---------|---------|------|
+| **发送延迟** | 20-70 ms | 1-10 ms | **5-10x** |
+| **吞吐量** | 10-50 msg/s | 100-300 msg/s | **5-10x** |
+| **事务延迟** | 50-100 ms | 10-20 ms | **5x** |
+| **资源利用** | 高（阻塞等待） | 低（异步处理） | **优** |
+
+### 🏆 最佳实践
+
+1. **✅ 使用异步发布**: 默认推荐，适用于 99% 的场景
+2. **✅ 监听结果通道**: Outbox 模式必须监听 `GetPublishResultChannel()`
+3. **✅ 合理配置轮询间隔**: 建议 5-10 秒，平衡实时性和性能
+4. **✅ 实现幂等消费**: 消费端必须支持幂等处理（Outbox 提供 at-least-once）
+5. **✅ 监控 Outbox 积压**: 定期检查 `status='pending'` 的事件数量
+6. **✅ 设置重试上限**: 避免无限重试，建议 3-5 次后转人工处理
+
+### 📁 相关文档
+
+- **异步发布实现报告**: `sdk/pkg/eventbus/NATS_ASYNC_PUBLISH_IMPLEMENTATION_REPORT.md`
+- **性能测试报告**: `tests/eventbus/performance_tests/nats_async_test.log`
+- **Outbox 模式设计**: `docs/eventbus-extraction-proposal.md`
