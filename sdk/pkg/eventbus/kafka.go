@@ -91,6 +91,7 @@ func (p *GlobalWorkerPool) start() {
 	}
 
 	// 启动工作分发器
+	p.wg.Add(1) // 🔧 修复：将 dispatcher 加入 WaitGroup
 	go p.dispatcher()
 
 	p.logger.Info("Global worker pool started",
@@ -101,6 +102,8 @@ func (p *GlobalWorkerPool) start() {
 // dispatcher 工作分发器
 // 优化：移除goroutine创建，使用轮询分发
 func (p *GlobalWorkerPool) dispatcher() {
+	defer p.wg.Done() // 🔧 修复：dispatcher 退出时通知 WaitGroup
+
 	workerIndex := 0
 	for {
 		select {

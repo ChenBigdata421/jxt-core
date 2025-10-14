@@ -1,0 +1,486 @@
+=== RUN   TestMemoryPersistenceComparison
+    memory_persistence_comparison_test.go:843: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:844: 🎯 Kafka vs NATS JetStream 内存持久化性能对比测试
+    memory_persistence_comparison_test.go:845: ====================================================================================================
+    memory_persistence_comparison_test.go:867: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:868: 🚀 开始测试场景: Low 压力 (500 消息, 5 topics)
+    memory_persistence_comparison_test.go:869: ====================================================================================================
+    memory_persistence_comparison_test.go:285: 
+        ================================================================================
+    memory_persistence_comparison_test.go:286: 🔵 测试 Kafka - Low 压力 (500 消息, 5 topics)
+    memory_persistence_comparison_test.go:287: ================================================================================
+    memory_persistence_comparison_test.go:89: 🧹 清理 Kafka 测试数据 (topic prefix: test.memory.kafka)...
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic3
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic4
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic5
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic2
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic1
+    memory_persistence_comparison_test.go:123: ✅ 成功删除 5 个 Kafka topics
+    memory_persistence_comparison_test.go:169: 🔧 创建 Kafka Topics (3 分区)...
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic1 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic2 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic3 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic4 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic5 (3 partitions)
+    memory_persistence_comparison_test.go:210: 📊 验证创建的 Topics:
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:226: ✅ 成功创建 5 个 Kafka topics
+    memory_persistence_comparison_test.go:365: 📊 初始资源: Goroutines=314, Memory=4.22 MB
+    memory_persistence_comparison_test.go:374: ✅ 已设置预订阅 topic 列表: [test.memory.kafka.topic1 test.memory.kafka.topic2 test.memory.kafka.topic3 test.memory.kafka.topic4 test.memory.kafka.topic5]
+    memory_persistence_comparison_test.go:406: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:410: 📤 开始发送 500 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:462: ✅ 发送完成
+    memory_persistence_comparison_test.go:465: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:478: ✅ 接收完成: 500/500
+    memory_persistence_comparison_test.go:505: 
+        ================================================================================
+    memory_persistence_comparison_test.go:506: 🟢 测试 NATS - Low 压力 (500 消息, 5 topics)
+    memory_persistence_comparison_test.go:507: ================================================================================
+    memory_persistence_comparison_test.go:131: 🧹 清理 NATS 测试数据 (stream prefix: TEST_MEMORY_NATS)...
+    memory_persistence_comparison_test.go:154:    ✅ 已删除 stream: TEST_MEMORY_NATS
+    memory_persistence_comparison_test.go:161: ✅ 成功删除 1 个 NATS streams
+    memory_persistence_comparison_test.go:579: 📊 初始资源: Goroutines=778, Memory=27.63 MB
+    memory_persistence_comparison_test.go:611: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:615: 📤 开始发送 500 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:667: ✅ 发送完成
+    memory_persistence_comparison_test.go:670: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:683: ✅ 接收完成: 500/500
+    memory_persistence_comparison_test.go:710: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:711: 📊 Kafka vs NATS JetStream 内存持久化性能对比报告 - Low 压力
+    memory_persistence_comparison_test.go:712: ====================================================================================================
+    memory_persistence_comparison_test.go:715: 
+        📋 基本信息:
+    memory_persistence_comparison_test.go:716:   压力级别: Low
+    memory_persistence_comparison_test.go:717:   消息总数: 500
+    memory_persistence_comparison_test.go:718:   Topic 数量: 5
+    memory_persistence_comparison_test.go:719:   Kafka 分区数: 3 (每个 topic)
+    memory_persistence_comparison_test.go:723: 
+        📊 Kafka 分区详情:
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:730: 
+        📨 消息指标对比:
+    memory_persistence_comparison_test.go:731:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:733:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:734:   发送消息数                | 500             | 500             | +0.0%
+    memory_persistence_comparison_test.go:737:   接收消息数                | 500             | 500             | +0.0%
+    memory_persistence_comparison_test.go:740:   发送错误数                | 0               | 0               | -
+    memory_persistence_comparison_test.go:742:   成功率                  | 100.00         % | 100.00         % | +0.0%
+    memory_persistence_comparison_test.go:747: 
+        ⚡ 性能指标对比:
+    memory_persistence_comparison_test.go:748:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:749:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:750:   发送吞吐量 (msg/s)        | 489.68          | 367.75          | -24.9%
+    memory_persistence_comparison_test.go:753:   接收吞吐量 (msg/s)        | 489.68          | 367.75          | -24.9%
+    memory_persistence_comparison_test.go:756:   平均发送延迟 (ms)          | 0.047           | 3.528           | +7350.3%
+    memory_persistence_comparison_test.go:759:   平均处理延迟 (ms)          | 172.196         | 4.849           | -97.2%
+    memory_persistence_comparison_test.go:762:   测试时长 (s)             | 1.02            | 1.36            | -
+    memory_persistence_comparison_test.go:766: 
+        💾 资源占用对比:
+    memory_persistence_comparison_test.go:767:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:768:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:769:   初始协程数                | 314             | 778             | +464
+    memory_persistence_comparison_test.go:772:   峰值协程数                | 453             | 5915            | +5462
+    memory_persistence_comparison_test.go:775:   最终协程数                | 448             | 5908            | +5460
+    memory_persistence_comparison_test.go:778:   协程泄漏数                | 134             | 5130            | -
+    memory_persistence_comparison_test.go:780:   初始内存 (MB)            | 4.22            | 27.63           | +23.41
+    memory_persistence_comparison_test.go:783:   峰值内存 (MB)            | 6.17            | 86.46           | +80.29
+    memory_persistence_comparison_test.go:786:   最终内存 (MB)            | 5.29            | 74.02           | +68.73
+    memory_persistence_comparison_test.go:789:   内存增量 (MB)            | 1.08            | 46.40           | -
+    memory_persistence_comparison_test.go:794: 
+        🔗 连接和消费者组统计:
+    memory_persistence_comparison_test.go:795:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:796:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:797:   连接数                  | 1               | 1              
+    memory_persistence_comparison_test.go:799:   消费者组个数               | 1               | 1              
+    memory_persistence_comparison_test.go:803: 
+        ⚙️  Worker 池统计:
+    memory_persistence_comparison_test.go:804:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:805:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:806:   使用全局 Worker 池        | true            | true           
+    memory_persistence_comparison_test.go:808:   Worker 池大小           | 48              | 48             
+    memory_persistence_comparison_test.go:812: 
+        🎯 性能总结:
+    memory_persistence_comparison_test.go:815:   ✅ Kafka 吞吐量领先 NATS 33.2%
+    memory_persistence_comparison_test.go:826:   ✅ NATS 延迟优于 Kafka 3451.4%
+    memory_persistence_comparison_test.go:831:   ✅ Kafka 内存占用少于 NATS 45.32 MB
+    memory_persistence_comparison_test.go:837: ====================================================================================================
+    memory_persistence_comparison_test.go:867: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:868: 🚀 开始测试场景: Medium 压力 (2000 消息, 5 topics)
+    memory_persistence_comparison_test.go:869: ====================================================================================================
+    memory_persistence_comparison_test.go:285: 
+        ================================================================================
+    memory_persistence_comparison_test.go:286: 🔵 测试 Kafka - Medium 压力 (2000 消息, 5 topics)
+    memory_persistence_comparison_test.go:287: ================================================================================
+    memory_persistence_comparison_test.go:89: 🧹 清理 Kafka 测试数据 (topic prefix: test.memory.kafka)...
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic5
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic1
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic3
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic2
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic4
+    memory_persistence_comparison_test.go:123: ✅ 成功删除 5 个 Kafka topics
+    memory_persistence_comparison_test.go:169: 🔧 创建 Kafka Topics (3 分区)...
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic1 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic2 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic3 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic4 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic5 (3 partitions)
+    memory_persistence_comparison_test.go:210: 📊 验证创建的 Topics:
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:226: ✅ 成功创建 5 个 Kafka topics
+    memory_persistence_comparison_test.go:365: 📊 初始资源: Goroutines=321, Memory=32.38 MB
+    memory_persistence_comparison_test.go:374: ✅ 已设置预订阅 topic 列表: [test.memory.kafka.topic1 test.memory.kafka.topic2 test.memory.kafka.topic3 test.memory.kafka.topic4 test.memory.kafka.topic5]
+    memory_persistence_comparison_test.go:406: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:410: 📤 开始发送 2000 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:462: ✅ 发送完成
+    memory_persistence_comparison_test.go:465: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:478: ✅ 接收完成: 2000/2000
+    memory_persistence_comparison_test.go:505: 
+        ================================================================================
+    memory_persistence_comparison_test.go:506: 🟢 测试 NATS - Medium 压力 (2000 消息, 5 topics)
+    memory_persistence_comparison_test.go:507: ================================================================================
+    memory_persistence_comparison_test.go:131: 🧹 清理 NATS 测试数据 (stream prefix: TEST_MEMORY_NATS)...
+    memory_persistence_comparison_test.go:154:    ✅ 已删除 stream: TEST_MEMORY_NATS
+    memory_persistence_comparison_test.go:161: ✅ 成功删除 1 个 NATS streams
+    memory_persistence_comparison_test.go:579: 📊 初始资源: Goroutines=785, Memory=55.28 MB
+    memory_persistence_comparison_test.go:611: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:615: 📤 开始发送 2000 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:667: ✅ 发送完成
+    memory_persistence_comparison_test.go:670: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:683: ✅ 接收完成: 2000/2000
+    memory_persistence_comparison_test.go:710: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:711: 📊 Kafka vs NATS JetStream 内存持久化性能对比报告 - Medium 压力
+    memory_persistence_comparison_test.go:712: ====================================================================================================
+    memory_persistence_comparison_test.go:715: 
+        📋 基本信息:
+    memory_persistence_comparison_test.go:716:   压力级别: Medium
+    memory_persistence_comparison_test.go:717:   消息总数: 2000
+    memory_persistence_comparison_test.go:718:   Topic 数量: 5
+    memory_persistence_comparison_test.go:719:   Kafka 分区数: 3 (每个 topic)
+    memory_persistence_comparison_test.go:723: 
+        📊 Kafka 分区详情:
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:730: 
+        📨 消息指标对比:
+    memory_persistence_comparison_test.go:731:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:733:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:734:   发送消息数                | 2000            | 2000            | +0.0%
+    memory_persistence_comparison_test.go:737:   接收消息数                | 2000            | 2000            | +0.0%
+    memory_persistence_comparison_test.go:740:   发送错误数                | 0               | 0               | -
+    memory_persistence_comparison_test.go:742:   成功率                  | 100.00         % | 100.00         % | +0.0%
+    memory_persistence_comparison_test.go:747: 
+        ⚡ 性能指标对比:
+    memory_persistence_comparison_test.go:748:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:749:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:750:   发送吞吐量 (msg/s)        | 1855.24         | 199.12          | -89.3%
+    memory_persistence_comparison_test.go:753:   接收吞吐量 (msg/s)        | 1855.24         | 199.12          | -89.3%
+    memory_persistence_comparison_test.go:756:   平均发送延迟 (ms)          | 0.069           | 22.340          | +32174.7%
+    memory_persistence_comparison_test.go:759:   平均处理延迟 (ms)          | 164.654         | 31.459          | -80.9%
+    memory_persistence_comparison_test.go:762:   测试时长 (s)             | 1.08            | 10.04           | -
+    memory_persistence_comparison_test.go:766: 
+        💾 资源占用对比:
+    memory_persistence_comparison_test.go:767:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:768:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:769:   初始协程数                | 321             | 785             | +464
+    memory_persistence_comparison_test.go:772:   峰值协程数                | 460             | 5922            | +5462
+    memory_persistence_comparison_test.go:775:   最终协程数                | 455             | 5915            | +5460
+    memory_persistence_comparison_test.go:778:   协程泄漏数                | 134             | 5130            | -
+    memory_persistence_comparison_test.go:780:   初始内存 (MB)            | 32.38           | 55.28           | +22.89
+    memory_persistence_comparison_test.go:783:   峰值内存 (MB)            | 35.57           | 135.66          | +100.10
+    memory_persistence_comparison_test.go:786:   最终内存 (MB)            | 33.34           | 99.67           | +66.33
+    memory_persistence_comparison_test.go:789:   内存增量 (MB)            | 0.96            | 44.39           | -
+    memory_persistence_comparison_test.go:794: 
+        🔗 连接和消费者组统计:
+    memory_persistence_comparison_test.go:795:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:796:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:797:   连接数                  | 1               | 1              
+    memory_persistence_comparison_test.go:799:   消费者组个数               | 1               | 1              
+    memory_persistence_comparison_test.go:803: 
+        ⚙️  Worker 池统计:
+    memory_persistence_comparison_test.go:804:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:805:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:806:   使用全局 Worker 池        | true            | true           
+    memory_persistence_comparison_test.go:808:   Worker 池大小           | 48              | 48             
+    memory_persistence_comparison_test.go:812: 
+        🎯 性能总结:
+    memory_persistence_comparison_test.go:815:   ✅ Kafka 吞吐量领先 NATS 831.7%
+    memory_persistence_comparison_test.go:826:   ✅ NATS 延迟优于 Kafka 423.4%
+    memory_persistence_comparison_test.go:831:   ✅ Kafka 内存占用少于 NATS 43.43 MB
+    memory_persistence_comparison_test.go:837: ====================================================================================================
+    memory_persistence_comparison_test.go:867: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:868: 🚀 开始测试场景: High 压力 (5000 消息, 5 topics)
+    memory_persistence_comparison_test.go:869: ====================================================================================================
+    memory_persistence_comparison_test.go:285: 
+        ================================================================================
+    memory_persistence_comparison_test.go:286: 🔵 测试 Kafka - High 压力 (5000 消息, 5 topics)
+    memory_persistence_comparison_test.go:287: ================================================================================
+    memory_persistence_comparison_test.go:89: 🧹 清理 Kafka 测试数据 (topic prefix: test.memory.kafka)...
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic1
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic4
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic3
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic2
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic5
+    memory_persistence_comparison_test.go:123: ✅ 成功删除 5 个 Kafka topics
+    memory_persistence_comparison_test.go:169: 🔧 创建 Kafka Topics (3 分区)...
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic1 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic2 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic3 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic4 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic5 (3 partitions)
+    memory_persistence_comparison_test.go:210: 📊 验证创建的 Topics:
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:226: ✅ 成功创建 5 个 Kafka topics
+    memory_persistence_comparison_test.go:365: 📊 初始资源: Goroutines=328, Memory=58.06 MB
+    memory_persistence_comparison_test.go:374: ✅ 已设置预订阅 topic 列表: [test.memory.kafka.topic1 test.memory.kafka.topic2 test.memory.kafka.topic3 test.memory.kafka.topic4 test.memory.kafka.topic5]
+    memory_persistence_comparison_test.go:406: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:410: 📤 开始发送 5000 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:462: ✅ 发送完成
+    memory_persistence_comparison_test.go:465: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:478: ✅ 接收完成: 5000/5000
+    memory_persistence_comparison_test.go:505: 
+        ================================================================================
+    memory_persistence_comparison_test.go:506: 🟢 测试 NATS - High 压力 (5000 消息, 5 topics)
+    memory_persistence_comparison_test.go:507: ================================================================================
+    memory_persistence_comparison_test.go:131: 🧹 清理 NATS 测试数据 (stream prefix: TEST_MEMORY_NATS)...
+    memory_persistence_comparison_test.go:154:    ✅ 已删除 stream: TEST_MEMORY_NATS
+    memory_persistence_comparison_test.go:161: ✅ 成功删除 1 个 NATS streams
+    memory_persistence_comparison_test.go:579: 📊 初始资源: Goroutines=792, Memory=80.93 MB
+    memory_persistence_comparison_test.go:611: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:615: 📤 开始发送 5000 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:667: ✅ 发送完成
+    memory_persistence_comparison_test.go:670: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:683: ✅ 接收完成: 5000/5000
+    memory_persistence_comparison_test.go:710: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:711: 📊 Kafka vs NATS JetStream 内存持久化性能对比报告 - High 压力
+    memory_persistence_comparison_test.go:712: ====================================================================================================
+    memory_persistence_comparison_test.go:715: 
+        📋 基本信息:
+    memory_persistence_comparison_test.go:716:   压力级别: High
+    memory_persistence_comparison_test.go:717:   消息总数: 5000
+    memory_persistence_comparison_test.go:718:   Topic 数量: 5
+    memory_persistence_comparison_test.go:719:   Kafka 分区数: 3 (每个 topic)
+    memory_persistence_comparison_test.go:723: 
+        📊 Kafka 分区详情:
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:730: 
+        📨 消息指标对比:
+    memory_persistence_comparison_test.go:731:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:733:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:734:   发送消息数                | 5000            | 5000            | +0.0%
+    memory_persistence_comparison_test.go:737:   接收消息数                | 5000            | 5000            | +0.0%
+    memory_persistence_comparison_test.go:740:   发送错误数                | 0               | 0               | -
+    memory_persistence_comparison_test.go:742:   成功率                  | 100.00         % | 100.00         % | +0.0%
+    memory_persistence_comparison_test.go:747: 
+        ⚡ 性能指标对比:
+    memory_persistence_comparison_test.go:748:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:749:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:750:   发送吞吐量 (msg/s)        | 4566.94         | 182.45          | -96.0%
+    memory_persistence_comparison_test.go:753:   接收吞吐量 (msg/s)        | 4566.94         | 182.45          | -96.0%
+    memory_persistence_comparison_test.go:756:   平均发送延迟 (ms)          | 0.050           | 26.267          | +52287.0%
+    memory_persistence_comparison_test.go:759:   平均处理延迟 (ms)          | 369.984         | 36.562          | -90.1%
+    memory_persistence_comparison_test.go:762:   测试时长 (s)             | 1.09            | 27.41           | -
+    memory_persistence_comparison_test.go:766: 
+        💾 资源占用对比:
+    memory_persistence_comparison_test.go:767:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:768:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:769:   初始协程数                | 328             | 792             | +464
+    memory_persistence_comparison_test.go:772:   峰值协程数                | 467             | 5930            | +5463
+    memory_persistence_comparison_test.go:775:   最终协程数                | 462             | 5922            | +5460
+    memory_persistence_comparison_test.go:778:   协程泄漏数                | 134             | 5130            | -
+    memory_persistence_comparison_test.go:780:   初始内存 (MB)            | 58.06           | 80.93           | +22.88
+    memory_persistence_comparison_test.go:783:   峰值内存 (MB)            | 63.56           | 191.21          | +127.65
+    memory_persistence_comparison_test.go:786:   最终内存 (MB)            | 58.99           | 125.03          | +66.05
+    memory_persistence_comparison_test.go:789:   内存增量 (MB)            | 0.93            | 44.10           | -
+    memory_persistence_comparison_test.go:794: 
+        🔗 连接和消费者组统计:
+    memory_persistence_comparison_test.go:795:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:796:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:797:   连接数                  | 1               | 1              
+    memory_persistence_comparison_test.go:799:   消费者组个数               | 1               | 1              
+    memory_persistence_comparison_test.go:803: 
+        ⚙️  Worker 池统计:
+    memory_persistence_comparison_test.go:804:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:805:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:806:   使用全局 Worker 池        | true            | true           
+    memory_persistence_comparison_test.go:808:   Worker 池大小           | 48              | 48             
+    memory_persistence_comparison_test.go:812: 
+        🎯 性能总结:
+    memory_persistence_comparison_test.go:815:   ✅ Kafka 吞吐量领先 NATS 2403.2%
+    memory_persistence_comparison_test.go:826:   ✅ NATS 延迟优于 Kafka 911.9%
+    memory_persistence_comparison_test.go:831:   ✅ Kafka 内存占用少于 NATS 43.17 MB
+    memory_persistence_comparison_test.go:837: ====================================================================================================
+    memory_persistence_comparison_test.go:867: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:868: 🚀 开始测试场景: Extreme 压力 (10000 消息, 5 topics)
+    memory_persistence_comparison_test.go:869: ====================================================================================================
+    memory_persistence_comparison_test.go:285: 
+        ================================================================================
+    memory_persistence_comparison_test.go:286: 🔵 测试 Kafka - Extreme 压力 (10000 消息, 5 topics)
+    memory_persistence_comparison_test.go:287: ================================================================================
+    memory_persistence_comparison_test.go:89: 🧹 清理 Kafka 测试数据 (topic prefix: test.memory.kafka)...
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic1
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic3
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic2
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic4
+    memory_persistence_comparison_test.go:120:    ✅ 已删除 topic: test.memory.kafka.topic5
+    memory_persistence_comparison_test.go:123: ✅ 成功删除 5 个 Kafka topics
+    memory_persistence_comparison_test.go:169: 🔧 创建 Kafka Topics (3 分区)...
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic1 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic2 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic3 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic4 (3 partitions)
+    memory_persistence_comparison_test.go:203:    ✅ 创建成功: test.memory.kafka.topic5 (3 partitions)
+    memory_persistence_comparison_test.go:210: 📊 验证创建的 Topics:
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:220:    test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:226: ✅ 成功创建 5 个 Kafka topics
+    memory_persistence_comparison_test.go:365: 📊 初始资源: Goroutines=335, Memory=83.43 MB
+    memory_persistence_comparison_test.go:374: ✅ 已设置预订阅 topic 列表: [test.memory.kafka.topic1 test.memory.kafka.topic2 test.memory.kafka.topic3 test.memory.kafka.topic4 test.memory.kafka.topic5]
+    memory_persistence_comparison_test.go:406: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:410: 📤 开始发送 10000 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:462: ✅ 发送完成
+    memory_persistence_comparison_test.go:465: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:478: ✅ 接收完成: 10000/10000
+    memory_persistence_comparison_test.go:505: 
+        ================================================================================
+    memory_persistence_comparison_test.go:506: 🟢 测试 NATS - Extreme 压力 (10000 消息, 5 topics)
+    memory_persistence_comparison_test.go:507: ================================================================================
+    memory_persistence_comparison_test.go:131: 🧹 清理 NATS 测试数据 (stream prefix: TEST_MEMORY_NATS)...
+    memory_persistence_comparison_test.go:154:    ✅ 已删除 stream: TEST_MEMORY_NATS
+    memory_persistence_comparison_test.go:161: ✅ 成功删除 1 个 NATS streams
+    memory_persistence_comparison_test.go:579: 📊 初始资源: Goroutines=799, Memory=106.34 MB
+    memory_persistence_comparison_test.go:611: ⏳ 等待订阅就绪...
+    memory_persistence_comparison_test.go:615: 📤 开始发送 10000 条消息到 5 个 topics...
+    memory_persistence_comparison_test.go:667: ✅ 发送完成
+    memory_persistence_comparison_test.go:670: ⏳ 等待接收完成...
+    memory_persistence_comparison_test.go:683: ✅ 接收完成: 10000/10000
+    memory_persistence_comparison_test.go:710: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:711: 📊 Kafka vs NATS JetStream 内存持久化性能对比报告 - Extreme 压力
+    memory_persistence_comparison_test.go:712: ====================================================================================================
+    memory_persistence_comparison_test.go:715: 
+        📋 基本信息:
+    memory_persistence_comparison_test.go:716:   压力级别: Extreme
+    memory_persistence_comparison_test.go:717:   消息总数: 10000
+    memory_persistence_comparison_test.go:718:   Topic 数量: 5
+    memory_persistence_comparison_test.go:719:   Kafka 分区数: 3 (每个 topic)
+    memory_persistence_comparison_test.go:723: 
+        📊 Kafka 分区详情:
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:725:   test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:730: 
+        📨 消息指标对比:
+    memory_persistence_comparison_test.go:731:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:733:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:734:   发送消息数                | 10000           | 10000           | +0.0%
+    memory_persistence_comparison_test.go:737:   接收消息数                | 10000           | 10000           | +0.0%
+    memory_persistence_comparison_test.go:740:   发送错误数                | 0               | 0               | -
+    memory_persistence_comparison_test.go:742:   成功率                  | 100.00         % | 100.00         % | +0.0%
+    memory_persistence_comparison_test.go:747: 
+        ⚡ 性能指标对比:
+    memory_persistence_comparison_test.go:748:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:749:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:750:   发送吞吐量 (msg/s)        | 8340.81         | 1122.92         | -86.5%
+    memory_persistence_comparison_test.go:753:   接收吞吐量 (msg/s)        | 8340.81         | 1122.92         | -86.5%
+    memory_persistence_comparison_test.go:756:   平均发送延迟 (ms)          | 0.049           | 3.821           | +7733.4%
+    memory_persistence_comparison_test.go:759:   平均处理延迟 (ms)          | 212.443         | 5.230           | -97.5%
+    memory_persistence_comparison_test.go:762:   测试时长 (s)             | 1.20            | 8.91            | -
+    memory_persistence_comparison_test.go:766: 
+        💾 资源占用对比:
+    memory_persistence_comparison_test.go:767:   指标                   | Kafka           | NATS            | 差异             
+    memory_persistence_comparison_test.go:768:   ----------------------------------------------------------------------
+    memory_persistence_comparison_test.go:769:   初始协程数                | 335             | 799             | +464
+    memory_persistence_comparison_test.go:772:   峰值协程数                | 474             | 5937            | +5463
+    memory_persistence_comparison_test.go:775:   最终协程数                | 469             | 5929            | +5460
+    memory_persistence_comparison_test.go:778:   协程泄漏数                | 134             | 5130            | -
+    memory_persistence_comparison_test.go:780:   初始内存 (MB)            | 83.43           | 106.34          | +22.91
+    memory_persistence_comparison_test.go:783:   峰值内存 (MB)            | 93.15           | 268.33          | +175.18
+    memory_persistence_comparison_test.go:786:   最终内存 (MB)            | 84.37           | 150.37          | +66.00
+    memory_persistence_comparison_test.go:789:   内存增量 (MB)            | 0.94            | 44.03           | -
+    memory_persistence_comparison_test.go:794: 
+        🔗 连接和消费者组统计:
+    memory_persistence_comparison_test.go:795:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:796:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:797:   连接数                  | 1               | 1              
+    memory_persistence_comparison_test.go:799:   消费者组个数               | 1               | 1              
+    memory_persistence_comparison_test.go:803: 
+        ⚙️  Worker 池统计:
+    memory_persistence_comparison_test.go:804:   指标                   | Kafka           | NATS           
+    memory_persistence_comparison_test.go:805:   -------------------------------------------------------
+    memory_persistence_comparison_test.go:806:   使用全局 Worker 池        | true            | true           
+    memory_persistence_comparison_test.go:808:   Worker 池大小           | 48              | 48             
+    memory_persistence_comparison_test.go:812: 
+        🎯 性能总结:
+    memory_persistence_comparison_test.go:815:   ✅ Kafka 吞吐量领先 NATS 642.8%
+    memory_persistence_comparison_test.go:826:   ✅ NATS 延迟优于 Kafka 3962.3%
+    memory_persistence_comparison_test.go:831:   ✅ Kafka 内存占用少于 NATS 43.09 MB
+    memory_persistence_comparison_test.go:837: ====================================================================================================
+    memory_persistence_comparison_test.go:893: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:894: 📊 所有场景汇总报告
+    memory_persistence_comparison_test.go:895: ====================================================================================================
+    memory_persistence_comparison_test.go:897: 
+        场景         | 系统              | 吞吐量(msg/s)      | 延迟(ms)          | 成功率(%)          | 内存增量(MB)       
+    memory_persistence_comparison_test.go:900: ----------------------------------------------------------------------------------------------------
+    memory_persistence_comparison_test.go:904: Low        | Kafka           | 489.68          | 172.196         | 100.00          | 1.08           
+    memory_persistence_comparison_test.go:910:            | NATS            | 367.75          | 4.849           | 100.00          | 46.40          
+    memory_persistence_comparison_test.go:916: ----------------------------------------------------------------------------------------------------
+    memory_persistence_comparison_test.go:904: Medium     | Kafka           | 1855.24         | 164.654         | 100.00          | 0.96           
+    memory_persistence_comparison_test.go:910:            | NATS            | 199.12          | 31.459          | 100.00          | 44.39          
+    memory_persistence_comparison_test.go:916: ----------------------------------------------------------------------------------------------------
+    memory_persistence_comparison_test.go:904: High       | Kafka           | 4566.94         | 369.984         | 100.00          | 0.93           
+    memory_persistence_comparison_test.go:910:            | NATS            | 182.45          | 36.562          | 100.00          | 44.10          
+    memory_persistence_comparison_test.go:916: ----------------------------------------------------------------------------------------------------
+    memory_persistence_comparison_test.go:904: Extreme    | Kafka           | 8340.81         | 212.443         | 100.00          | 0.94           
+    memory_persistence_comparison_test.go:910:            | NATS            | 1122.92         | 5.230           | 100.00          | 44.03          
+    memory_persistence_comparison_test.go:916: ----------------------------------------------------------------------------------------------------
+    memory_persistence_comparison_test.go:920: 
+        🔍 关键发现:
+    memory_persistence_comparison_test.go:921:   1. ✅ 所有测试使用 Publish/Subscribe 方法（无聚合ID）
+    memory_persistence_comparison_test.go:922:   2. ✅ Kafka 和 NATS 都使用内存持久化
+    memory_persistence_comparison_test.go:923:   3. ✅ Kafka 使用 3 分区配置
+    memory_persistence_comparison_test.go:924:   4. ✅ 两个系统都使用全局 Worker 池处理订阅消息
+    memory_persistence_comparison_test.go:925:   5. ✅ Topic 数量: 5
+    memory_persistence_comparison_test.go:926:   6. ✅ 测试前已清理 Kafka 和 NATS 数据
+    memory_persistence_comparison_test.go:928: 
+        ✅ 所有测试完成！
+    memory_persistence_comparison_test.go:929: ====================================================================================================
+--- PASS: TestMemoryPersistenceComparison (182.80s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests	183.583s

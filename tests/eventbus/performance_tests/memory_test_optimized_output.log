@@ -1,0 +1,35 @@
+=== RUN   TestMemoryPersistenceComparison
+    memory_persistence_comparison_test.go:883: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:884: 🎯 Kafka vs NATS JetStream 内存持久化性能对比测试
+    memory_persistence_comparison_test.go:885: ====================================================================================================
+    memory_persistence_comparison_test.go:907: 
+        ====================================================================================================
+    memory_persistence_comparison_test.go:908: 🚀 开始测试场景: Low 压力 (500 消息, 5 topics)
+    memory_persistence_comparison_test.go:909: ====================================================================================================
+    memory_persistence_comparison_test.go:285: 
+        ================================================================================
+    memory_persistence_comparison_test.go:286: 🔵 测试 Kafka - Low 压力 (500 消息, 5 topics)
+    memory_persistence_comparison_test.go:287: ================================================================================
+    memory_persistence_comparison_test.go:91: 🧹 清理 Kafka 测试数据 (topic prefix: test.memory.kafka)...
+    memory_persistence_comparison_test.go:122:    ✅ 已删除 topic: test.memory.kafka.topic1
+    memory_persistence_comparison_test.go:122:    ✅ 已删除 topic: test.memory.kafka.topic4
+    memory_persistence_comparison_test.go:122:    ✅ 已删除 topic: test.memory.kafka.topic3
+    memory_persistence_comparison_test.go:122:    ✅ 已删除 topic: test.memory.kafka.topic2
+    memory_persistence_comparison_test.go:122:    ✅ 已删除 topic: test.memory.kafka.topic5
+    memory_persistence_comparison_test.go:125: ✅ 成功删除 5 个 Kafka topics
+    memory_persistence_comparison_test.go:171: 🔧 创建 Kafka Topics (3 分区)...
+    memory_persistence_comparison_test.go:205:    ✅ 创建成功: test.memory.kafka.topic1 (3 partitions)
+    memory_persistence_comparison_test.go:205:    ✅ 创建成功: test.memory.kafka.topic2 (3 partitions)
+    memory_persistence_comparison_test.go:205:    ✅ 创建成功: test.memory.kafka.topic3 (3 partitions)
+    memory_persistence_comparison_test.go:205:    ✅ 创建成功: test.memory.kafka.topic4 (3 partitions)
+    memory_persistence_comparison_test.go:205:    ✅ 创建成功: test.memory.kafka.topic5 (3 partitions)
+    memory_persistence_comparison_test.go:212: 📊 验证创建的 Topics:
+    memory_persistence_comparison_test.go:222:    test.memory.kafka.topic1: 3 partitions
+    memory_persistence_comparison_test.go:222:    test.memory.kafka.topic2: 3 partitions
+    memory_persistence_comparison_test.go:222:    test.memory.kafka.topic3: 3 partitions
+    memory_persistence_comparison_test.go:222:    test.memory.kafka.topic4: 3 partitions
+    memory_persistence_comparison_test.go:222:    test.memory.kafka.topic5: 3 partitions
+    memory_persistence_comparison_test.go:228: ✅ 成功创建 5 个 Kafka topics
+    memory_persistence_comparison_test.go:382: 📊 初始资源: Goroutines=314, Memory=4.21 MB
+    memory_persistence_comparison_test.go:391: ✅ 已设置预订阅 topic 列表: [test.memory.kafka.topic1 test.memory.kafka.topic2 test.memory.kafka.topic3 test.memory.kafka.topic4 test.memory.kafka.topic5]

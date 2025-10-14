@@ -1,0 +1,66 @@
+goroutine profile: total 5908
+5120 @ 0xc7a0ae 0xc59017 0x140ddeb 0xc82561
+#	0x140ddea	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker+0xea	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:84
+
+768 @ 0xc7a0ae 0xc59017 0x1432408 0xc82561
+#	0x1432407	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*UnifiedWorker).start+0x187	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/unified_worker_pool.go:216
+
+5 @ 0xc7a0ae 0xc59017 0x13843cd 0x1390ff0 0x141789a 0x141774a 0xc82561
+#	0x13843cc	github.com/nats-io/nats%2ego.(*Subscription).nextMsgWithContext+0x22c					C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/context.go:149
+#	0x1390fef	github.com/nats-io/nats%2ego.(*Subscription).Fetch+0x114f						C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/js.go:3157
+#	0x1417899	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*natsEventBus).processUnifiedPullMessages+0xb9	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/nats.go:1175
+#	0x1417749	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*natsEventBus).subscribeJetStream.func1+0x69	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/nats.go:1154
+
+5 @ 0xc7a0ae 0xc59017 0x13915fd 0xc82561
+#	0x13915fc	github.com/nats-io/nats%2ego.(*Subscription).Fetch.func3+0x7c	C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/js.go:3146
+
+2 @ 0xc7a0ae 0xc121e5 0xc11d92 0xf8dfa9 0xc82561
+#	0xf8dfa8	gopkg.in/natefinch/lumberjack%2ev2.(*Logger).millRun+0x48	C:/Users/jiyua/go/pkg/mod/gopkg.in/natefinch/lumberjack.v2@v2.2.1/lumberjack.go:379
+
+1 @ 0xc39f51 0xc78d9d 0xdf7eb1 0xdf7ce5 0xdf4b0b 0x144bbad 0x144b048 0x144e1fd 0xd5608b 0xc82561
+#	0xdf7eb0	runtime/pprof.writeRuntimeProfile+0xb0										C:/Program Files/Go/src/runtime/pprof/pprof.go:796
+#	0xdf7ce4	runtime/pprof.writeGoroutine+0x44										C:/Program Files/Go/src/runtime/pprof/pprof.go:755
+#	0xdf4b0a	runtime/pprof.(*Profile).WriteTo+0x14a										C:/Program Files/Go/src/runtime/pprof/pprof.go:377
+#	0x144bbac	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests.testMemoryNATS.func1+0x30c			D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/memory_persistence_comparison_test.go:610
+#	0x144b047	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests.testMemoryNATS+0x1167			D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/memory_persistence_comparison_test.go:744
+#	0x144e1fc	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests.TestMemoryPersistenceComparison+0x49c	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_tests/memory_persistence_comparison_test.go:916
+#	0xd5608a	testing.tRunner+0xca												C:/Program Files/Go/src/testing/testing.go:1792
+
+1 @ 0xc7a0ae 0xc121e5 0xc11d72 0x122752e 0xc82561
+#	0x122752d	github.com/rcrowley/go-metrics.(*meterArbiter).tick+0x2d	C:/Users/jiyua/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:239
+
+1 @ 0xc7a0ae 0xc121e5 0xc11d72 0xd56f34 0xd59297 0xd5608b 0xd59174 0xd57b2a 0x145ce1b 0xc469fd 0xc82561
+#	0xd56f33	testing.(*T).Run+0x413		C:/Program Files/Go/src/testing/testing.go:1859
+#	0xd59296	testing.runTests.func1+0x36	C:/Program Files/Go/src/testing/testing.go:2279
+#	0xd5608a	testing.tRunner+0xca		C:/Program Files/Go/src/testing/testing.go:1792
+#	0xd59173	testing.runTests+0x4b3		C:/Program Files/Go/src/testing/testing.go:2277
+#	0xd57b29	testing.(*M).Run+0x649		C:/Program Files/Go/src/testing/testing.go:2142
+#	0x145ce1a	main.main+0x9a			_testmain.go:71
+#	0xc469fc	runtime.main+0x27c		C:/Program Files/Go/src/runtime/proc.go:283
+
+1 @ 0xc7a0ae 0xc121e5 0xc11d92 0x13b36e5 0xc82561
+#	0x13b36e4	github.com/nats-io/nats%2ego.(*Conn).flusher+0xe4	C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/nats.go:3633
+
+1 @ 0xc7a0ae 0xc3d677 0xc79185 0xcc98a7 0xccad05 0xccb9db 0xe9bbe5 0xeb0b45 0x13ab169 0x13b164f 0xc82561
+#	0xc79184	internal/poll.runtime_pollWait+0x84			C:/Program Files/Go/src/runtime/netpoll.go:351
+#	0xcc98a6	internal/poll.(*pollDesc).wait+0x26			C:/Program Files/Go/src/internal/poll/fd_poll_runtime.go:84
+#	0xccad04	internal/poll.execIO+0x104				C:/Program Files/Go/src/internal/poll/fd_windows.go:177
+#	0xccb9da	internal/poll.(*FD).Read+0x29a				C:/Program Files/Go/src/internal/poll/fd_windows.go:438
+#	0xe9bbe4	net.(*netFD).Read+0x24					C:/Program Files/Go/src/net/fd_posix.go:55
+#	0xeb0b44	net.(*conn).Read+0x44					C:/Program Files/Go/src/net/net.go:194
+#	0x13ab168	github.com/nats-io/nats%2ego.(*natsReader).Read+0x88	C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/nats.go:2060
+#	0x13b164e	github.com/nats-io/nats%2ego.(*Conn).readLoop+0xee	C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/nats.go:3193
+
+1 @ 0xc7a0ae 0xc59017 0x14318ee 0xc82561
+#	0x14318ed	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*UnifiedWorkerPool).smartDispatcher+0xcd	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/unified_worker_pool.go:117
+
+1 @ 0xc7a0ae 0xc7ba5d 0xc7ba3d 0xc8e6e5 0x13b12fd 0xc82561
+#	0xc7ba3c	sync.runtime_notifyListWait+0x13c						C:/Program Files/Go/src/runtime/sema.go:597
+#	0xc8e6e4	sync.(*Cond).Wait+0x84								C:/Program Files/Go/src/sync/cond.go:71
+#	0x13b12fc	github.com/nats-io/nats%2ego.(*asyncCallbacksHandler).asyncCBDispatcher+0xdc	C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/nats.go:3118
+
+1 @ 0xc7a0ae 0xc7ba5d 0xc7ba3d 0xc8e6e5 0x13b1845 0xc82561
+#	0xc7ba3c	sync.runtime_notifyListWait+0x13c			C:/Program Files/Go/src/runtime/sema.go:597
+#	0xc8e6e4	sync.(*Cond).Wait+0x84					C:/Program Files/Go/src/sync/cond.go:71
+#	0x13b1844	github.com/nats-io/nats%2ego.(*Conn).waitForMsgs+0xc4	C:/Users/jiyua/go/pkg/mod/github.com/nats-io/nats.go@v1.45.0/nats.go:3237
+
