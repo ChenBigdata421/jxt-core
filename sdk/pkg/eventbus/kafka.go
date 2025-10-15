@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/IBM/sarama"
 	"go.uber.org/zap"
@@ -39,6 +40,7 @@ type GlobalWorkerPool struct {
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 	logger      *zap.Logger
+	closed      atomic.Bool // 标记是否已关闭
 }
 
 // Worker 全局Worker
@@ -190,6 +192,12 @@ func (w *Worker) processWork(work WorkItem) {
 
 // Close 关闭全局Worker池
 func (p *GlobalWorkerPool) Close() {
+	// 🔧 修复：避免重复关闭 channel
+	if !p.closed.CompareAndSwap(false, true) {
+		p.logger.Warn("Global worker pool already closed, skipping")
+		return
+	}
+
 	p.logger.Info("Shutting down global worker pool")
 
 	// 取消context
@@ -245,7 +253,8 @@ type kafkaEventBus struct {
 	// 企业级特性
 	backlogDetector          *BacklogDetector          // 订阅端积压检测器
 	publisherBacklogDetector *PublisherBacklogDetector // 发送端积压检测器
-	rateLimiter              *RateLimiter
+	rateLimiter              *RateLimiter              // 订阅端流量控制器
+	publishRateLimiter       *RateLimiter              // 发布端流量控制器
 
 	// 移除fullConfig字段，企业级特性配置现在在config.Enterprise中
 
@@ -267,6 +276,8 @@ type kafkaEventBus struct {
 	healthCheckSubscriber *HealthCheckSubscriber
 	// 健康检查发布器
 	healthChecker *HealthChecker
+	// 健康检查配置（从 Enterprise.HealthCheck 转换而来）
+	healthCheckConfig config.HealthCheckConfig
 
 	// 自动重连控制
 	reconnectConfig   ReconnectConfig
@@ -476,8 +487,20 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		return nil, fmt.Errorf("failed to create unified consumer group: %w", err)
 	}
 
+	// 创建管理客户端（用于主题配置管理）
+	admin, err := sarama.NewClusterAdminFromClient(client)
+	if err != nil {
+		unifiedConsumerGroup.Close()
+		asyncProducer.Close()
+		client.Close()
+		return nil, fmt.Errorf("failed to create kafka admin: %w", err)
+	}
+
 	// 创建全局Worker池
 	globalWorkerPool := NewGlobalWorkerPool(0, zap.NewNop()) // 0表示使用默认worker数量
+
+	// 转换健康检查配置（从 eventbus.HealthCheckConfig 转换为 config.HealthCheckConfig）
+	healthCheckConfig := convertHealthCheckConfig(cfg.Enterprise.HealthCheck)
 
 	// 创建事件总线实例
 	bus := &kafkaEventBus{
@@ -485,8 +508,12 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		client:               client,
 		asyncProducer:        asyncProducer,
 		unifiedConsumerGroup: unifiedConsumerGroup,
+		admin:                admin, // 设置 admin client
 		closed:               false,
 		logger:               zap.NewNop(), // 使用无操作logger
+
+		// 健康检查配置
+		healthCheckConfig: healthCheckConfig,
 
 		// 预订阅模式字段
 		globalWorkerPool:       globalWorkerPool,
@@ -513,6 +540,14 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		QueueSize:   1000,                   // 每个 worker 的队列大小
 		WaitTimeout: 500 * time.Millisecond, // 等待超时
 	}, nil) // handler 将在处理消息时动态传入
+
+	// 初始化发布端流量控制器
+	if cfg.Enterprise.Publisher.RateLimit.Enabled {
+		bus.publishRateLimiter = NewRateLimiter(cfg.Enterprise.Publisher.RateLimit)
+		logger.Info("Publisher rate limiter enabled",
+			"ratePerSecond", cfg.Enterprise.Publisher.RateLimit.RatePerSecond,
+			"burstSize", cfg.Enterprise.Publisher.RateLimit.BurstSize)
+	}
 
 	// 优化1：启动AsyncProducer的成功和错误处理goroutine
 	go bus.handleAsyncProducerSuccess()
@@ -557,29 +592,141 @@ func (k *kafkaEventBus) handleAsyncProducerErrors() {
 			zap.String("topic", err.Msg.Topic),
 			zap.Error(err.Err))
 
+		// 提取消息内容
+		var message []byte
+		if err.Msg.Value != nil {
+			message, _ = err.Msg.Value.Encode()
+		}
+
 		// 如果配置了回调，执行回调
 		if k.publishCallback != nil {
-			// 提取消息内容
-			var message []byte
-			if err.Msg.Value != nil {
-				message, _ = err.Msg.Value.Encode()
-			}
 			k.publishCallback(context.Background(), err.Msg.Topic, message, err.Err)
 		}
 
 		// 如果配置了错误处理器，执行错误处理
 		if k.errorHandler != nil {
-			// 提取消息内容
-			var message []byte
-			if err.Msg.Value != nil {
-				message, _ = err.Msg.Value.Encode()
-			}
 			k.errorHandler.HandleError(context.Background(), err.Err, message, err.Msg.Topic)
+		}
+
+		// 发布端错误处理：发送到死信队列
+		if k.config.Enterprise.Publisher.ErrorHandling.DeadLetterTopic != "" {
+			k.sendToPublisherDeadLetter(err.Msg.Topic, message, err.Err)
 		}
 	}
 }
 
+// sendToPublisherDeadLetter 将发布失败的消息发送到死信队列
+func (k *kafkaEventBus) sendToPublisherDeadLetter(originalTopic string, message []byte, publishErr error) {
+	deadLetterTopic := k.config.Enterprise.Publisher.ErrorHandling.DeadLetterTopic
+
+	// 创建死信消息，包含原始主题和错误信息
+	dlqMsg := &sarama.ProducerMessage{
+		Topic: deadLetterTopic,
+		Value: sarama.ByteEncoder(message),
+		Headers: []sarama.RecordHeader{
+			{Key: []byte("X-Original-Topic"), Value: []byte(originalTopic)},
+			{Key: []byte("X-Error-Message"), Value: []byte(publishErr.Error())},
+			{Key: []byte("X-Timestamp"), Value: []byte(time.Now().Format(time.RFC3339))},
+		},
+	}
+
+	// 应用重试策略发送到死信队列
+	retryPolicy := k.config.Enterprise.Publisher.RetryPolicy
+	if retryPolicy.Enabled && retryPolicy.MaxRetries > 0 {
+		k.sendWithRetry(dlqMsg, retryPolicy, originalTopic, deadLetterTopic)
+	} else {
+		// 不使用重试，直接发送
+		k.sendMessageNonBlocking(dlqMsg, originalTopic, deadLetterTopic)
+	}
+}
+
+// sendWithRetry 使用重试策略发送消息
+func (k *kafkaEventBus) sendWithRetry(msg *sarama.ProducerMessage, retryPolicy RetryPolicyConfig, originalTopic, targetTopic string) {
+	var lastErr error
+	backoff := retryPolicy.InitialInterval
+
+	for attempt := 0; attempt <= retryPolicy.MaxRetries; attempt++ {
+		// 尝试发送
+		select {
+		case k.asyncProducer.Input() <- msg:
+			k.logger.Info("Message sent successfully with retry",
+				zap.String("originalTopic", originalTopic),
+				zap.String("targetTopic", targetTopic),
+				zap.Int("attempt", attempt+1))
+			return
+		case <-time.After(100 * time.Millisecond):
+			lastErr = fmt.Errorf("async producer input queue full")
+		}
+
+		// 如果不是最后一次尝试，等待后重试
+		if attempt < retryPolicy.MaxRetries {
+			k.logger.Warn("Retry sending message to dead letter queue",
+				zap.String("originalTopic", originalTopic),
+				zap.String("targetTopic", targetTopic),
+				zap.Int("attempt", attempt+1),
+				zap.Int("maxRetries", retryPolicy.MaxRetries),
+				zap.Duration("backoff", backoff))
+
+			time.Sleep(backoff)
+
+			// 计算下一次退避时间
+			backoff = time.Duration(float64(backoff) * retryPolicy.Multiplier)
+			if backoff > retryPolicy.MaxInterval {
+				backoff = retryPolicy.MaxInterval
+			}
+		}
+	}
+
+	// 所有重试都失败
+	k.logger.Error("Failed to send message after all retries",
+		zap.String("originalTopic", originalTopic),
+		zap.String("targetTopic", targetTopic),
+		zap.Int("maxRetries", retryPolicy.MaxRetries),
+		zap.Error(lastErr))
+}
+
+// sendMessageNonBlocking 非阻塞发送消息
+func (k *kafkaEventBus) sendMessageNonBlocking(msg *sarama.ProducerMessage, originalTopic, targetTopic string) {
+	select {
+	case k.asyncProducer.Input() <- msg:
+		k.logger.Info("Message sent to target topic",
+			zap.String("originalTopic", originalTopic),
+			zap.String("targetTopic", targetTopic))
+	case <-time.After(100 * time.Millisecond):
+		k.logger.Error("Failed to send message to target topic",
+			zap.String("originalTopic", originalTopic),
+			zap.String("targetTopic", targetTopic))
+	}
+}
+
 // ========== 配置转换辅助函数 ==========
+
+// convertHealthCheckConfig 将 eventbus.HealthCheckConfig 转换为 config.HealthCheckConfig
+func convertHealthCheckConfig(ebConfig HealthCheckConfig) config.HealthCheckConfig {
+	// 如果配置为空或未启用，返回默认配置
+	if !ebConfig.Enabled {
+		return GetDefaultHealthCheckConfig()
+	}
+
+	// 转换配置
+	return config.HealthCheckConfig{
+		Enabled: ebConfig.Enabled,
+		Publisher: config.HealthCheckPublisherConfig{
+			Topic:            ebConfig.Topic,
+			Interval:         ebConfig.Interval,
+			Timeout:          ebConfig.Timeout,
+			FailureThreshold: ebConfig.FailureThreshold,
+			MessageTTL:       ebConfig.MessageTTL,
+		},
+		Subscriber: config.HealthCheckSubscriberConfig{
+			Topic:             ebConfig.Topic,
+			MonitorInterval:   30 * time.Second, // 使用默认值
+			WarningThreshold:  3,                // 使用默认值
+			ErrorThreshold:    5,                // 使用默认值
+			CriticalThreshold: 10,               // 使用默认值
+		},
+	}
+}
 
 // getCompressionCodec 获取压缩编解码器
 func getCompressionCodec(compression string) sarama.CompressionCodec {
@@ -947,11 +1094,19 @@ func (k *kafkaEventBus) Publish(ctx context.Context, topic string, message []byt
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
-	// 流量控制
+	// 发布端流量控制
+	if k.publishRateLimiter != nil {
+		if err := k.publishRateLimiter.Wait(ctx); err != nil {
+			k.errorCount.Add(1)
+			return fmt.Errorf("publisher rate limit error: %w", err)
+		}
+	}
+
+	// 订阅端流量控制（保留兼容性）
 	if k.rateLimiter != nil {
 		if err := k.rateLimiter.Wait(ctx); err != nil {
 			k.errorCount.Add(1)
-			return fmt.Errorf("rate limit error: %w", err)
+			return fmt.Errorf("subscriber rate limit error: %w", err)
 		}
 	}
 
@@ -1222,9 +1377,9 @@ func containsString(slice []string, item string) bool {
 //	})
 func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler MessageHandler) error {
 	k.mu.Lock()
-	defer k.mu.Unlock()
 
 	if k.closed {
+		k.mu.Unlock()
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
@@ -1243,14 +1398,20 @@ func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler Mes
 	// 激活topic处理器（立即生效）
 	k.activateTopicHandler(topic, handler)
 
+	// 🔧 修复死锁：在释放锁之前记录日志，然后释放锁再启动consumer
+	k.logger.Info("Subscribed to topic via pre-subscription consumer",
+		zap.String("topic", topic),
+		zap.String("groupID", k.config.Consumer.GroupID))
+
+	// 释放锁，避免在启动consumer时持有锁导致死锁
+	k.mu.Unlock()
+
 	// 启动预订阅消费者（如果还未启动）
+	// 注意：这里不持有k.mu锁，避免在sleep期间阻塞其他操作（如Publish）
 	if err := k.startPreSubscriptionConsumer(ctx); err != nil {
 		return fmt.Errorf("failed to start pre-subscription consumer: %w", err)
 	}
 
-	k.logger.Info("Subscribed to topic via pre-subscription consumer",
-		zap.String("topic", topic),
-		zap.String("groupID", k.config.Consumer.GroupID))
 	return nil
 }
 
@@ -1514,17 +1675,15 @@ func (k *kafkaEventBus) Close() error {
 
 	var errors []error
 
+	// 关闭顺序很重要：
+	// 1. 先关闭从 client 创建的组件（unifiedConsumerGroup, admin, consumer, asyncProducer）
+	// 2. 最后关闭 client（因为其他组件依赖它）
+	// 注意：unifiedConsumerGroup.Close() 不会关闭底层的 client
+
 	// 关闭统一消费者组
 	if k.unifiedConsumerGroup != nil {
 		if err := k.unifiedConsumerGroup.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close unified consumer group: %w", err))
-		}
-	}
-
-	// 关闭管理客户端
-	if k.admin != nil {
-		if err := k.admin.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close kafka admin: %w", err))
 		}
 	}
 
@@ -1542,10 +1701,22 @@ func (k *kafkaEventBus) Close() error {
 		}
 	}
 
-	// 关闭客户端
+	// 关闭管理客户端（在关闭 client 之前）
+	if k.admin != nil {
+		if err := k.admin.Close(); err != nil {
+			errors = append(errors, fmt.Errorf("failed to close kafka admin: %w", err))
+		}
+	}
+
+	// 最后关闭客户端（所有其他组件都依赖它）
+	// 注意：某些版本的 sarama 可能在 ConsumerGroup.Close() 时已经关闭了 client
+	// 因此我们需要检查 client 是否已经关闭
 	if k.client != nil {
 		if err := k.client.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close kafka client: %w", err))
+			// 忽略 "client already closed" 错误
+			if err.Error() != "kafka: tried to use a client that was closed" {
+				errors = append(errors, fmt.Errorf("failed to close kafka client: %w", err))
+			}
 		}
 	}
 
@@ -2171,9 +2342,9 @@ func (k *kafkaEventBus) RegisterHealthCheckCallback(callback HealthCheckCallback
 // StartHealthCheckSubscriber 启动健康检查消息订阅监控
 func (k *kafkaEventBus) StartHealthCheckSubscriber(ctx context.Context) error {
 	k.mu.Lock()
-	defer k.mu.Unlock()
 
 	if k.healthCheckSubscriber != nil {
+		k.mu.Unlock()
 		return nil // 已经启动
 	}
 
@@ -2181,9 +2352,18 @@ func (k *kafkaEventBus) StartHealthCheckSubscriber(ctx context.Context) error {
 	config := GetDefaultHealthCheckConfig()
 	k.healthCheckSubscriber = NewHealthCheckSubscriber(config, k, "kafka-eventbus", "kafka")
 
-	// 启动监控器
-	if err := k.healthCheckSubscriber.Start(ctx); err != nil {
+	// 🔧 修复死锁：在调用 Start 之前释放锁
+	// Start 方法内部会调用 Subscribe，而 Subscribe 也需要获取 k.mu 锁
+	// 如果不释放锁，会导致死锁
+	subscriber := k.healthCheckSubscriber
+	k.mu.Unlock()
+
+	// 启动监控器（不持有锁）
+	if err := subscriber.Start(ctx); err != nil {
+		// 启动失败，需要清理
+		k.mu.Lock()
 		k.healthCheckSubscriber = nil
+		k.mu.Unlock()
 		return fmt.Errorf("failed to start health check subscriber: %w", err)
 	}
 
@@ -2276,11 +2456,19 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 		return fmt.Errorf("invalid envelope: %w", err)
 	}
 
-	// 流量控制
+	// 发布端流量控制
+	if k.publishRateLimiter != nil {
+		if err := k.publishRateLimiter.Wait(ctx); err != nil {
+			k.errorCount.Add(1)
+			return fmt.Errorf("publisher rate limit error: %w", err)
+		}
+	}
+
+	// 订阅端流量控制（保留兼容性）
 	if k.rateLimiter != nil {
 		if err := k.rateLimiter.Wait(ctx); err != nil {
 			k.errorCount.Add(1)
-			return fmt.Errorf("rate limit error: %w", err)
+			return fmt.Errorf("subscriber rate limit error: %w", err)
 		}
 	}
 
@@ -2395,8 +2583,12 @@ func (k *kafkaEventBus) StartHealthCheckPublisher(ctx context.Context) error {
 		return nil // 已经启动
 	}
 
-	// 创建健康检查发布器
-	config := GetDefaultHealthCheckConfig()
+	// 使用保存的健康检查配置（如果未配置，则使用默认配置）
+	config := k.healthCheckConfig
+	if !config.Enabled {
+		config = GetDefaultHealthCheckConfig()
+	}
+
 	k.healthChecker = NewHealthChecker(config, k, "kafka-eventbus", "kafka")
 
 	// 启动健康检查发布器
@@ -2405,7 +2597,9 @@ func (k *kafkaEventBus) StartHealthCheckPublisher(ctx context.Context) error {
 		return fmt.Errorf("failed to start health check publisher: %w", err)
 	}
 
-	k.logger.Info("Health check publisher started for kafka eventbus")
+	k.logger.Info("Health check publisher started for kafka eventbus",
+		zap.Duration("interval", config.Publisher.Interval),
+		zap.String("topic", config.Publisher.Topic))
 	return nil
 }
 

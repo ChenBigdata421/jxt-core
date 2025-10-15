@@ -49,11 +49,11 @@ func TestHealthCheck_NoDeadlock(t *testing.T) {
 				// 发布消息
 				err := bus.Publish(ctx, "test-topic", []byte("test"))
 				assert.NoError(t, err)
-				
+
 				// 获取指标
 				metrics := bus.GetMetrics()
 				assert.NotNil(t, metrics)
-				
+
 				time.Sleep(5 * time.Millisecond)
 			}
 		}(i)
@@ -120,7 +120,7 @@ func TestHealthCheck_ConcurrentAccess(t *testing.T) {
 
 	t.Logf("Health checks completed: %d", healthCheckCount)
 	t.Logf("Operations completed: %d", operationCount)
-	
+
 	// 验证操作都能正常完成
 	assert.Greater(t, healthCheckCount, int64(0))
 	assert.Greater(t, operationCount, int64(0))
@@ -209,12 +209,25 @@ func TestHealthCheck_Timeout(t *testing.T) {
 
 	// 验证在合理时间内返回（不会无限等待）
 	assert.True(t, duration < 500*time.Millisecond, "Health check should timeout quickly")
-	
+
 	// 可能会因为context超时而返回错误
 	t.Logf("Health check completed in %v with error: %v", duration, err)
 }
 
+// mockBusinessHealthChecker 模拟业务健康检查器
+type mockBusinessHealthChecker struct{}
 
+func (m *mockBusinessHealthChecker) CheckBusinessHealth(ctx context.Context) error {
+	return nil
+}
+
+func (m *mockBusinessHealthChecker) GetBusinessMetrics() interface{} {
+	return map[string]interface{}{"status": "healthy"}
+}
+
+func (m *mockBusinessHealthChecker) GetBusinessConfig() interface{} {
+	return map[string]interface{}{"config": "test"}
+}
 
 // slowBusinessHealthChecker 慢速业务健康检查器
 type slowBusinessHealthChecker struct {
@@ -276,7 +289,7 @@ func TestHealthCheck_MetricsUpdate(t *testing.T) {
 
 	// 获取更新后的指标
 	updatedMetrics := bus.GetMetrics()
-	
+
 	// 验证指标被更新
 	assert.True(t, updatedMetrics.LastHealthCheck.After(initialTime))
 	assert.Equal(t, "healthy", updatedMetrics.HealthCheckStatus)
@@ -306,7 +319,7 @@ func TestHealthCheck_StateConsistency(t *testing.T) {
 				if err == nil {
 					// 立即读取指标
 					metrics := bus.GetMetrics()
-					
+
 					// 检查状态一致性
 					if status.Overall == "healthy" && metrics.HealthCheckStatus != "healthy" {
 						inconsistencyCount++

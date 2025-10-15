@@ -27,7 +27,7 @@ func TestSetDefaults_Kafka(t *testing.T) {
 
 	assert.Equal(t, []string{"localhost:9092"}, cfg.Kafka.Brokers)
 	assert.Equal(t, 5*time.Minute, cfg.Kafka.HealthCheckInterval)
-	assert.Equal(t, int16(1), cfg.Kafka.Producer.RequiredAcks)
+	assert.Equal(t, 1, cfg.Kafka.Producer.RequiredAcks)
 	assert.Equal(t, "snappy", cfg.Kafka.Producer.Compression)
 	assert.Equal(t, 500*time.Millisecond, cfg.Kafka.Producer.FlushFrequency)
 	assert.Equal(t, 100, cfg.Kafka.Producer.FlushMessages)
@@ -95,7 +95,7 @@ func TestSetDefaults_KafkaPartial(t *testing.T) {
 
 	// 自定义值应该保留
 	assert.Equal(t, []string{"custom:9092"}, cfg.Kafka.Brokers)
-	assert.Equal(t, int16(2), cfg.Kafka.Producer.RequiredAcks)
+	assert.Equal(t, 2, cfg.Kafka.Producer.RequiredAcks)
 
 	// 未设置的值应该使用默认值
 	assert.Equal(t, "snappy", cfg.Kafka.Producer.Compression)

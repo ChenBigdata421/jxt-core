@@ -1,0 +1,30 @@
+=== RUN   TestKafkaHealthCheckPublisherSubscriberIntegration
+    healthcheck_test.go:332: 🚀 A 端：启动健康检查发布器（间隔：10秒）
+    healthcheck_test.go:337: 🚀 B 端：启动健康检查订阅器
+    healthcheck_test.go:343: ⏳ 等待健康检查消息发送和接收（1分钟）...
+    healthcheck_test.go:344: ✅ EventBus 现在使用自定义健康检查配置（间隔：10秒）
+    healthcheck_test.go:349: 📊 A 端发布器状态: IsHealthy=true, ConsecutiveFailures=0, LastSuccessTime=2025-10-14 15:11:35.3641599 +0800 CST m=+60.056048901
+    healthcheck_test.go:371: 📊 B 端订阅器统计: TotalMessagesReceived=7, ConsecutiveMisses=0, IsHealthy=true, LastMessageTime=2025-10-14 15:11:35.4544377 +0800 CST m=+60.146326701
+    healthcheck_test.go:394: ✅ B 端订阅器在 1 分钟内接收到 7 条消息，符合预期（5-8 条）
+    healthcheck_test.go:403: 🛑 停止 A 端健康检查发布器
+    healthcheck_test.go:408: 🛑 停止 B 端健康检查订阅器
+    healthcheck_test.go:412: ✅ Kafka 健康检查发布端和订阅端集成测试通过
+    healthcheck_test.go:413:    - A 端成功发送健康检查消息（自定义间隔：10秒）
+    healthcheck_test.go:414:    - B 端成功接收 7 条健康检查消息（测试时长：1分钟）
+--- PASS: TestKafkaHealthCheckPublisherSubscriberIntegration (65.15s)
+=== RUN   TestNATSHealthCheckPublisherSubscriberIntegration
+    healthcheck_test.go:460: 🚀 B 端：先启动健康检查订阅器（NATS Core 需要先订阅）
+    healthcheck_test.go:468: 🚀 A 端：再启动健康检查发布器
+    healthcheck_test.go:474: ⏳ 等待健康检查消息发送和接收（1分钟）...
+    healthcheck_test.go:475: ✅ EventBus 现在使用自定义健康检查配置（间隔：10秒）
+    healthcheck_test.go:480: 📊 A 端发布器状态: IsHealthy=true, ConsecutiveFailures=0, LastSuccessTime=2025-10-14 15:12:31.4840816 +0800 CST m=+116.175970601
+    healthcheck_test.go:502: 📊 B 端订阅器统计: TotalMessagesReceived=6, ConsecutiveMisses=0, IsHealthy=true, LastMessageTime=2025-10-14 15:12:31.4856494 +0800 CST m=+116.177538401
+    healthcheck_test.go:525: ✅ B 端订阅器在 1 分钟内接收到 6 条消息，符合预期（5-8 条）
+    healthcheck_test.go:534: 🛑 停止 A 端健康检查发布器
+    healthcheck_test.go:539: 🛑 停止 B 端健康检查订阅器
+    healthcheck_test.go:543: ✅ NATS 健康检查发布端和订阅端集成测试通过
+    healthcheck_test.go:544:    - A 端成功发送健康检查消息（自定义间隔：10秒）
+    healthcheck_test.go:545:    - B 端成功接收 6 条健康检查消息（测试时长：1分钟）
+--- PASS: TestNATSHealthCheckPublisherSubscriberIntegration (63.02s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests	128.733s

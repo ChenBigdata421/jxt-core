@@ -1,0 +1,140 @@
+=== RUN   TestKafkaSubscriberBacklogMonitoring
+    backlog_test.go:43: ✅ Kafka subscriber backlog monitoring test passed (callback called: false)
+--- PASS: TestKafkaSubscriberBacklogMonitoring (4.04s)
+=== RUN   TestNATSSubscriberBacklogMonitoring
+    backlog_test.go:78: ✅ NATS subscriber backlog monitoring test passed (callback called: false)
+--- PASS: TestNATSSubscriberBacklogMonitoring (4.01s)
+=== RUN   TestKafkaPublisherBacklogMonitoring
+    backlog_test.go:112: ✅ Kafka publisher backlog monitoring test passed (callback called: false)
+--- PASS: TestKafkaPublisherBacklogMonitoring (4.01s)
+=== RUN   TestNATSPublisherBacklogMonitoring
+    backlog_test.go:147: ✅ NATS publisher backlog monitoring test passed (callback called: false)
+--- PASS: TestNATSPublisherBacklogMonitoring (4.01s)
+=== RUN   TestKafkaStartAllBacklogMonitoring
+    backlog_test.go:188: ✅ Kafka StartAllBacklogMonitoring test passed (sub: false, pub: false)
+--- PASS: TestKafkaStartAllBacklogMonitoring (4.01s)
+=== RUN   TestNATSStartAllBacklogMonitoring
+    backlog_test.go:231: ✅ NATS StartAllBacklogMonitoring test passed (sub: false, pub: false)
+--- PASS: TestNATSStartAllBacklogMonitoring (4.01s)
+=== RUN   TestKafkaSetMessageRouter
+    backlog_test.go:250: ✅ Kafka SetMessageRouter test passed
+--- PASS: TestKafkaSetMessageRouter (1.01s)
+=== RUN   TestNATSSetMessageRouter
+    backlog_test.go:269: ✅ NATS SetMessageRouter test passed
+--- PASS: TestNATSSetMessageRouter (1.01s)
+=== RUN   TestKafkaSetErrorHandler
+    backlog_test.go:297: ✅ Kafka SetErrorHandler test passed
+--- PASS: TestKafkaSetErrorHandler (1.01s)
+=== RUN   TestKafkaBasicPublishSubscribe
+    test_helper.go:235: ✅ Created Kafka topic: test.kafka.basic.1760421849318
+    basic_test.go:34: 📨 Received message: Hello Kafka!
+    basic_test.go:53: ✅ Kafka basic publish/subscribe test passed
+    test_helper.go:118: ✅ Deleted Kafka topic: test.kafka.basic.1760421849318
+--- PASS: TestKafkaBasicPublishSubscribe (10.45s)
+=== RUN   TestNATSBasicPublishSubscribe
+    basic_test.go:80: 📨 Received message: Hello NATS!
+    basic_test.go:99: ✅ NATS basic publish/subscribe test passed
+--- PASS: TestNATSBasicPublishSubscribe (4.12s)
+=== RUN   TestKafkaMultipleMessages
+    test_helper.go:235: ✅ Created Kafka topic: test.kafka.multiple.1760421863884
+    basic_test.go:137: ✅ Kafka multiple messages test passed
+    test_helper.go:118: ✅ Deleted Kafka topic: test.kafka.multiple.1760421863884
+--- PASS: TestKafkaMultipleMessages (10.41s)
+=== RUN   TestNATSMultipleMessages
+    basic_test.go:176: ✅ NATS multiple messages test passed
+--- PASS: TestNATSMultipleMessages (4.12s)
+=== RUN   TestKafkaPublishWithOptions
+    test_helper.go:235: ✅ Created Kafka topic: test.kafka.options.1760421878414
+    basic_test.go:215: ✅ Kafka PublishWithOptions test passed
+    test_helper.go:118: ✅ Deleted Kafka topic: test.kafka.options.1760421878414
+--- PASS: TestKafkaPublishWithOptions (10.62s)
+=== RUN   TestNATSPublishWithOptions
+    basic_test.go:255: ✅ NATS PublishWithOptions test passed
+--- PASS: TestNATSPublishWithOptions (4.12s)
+=== RUN   TestKafkaEnvelopePublishSubscribe
+    test_helper.go:235: ✅ Created Kafka topic: test.kafka.envelope.1760421893156
+    envelope_test.go:33: 📨 Received envelope: AggregateID=test-aggregate-1, EventType=TestEvent, Version=1
+    envelope_test.go:61: ✅ Kafka Envelope publish/subscribe test passed
+    test_helper.go:118: ✅ Deleted Kafka topic: test.kafka.envelope.1760421893156
+--- PASS: TestKafkaEnvelopePublishSubscribe (10.41s)
+=== RUN   TestNATSEnvelopePublishSubscribe
+    envelope_test.go:84: 📨 Received envelope: AggregateID=test-aggregate-1, EventType=TestEvent, Version=1
+    envelope_test.go:112: ✅ NATS Envelope publish/subscribe test passed
+--- PASS: TestNATSEnvelopePublishSubscribe (4.12s)
+=== RUN   TestKafkaEnvelopeOrdering
+    test_helper.go:235: ✅ Created Kafka topic: test.kafka.envelope.order.1760421907678
+    envelope_test.go:177: ✅ Kafka Envelope ordering test passed
+    test_helper.go:118: ✅ Deleted Kafka topic: test.kafka.envelope.order.1760421907678
+--- PASS: TestKafkaEnvelopeOrdering (10.54s)
+=== RUN   TestNATSEnvelopeOrdering
+    envelope_test.go:243: ✅ NATS Envelope ordering test passed
+--- PASS: TestNATSEnvelopeOrdering (4.12s)
+=== RUN   TestKafkaMultipleAggregates
+    test_helper.go:235: ✅ Created Kafka topic: test.kafka.multi.agg.1760421922335
+    envelope_test.go:293: ✅ Kafka multiple aggregates test passed
+    test_helper.go:118: ✅ Deleted Kafka topic: test.kafka.multi.agg.1760421922335
+--- PASS: TestKafkaMultipleAggregates (10.55s)
+=== RUN   TestKafkaHealthCheckPublisher
+    healthcheck_test.go:31: 📊 Health check publisher status: {IsHealthy:true ConsecutiveFailures:0 LastSuccessTime:2025-10-14 14:05:32.8931048 +0800 CST m=+110.699220701 LastFailureTime:0001-01-01 00:00:00 +0000 UTC IsRunning:true EventBusType:kafka Source:kafka-eventbus}
+    healthcheck_test.go:37: ✅ Kafka health check publisher test passed
+--- PASS: TestKafkaHealthCheckPublisher (4.01s)
+=== RUN   TestNATSHealthCheckPublisher
+    healthcheck_test.go:60: 📊 Health check publisher status: {IsHealthy:true ConsecutiveFailures:0 LastSuccessTime:2025-10-14 14:05:36.9019987 +0800 CST m=+114.708114601 LastFailureTime:0001-01-01 00:00:00 +0000 UTC IsRunning:true EventBusType:nats Source:nats-eventbus}
+    healthcheck_test.go:66: ✅ NATS health check publisher test passed
+--- PASS: TestNATSHealthCheckPublisher (4.01s)
+=== RUN   TestKafkaHealthCheckSubscriber
+    healthcheck_test.go:88: 📊 Health check subscriber stats: {StartTime:2025-10-14 14:05:40.9148289 +0800 CST m=+118.720944801 LastMessageTime:2025-10-14 14:05:41.1318137 +0800 CST m=+118.937929601 TotalMessagesReceived:1 ConsecutiveMisses:0 TotalAlerts:0 LastAlertTime:0001-01-01 00:00:00 +0000 UTC IsHealthy:true UptimeSeconds:6.0009543}
+    healthcheck_test.go:94: ✅ Kafka health check subscriber test passed
+--- PASS: TestKafkaHealthCheckSubscriber (7.02s)
+=== RUN   TestNATSHealthCheckSubscriber
+    healthcheck_test.go:117: 📊 Health check subscriber stats: {StartTime:2025-10-14 14:05:47.9342439 +0800 CST m=+125.740359801 LastMessageTime:0001-01-01 00:00:00 +0000 UTC TotalMessagesReceived:0 ConsecutiveMisses:0 TotalAlerts:0 LastAlertTime:0001-01-01 00:00:00 +0000 UTC IsHealthy:false UptimeSeconds:3.0002854}
+    healthcheck_test.go:123: ✅ NATS health check subscriber test passed
+--- PASS: TestNATSHealthCheckSubscriber (4.01s)
+=== RUN   TestKafkaStartAllHealthCheck
+    healthcheck_test.go:146: 📊 Publisher status: {IsHealthy:true ConsecutiveFailures:0 LastSuccessTime:2025-10-14 14:05:51.941587 +0800 CST m=+129.747702901 LastFailureTime:0001-01-01 00:00:00 +0000 UTC IsRunning:true EventBusType:kafka Source:kafka-eventbus}
+    healthcheck_test.go:147: 📊 Subscriber stats: {StartTime:2025-10-14 14:05:51.9421346 +0800 CST m=+129.748250501 LastMessageTime:2025-10-14 14:05:52.1607121 +0800 CST m=+129.966828001 TotalMessagesReceived:2 ConsecutiveMisses:0 TotalAlerts:0 LastAlertTime:0001-01-01 00:00:00 +0000 UTC IsHealthy:true UptimeSeconds:6.0007458}
+    healthcheck_test.go:153: ✅ Kafka StartAllHealthCheck test passed
+--- PASS: TestKafkaStartAllHealthCheck (7.10s)
+=== RUN   TestNATSStartAllHealthCheck
+    healthcheck_test.go:177: 📊 Publisher status: {IsHealthy:true ConsecutiveFailures:0 LastSuccessTime:2025-10-14 14:05:59.0492856 +0800 CST m=+136.855401501 LastFailureTime:0001-01-01 00:00:00 +0000 UTC IsRunning:true EventBusType:nats Source:nats-eventbus}
+    healthcheck_test.go:178: 📊 Subscriber stats: {StartTime:2025-10-14 14:05:59.0498169 +0800 CST m=+136.855932801 LastMessageTime:2025-10-14 14:05:59.0503526 +0800 CST m=+136.856468501 TotalMessagesReceived:1 ConsecutiveMisses:0 TotalAlerts:0 LastAlertTime:0001-01-01 00:00:00 +0000 UTC IsHealthy:true UptimeSeconds:3.0008669}
+    healthcheck_test.go:184: ✅ NATS StartAllHealthCheck test passed
+--- PASS: TestNATSStartAllHealthCheck (4.01s)
+=== RUN   TestKafkaHealthCheckPublisherCallback
+    healthcheck_test.go:205: 📞 Health check publisher callback called: {Success:true Timestamp:2025-10-14 14:06:03.0593778 +0800 CST m=+140.865493701 Duration:0s Error:<nil> ConsecutiveFailures:0 EventBusType:kafka Source:kafka-eventbus}
+    healthcheck_test.go:217: ✅ Kafka health check publisher callback test passed (callback called: true)
+--- PASS: TestKafkaHealthCheckPublisherCallback (4.01s)
+=== RUN   TestNATSHealthCheckPublisherCallback
+    healthcheck_test.go:239: 📞 Health check publisher callback called: {Success:true Timestamp:2025-10-14 14:06:07.0701545 +0800 CST m=+144.876270401 Duration:0s Error:<nil> ConsecutiveFailures:0 EventBusType:nats Source:nats-eventbus}
+    healthcheck_test.go:251: ✅ NATS health check publisher callback test passed (callback called: true)
+--- PASS: TestNATSHealthCheckPublisherCallback (4.01s)
+=== RUN   TestKafkaHealthCheckSubscriberCallback
+    healthcheck_test.go:284: ✅ Kafka health check subscriber callback test passed (callback called: false)
+--- PASS: TestKafkaHealthCheckSubscriberCallback (10.09s)
+=== RUN   TestKafkaStartStop
+    lifecycle_test.go:31: ✅ Kafka Start/Stop test passed
+--- FAIL: TestKafkaStartStop (1.01s)
+panic: close of closed channel [recovered]
+	panic: close of closed channel
+
+goroutine 9255 [running]:
+testing.tRunner.func1.2({0x9b9400, 0xc3f4a0})
+	C:/Program Files/Go/src/testing/testing.go:1734 +0x219
+testing.tRunner.func1()
+	C:/Program Files/Go/src/testing/testing.go:1737 +0x359
+panic({0x9b9400?, 0xc3f4a0?})
+	C:/Program Files/Go/src/runtime/panic.go:792 +0x132
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).Stop(...)
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:147
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*kafkaEventBus).Close(0xc000790788)
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:1519 +0x9b
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests.(*TestHelper).CloseEventBus(0xc0004b7ed0, {0xc5f0b0, 0xc000790788})
+	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/function_tests/test_helper.go:272 +0xbd
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests.TestKafkaStartStop(0xc000ff3500)
+	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/function_tests/lifecycle_test.go:32 +0x304
+testing.tRunner(0xc000ff3500, 0xb433c0)
+	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1851 +0x3f6
+FAIL	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests	160.475s
+FAIL

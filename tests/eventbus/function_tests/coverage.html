@@ -1,0 +1,479 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>function_tests: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go (70.8%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package function_tests
+
+import (
+        "context"
+        "fmt"
+        "sync/atomic"
+        "testing"
+        "time"
+
+        "github.com/ChenBigdata421/jxt-core/sdk/config"
+        "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+        "github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
+        "github.com/IBM/sarama"
+        "github.com/nats-io/nats.go"
+)
+
+// TestHelper 测试辅助工具
+type TestHelper struct {
+        t              *testing.T
+        kafkaAdmin     sarama.ClusterAdmin
+        natsConn       *nats.Conn
+        createdTopics  []string
+        createdStreams []string
+}
+
+// NewTestHelper 创建测试辅助工具
+func NewTestHelper(t *testing.T) *TestHelper <span class="cov6" title="50">{
+        // 初始化 logger
+        logger.Setup()
+
+        return &amp;TestHelper{
+                t:              t,
+                createdTopics:  make([]string, 0),
+                createdStreams: make([]string, 0),
+        }
+}</span>
+
+// CreateKafkaEventBus 创建 Kafka EventBus 用于测试
+func (h *TestHelper) CreateKafkaEventBus(clientID string) eventbus.EventBus <span class="cov5" title="26">{
+        cfg := &amp;eventbus.KafkaConfig{
+                Brokers: []string{"localhost:29094"},
+                Producer: eventbus.ProducerConfig{
+                        RequiredAcks:    1,
+                        Compression:     "snappy",
+                        FlushFrequency:  10 * time.Millisecond,
+                        FlushMessages:   100,
+                        Timeout:         5 * time.Second,
+                        FlushBytes:      1048576,
+                        RetryMax:        3,
+                        BatchSize:       16384,
+                        BufferSize:      8388608,
+                        MaxMessageBytes: 1048576,
+                },
+                Consumer: eventbus.ConsumerConfig{
+                        GroupID:            fmt.Sprintf("test-group-%s", clientID),
+                        SessionTimeout:     10 * time.Second,
+                        HeartbeatInterval:  3 * time.Second,
+                        MaxProcessingTime:  5 * time.Second,
+                        AutoOffsetReset:    "earliest",
+                        EnableAutoCommit:   true,
+                        AutoCommitInterval: 1 * time.Second,
+                        FetchMaxWait:       100 * time.Millisecond,
+                        MaxPollRecords:     500,
+                },
+                Net: eventbus.NetConfig{
+                        DialTimeout:  10 * time.Second,
+                        ReadTimeout:  10 * time.Second,
+                        WriteTimeout: 10 * time.Second,
+                },
+                ClientID: clientID,
+        }
+
+        bus, err := eventbus.NewKafkaEventBus(cfg)
+        if err != nil </span><span class="cov0" title="0">{
+                h.t.Fatalf("Failed to create Kafka EventBus: %v", err)
+        }</span>
+
+        <span class="cov5" title="26">return bus</span>
+}
+
+// CreateKafkaEventBusWithHealthCheck 创建带自定义健康检查配置的 Kafka EventBus 用于测试
+func (h *TestHelper) CreateKafkaEventBusWithHealthCheck(groupID string, healthCheckConfig config.HealthCheckConfig) eventbus.EventBus <span class="cov2" title="2">{
+        cfg := &amp;eventbus.KafkaConfig{
+                Brokers: []string{"localhost:29094"},
+                Producer: eventbus.ProducerConfig{
+                        RequiredAcks:    1,
+                        Compression:     "snappy",
+                        FlushFrequency:  10 * time.Millisecond,
+                        FlushMessages:   100,
+                        Timeout:         5 * time.Second,
+                        FlushBytes:      1048576,
+                        RetryMax:        3,
+                        BatchSize:       16384,
+                        BufferSize:      8388608,
+                        MaxMessageBytes: 1048576,
+                },
+                Consumer: eventbus.ConsumerConfig{
+                        GroupID:            groupID,
+                        SessionTimeout:     10 * time.Second,
+                        HeartbeatInterval:  3 * time.Second,
+                        MaxProcessingTime:  5 * time.Second,
+                        AutoOffsetReset:    "earliest",
+                        EnableAutoCommit:   true,
+                        AutoCommitInterval: 1 * time.Second,
+                        FetchMaxWait:       100 * time.Millisecond,
+                        MaxPollRecords:     500,
+                },
+                Net: eventbus.NetConfig{
+                        DialTimeout:  10 * time.Second,
+                        ReadTimeout:  10 * time.Second,
+                        WriteTimeout: 10 * time.Second,
+                },
+                ClientID: groupID,
+                Enterprise: eventbus.EnterpriseConfig{
+                        HealthCheck: eventbus.HealthCheckConfig{
+                                Enabled:          healthCheckConfig.Enabled,
+                                Topic:            healthCheckConfig.Publisher.Topic,
+                                Interval:         healthCheckConfig.Publisher.Interval,
+                                Timeout:          healthCheckConfig.Publisher.Timeout,
+                                FailureThreshold: healthCheckConfig.Publisher.FailureThreshold,
+                                MessageTTL:       healthCheckConfig.Publisher.MessageTTL,
+                        },
+                },
+        }
+
+        bus, err := eventbus.NewKafkaEventBus(cfg)
+        if err != nil </span><span class="cov0" title="0">{
+                h.t.Fatalf("Failed to create Kafka EventBus: %v", err)
+        }</span>
+
+        <span class="cov2" title="2">return bus</span>
+}
+
+// CreateNATSEventBus 创建 NATS EventBus 用于测试
+// 注意：基本功能测试不需要 JetStream，只有 Envelope 测试需要
+func (h *TestHelper) CreateNATSEventBus(clientID string) eventbus.EventBus <span class="cov5" title="22">{
+        cfg := &amp;eventbus.NATSConfig{
+                URLs:     []string{"nats://localhost:4223"},
+                ClientID: clientID,
+                // 不启用 JetStream，使用基本的 NATS Core
+                JetStream: eventbus.JetStreamConfig{
+                        Enabled: false,
+                },
+        }
+
+        bus, err := eventbus.NewNATSEventBus(cfg)
+        if err != nil </span><span class="cov0" title="0">{
+                h.t.Fatalf("Failed to create NATS EventBus: %v", err)
+        }</span>
+
+        <span class="cov5" title="22">return bus</span>
+}
+
+// CreateNATSEventBusWithHealthCheck 创建带自定义健康检查配置的 NATS EventBus 用于测试
+func (h *TestHelper) CreateNATSEventBusWithHealthCheck(clientID string, healthCheckConfig config.HealthCheckConfig) eventbus.EventBus <span class="cov2" title="2">{
+        cfg := &amp;eventbus.NATSConfig{
+                URLs:     []string{"nats://localhost:4223"},
+                ClientID: clientID,
+                // 不启用 JetStream，使用基本的 NATS Core
+                JetStream: eventbus.JetStreamConfig{
+                        Enabled: false,
+                },
+                Enterprise: eventbus.EnterpriseConfig{
+                        HealthCheck: eventbus.HealthCheckConfig{
+                                Enabled:          healthCheckConfig.Enabled,
+                                Topic:            healthCheckConfig.Publisher.Topic,
+                                Interval:         healthCheckConfig.Publisher.Interval,
+                                Timeout:          healthCheckConfig.Publisher.Timeout,
+                                FailureThreshold: healthCheckConfig.Publisher.FailureThreshold,
+                                MessageTTL:       healthCheckConfig.Publisher.MessageTTL,
+                        },
+                },
+        }
+
+        bus, err := eventbus.NewNATSEventBus(cfg)
+        if err != nil </span><span class="cov0" title="0">{
+                h.t.Fatalf("Failed to create NATS EventBus: %v", err)
+        }</span>
+
+        <span class="cov2" title="2">return bus</span>
+}
+
+// CleanupKafkaTopics 清理 Kafka topics
+func (h *TestHelper) CleanupKafkaTopics(topics []string) <span class="cov4" title="11">{
+        if h.kafkaAdmin == nil </span><span class="cov0" title="0">{
+                config := sarama.NewConfig()
+                config.Version = sarama.V2_6_0_0
+                admin, err := sarama.NewClusterAdmin([]string{"localhost:29094"}, config)
+                if err != nil </span><span class="cov0" title="0">{
+                        h.t.Logf("⚠️  Failed to create Kafka admin: %v", err)
+                        return
+                }</span>
+                <span class="cov0" title="0">h.kafkaAdmin = admin</span>
+        }
+
+        <span class="cov4" title="11">for _, topic := range topics </span><span class="cov4" title="11">{
+                err := h.kafkaAdmin.DeleteTopic(topic)
+                if err != nil </span><span class="cov0" title="0">{
+                        h.t.Logf("⚠️  Failed to delete Kafka topic %s: %v", topic, err)
+                }</span> else<span class="cov4" title="11"> {
+                        h.t.Logf("✅ Deleted Kafka topic: %s", topic)
+                }</span>
+        }
+
+        // 等待删除完成
+        <span class="cov4" title="11">time.Sleep(2 * time.Second)</span>
+}
+
+// CleanupNATSStreams 清理 NATS streams
+func (h *TestHelper) CleanupNATSStreams(streamPrefix string) <span class="cov4" title="9">{
+        if h.natsConn == nil </span><span class="cov4" title="9">{
+                nc, err := nats.Connect("nats://localhost:4223")
+                if err != nil </span><span class="cov0" title="0">{
+                        h.t.Logf("⚠️  Failed to connect to NATS: %v", err)
+                        return
+                }</span>
+                <span class="cov4" title="9">h.natsConn = nc</span>
+        }
+
+        <span class="cov4" title="9">js, err := h.natsConn.JetStream()
+        if err != nil </span><span class="cov0" title="0">{
+                h.t.Logf("⚠️  Failed to get JetStream context: %v", err)
+                return
+        }</span>
+
+        // 列出所有 streams
+        <span class="cov4" title="9">streams := js.StreamNames()
+        for stream := range streams </span><span class="cov10" title="405">{
+                // 删除匹配前缀的 stream
+                if len(streamPrefix) == 0 || len(stream) &gt;= len(streamPrefix) &amp;&amp; stream[:len(streamPrefix)] == streamPrefix </span><span class="cov0" title="0">{
+                        err := js.DeleteStream(stream)
+                        if err != nil </span><span class="cov0" title="0">{
+                                h.t.Logf("⚠️  Failed to delete NATS stream %s: %v", stream, err)
+                        }</span> else<span class="cov0" title="0"> {
+                                h.t.Logf("✅ Deleted NATS stream: %s", stream)
+                        }</span>
+                }
+        }
+
+        // 等待删除完成
+        <span class="cov4" title="9">time.Sleep(1 * time.Second)</span>
+}
+
+// Cleanup 清理所有资源
+func (h *TestHelper) Cleanup() <span class="cov6" title="50">{
+        if len(h.createdTopics) &gt; 0 </span><span class="cov4" title="11">{
+                h.CleanupKafkaTopics(h.createdTopics)
+        }</span>
+
+        <span class="cov6" title="50">if len(h.createdStreams) &gt; 0 </span><span class="cov0" title="0">{
+                for _, stream := range h.createdStreams </span><span class="cov0" title="0">{
+                        h.CleanupNATSStreams(stream)
+                }</span>
+        }
+
+        <span class="cov6" title="50">if h.kafkaAdmin != nil </span><span class="cov4" title="11">{
+                h.kafkaAdmin.Close()
+        }</span>
+
+        <span class="cov6" title="50">if h.natsConn != nil </span><span class="cov4" title="9">{
+                h.natsConn.Close()
+        }</span>
+}
+
+// WaitForMessages 等待接收指定数量的消息
+func (h *TestHelper) WaitForMessages(received *int64, expected int64, timeout time.Duration) bool <span class="cov4" title="9">{
+        deadline := time.Now().Add(timeout)
+        for time.Now().Before(deadline) </span><span class="cov5" title="23">{
+                if atomic.LoadInt64(received) &gt;= expected </span><span class="cov4" title="9">{
+                        return true
+                }</span>
+                <span class="cov4" title="14">time.Sleep(100 * time.Millisecond)</span>
+        }
+        <span class="cov0" title="0">return false</span>
+}
+
+// AssertEqual 断言相等
+func (h *TestHelper) AssertEqual(expected, actual interface{}, message string) <span class="cov5" title="23">{
+        if expected != actual </span><span class="cov0" title="0">{
+                h.t.Errorf("%s: expected %v, got %v", message, expected, actual)
+        }</span>
+}
+
+// AssertNoError 断言无错误
+func (h *TestHelper) AssertNoError(err error, message string) <span class="cov8" title="191">{
+        if err != nil </span><span class="cov2" title="3">{
+                h.t.Errorf("%s: %v", message, err)
+        }</span>
+}
+
+// AssertTrue 断言为真
+func (h *TestHelper) AssertTrue(condition bool, message string) <span class="cov5" title="21">{
+        if !condition </span><span class="cov0" title="0">{
+                h.t.Errorf("%s: expected true, got false", message)
+        }</span>
+}
+
+// CreateKafkaTopics 创建 Kafka topics
+func (h *TestHelper) CreateKafkaTopics(topics []string, numPartitions int32) <span class="cov4" title="11">{
+        if h.kafkaAdmin == nil </span><span class="cov4" title="11">{
+                config := sarama.NewConfig()
+                config.Version = sarama.V2_6_0_0
+                admin, err := sarama.NewClusterAdmin([]string{"localhost:29094"}, config)
+                if err != nil </span><span class="cov0" title="0">{
+                        h.t.Fatalf("Failed to create Kafka admin: %v", err)
+                }</span>
+                <span class="cov4" title="11">h.kafkaAdmin = admin</span>
+        }
+
+        <span class="cov4" title="11">for _, topic := range topics </span><span class="cov4" title="11">{
+                err := h.kafkaAdmin.CreateTopic(topic, &amp;sarama.TopicDetail{
+                        NumPartitions:     numPartitions,
+                        ReplicationFactor: 1,
+                }, false)
+                if err != nil </span><span class="cov0" title="0">{
+                        h.t.Logf("⚠️  Failed to create Kafka topic %s: %v", topic, err)
+                }</span> else<span class="cov4" title="11"> {
+                        h.t.Logf("✅ Created Kafka topic: %s", topic)
+                        h.createdTopics = append(h.createdTopics, topic)
+                }</span>
+        }
+
+        // 等待创建完成
+        <span class="cov4" title="11">time.Sleep(2 * time.Second)</span>
+}
+
+// WaitForCondition 等待条件满足
+func (h *TestHelper) WaitForCondition(condition func() bool, timeout time.Duration, message string) bool <span class="cov2" title="2">{
+        deadline := time.Now().Add(timeout)
+        for time.Now().Before(deadline) </span><span class="cov3" title="5">{
+                if condition() </span><span class="cov2" title="2">{
+                        return true
+                }</span>
+                <span class="cov2" title="3">time.Sleep(100 * time.Millisecond)</span>
+        }
+        <span class="cov0" title="0">h.t.Logf("⚠️  Timeout waiting for condition: %s", message)
+        return false</span>
+}
+
+// GetTimestamp 获取当前时间戳（用于生成唯一ID）
+func (h *TestHelper) GetTimestamp() int64 <span class="cov7" title="83">{
+        return time.Now().UnixNano() / int64(time.Millisecond)
+}</span>
+
+// CloseEventBus 关闭 EventBus 并等待资源释放
+func (h *TestHelper) CloseEventBus(bus eventbus.EventBus) <span class="cov6" title="50">{
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+
+        // 停止所有监控
+        _ = bus.StopAllBacklogMonitoring()
+        _ = bus.StopAllHealthCheck()
+
+        // 关闭 EventBus
+        err := bus.Close()
+        if err != nil </span><span class="cov0" title="0">{
+                h.t.Logf("⚠️  Failed to close EventBus: %v", err)
+        }</span>
+
+        // 等待资源释放
+        <span class="cov6" title="50">select </span>{
+        case &lt;-ctx.Done():<span class="cov0" title="0">
+                h.t.Logf("⚠️  Timeout waiting for EventBus to close")</span>
+        case &lt;-time.After(1 * time.Second):<span class="cov6" title="50"></span>
+                // 正常关闭
+        }
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

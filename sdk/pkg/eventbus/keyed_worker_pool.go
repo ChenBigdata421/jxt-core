@@ -5,6 +5,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -47,6 +48,7 @@ type KeyedWorkerPool struct {
 	workers []chan *AggregateMessage
 	wg      sync.WaitGroup
 	stopCh  chan struct{}
+	stopped atomic.Bool // 标记是否已停止
 }
 
 func NewKeyedWorkerPool(cfg KeyedWorkerPoolConfig, handler MessageHandler) *KeyedWorkerPool {
@@ -144,6 +146,11 @@ func (kp *KeyedWorkerPool) ProcessMessage(ctx context.Context, msg *AggregateMes
 
 // Stop stops all workers and drains queues.
 func (kp *KeyedWorkerPool) Stop() {
+	// 🔧 修复：避免重复关闭 channel
+	if !kp.stopped.CompareAndSwap(false, true) {
+		return // 已经停止，直接返回
+	}
+
 	close(kp.stopCh)
 	// close all worker channels to stop goroutines
 	for _, ch := range kp.workers {

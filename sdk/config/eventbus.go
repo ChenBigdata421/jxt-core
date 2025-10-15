@@ -171,21 +171,21 @@ type ErrorHandlingConfig struct {
 // ProducerConfig 生产者配置 - 用户配置层（简化）
 // 只包含用户需要关心的核心配置字段
 type ProducerConfig struct {
-	RequiredAcks    int           `mapstructure:"requiredAcks"`    // 消息确认级别 (0=不确认, 1=leader确认, -1=所有副本确认)
-	Compression     string        `mapstructure:"compression"`     // 压缩算法 (none, gzip, snappy, lz4, zstd)
-	FlushFrequency  time.Duration `mapstructure:"flushFrequency"`  // 刷新频率
-	FlushMessages   int           `mapstructure:"flushMessages"`   // 批量消息数
-	Timeout         time.Duration `mapstructure:"timeout"`         // 发送超时时间
+	RequiredAcks   int           `mapstructure:"requiredAcks"`   // 消息确认级别 (0=不确认, 1=leader确认, -1=所有副本确认)
+	Compression    string        `mapstructure:"compression"`    // 压缩算法 (none, gzip, snappy, lz4, zstd)
+	FlushFrequency time.Duration `mapstructure:"flushFrequency"` // 刷新频率
+	FlushMessages  int           `mapstructure:"flushMessages"`  // 批量消息数
+	Timeout        time.Duration `mapstructure:"timeout"`        // 发送超时时间
 	// 移除了程序员应该控制的字段: FlushBytes, RetryMax, BatchSize, BufferSize, Idempotent, MaxMessageBytes, PartitionerType
 }
 
 // ConsumerConfig 消费者配置 - 用户配置层（简化）
 // 只包含用户需要关心的核心配置字段
 type ConsumerConfig struct {
-	GroupID            string        `mapstructure:"groupId"`            // 消费者组ID
-	AutoOffsetReset    string        `mapstructure:"autoOffsetReset"`    // 偏移量重置策略 (earliest, latest, none)
-	SessionTimeout     time.Duration `mapstructure:"sessionTimeout"`     // 会话超时时间
-	HeartbeatInterval  time.Duration `mapstructure:"heartbeatInterval"`  // 心跳间隔
+	GroupID           string        `mapstructure:"groupId"`           // 消费者组ID
+	AutoOffsetReset   string        `mapstructure:"autoOffsetReset"`   // 偏移量重置策略 (earliest, latest, none)
+	SessionTimeout    time.Duration `mapstructure:"sessionTimeout"`    // 会话超时时间
+	HeartbeatInterval time.Duration `mapstructure:"heartbeatInterval"` // 心跳间隔
 	// 移除了程序员应该控制的字段: MaxProcessingTime, FetchMinBytes, FetchMaxBytes, FetchMaxWait,
 	// RebalanceStrategy, IsolationLevel, MaxPollRecords, EnableAutoCommit, AutoCommitInterval
 }
@@ -277,7 +277,12 @@ type TracingConfig struct {
 
 // SetDefaults 为EventBusConfig设置默认值
 func (c *EventBusConfig) SetDefaults() {
-	// 健康检查默认值
+	// 1. 基础配置默认值
+	if c.Type == "" {
+		c.Type = "memory" // 默认使用内存实现
+	}
+
+	// 2. 健康检查默认值
 	if c.HealthCheck.Enabled {
 		if c.HealthCheck.Publisher.Interval == 0 {
 			c.HealthCheck.Publisher.Interval = 2 * time.Minute
@@ -307,7 +312,7 @@ func (c *EventBusConfig) SetDefaults() {
 		}
 	}
 
-	// 发布端默认值
+	// 3. 发布端默认值
 	if c.Publisher.MaxReconnectAttempts == 0 {
 		c.Publisher.MaxReconnectAttempts = 5
 	}
@@ -321,17 +326,221 @@ func (c *EventBusConfig) SetDefaults() {
 		c.Publisher.PublishTimeout = 10 * time.Second
 	}
 
-	// 订阅端默认值
+	// 发布端积压检测默认值
+	if c.Publisher.BacklogDetection.Enabled {
+		if c.Publisher.BacklogDetection.MaxQueueDepth == 0 {
+			c.Publisher.BacklogDetection.MaxQueueDepth = 10000
+		}
+		if c.Publisher.BacklogDetection.MaxPublishLatency == 0 {
+			c.Publisher.BacklogDetection.MaxPublishLatency = 1 * time.Second
+		}
+		if c.Publisher.BacklogDetection.RateThreshold == 0 {
+			c.Publisher.BacklogDetection.RateThreshold = 1000.0 // 1000 msg/sec
+		}
+		if c.Publisher.BacklogDetection.CheckInterval == 0 {
+			c.Publisher.BacklogDetection.CheckInterval = 10 * time.Second
+		}
+	}
+
+	// 发布端流量控制默认值
+	if c.Publisher.RateLimit.Enabled {
+		if c.Publisher.RateLimit.RatePerSecond == 0 {
+			c.Publisher.RateLimit.RatePerSecond = 1000.0 // 1000 msg/sec
+		}
+		if c.Publisher.RateLimit.BurstSize == 0 {
+			c.Publisher.RateLimit.BurstSize = 100
+		}
+	}
+
+	// 发布端错误处理默认值
+	if c.Publisher.ErrorHandling.DeadLetterTopic != "" {
+		if c.Publisher.ErrorHandling.MaxRetryAttempts == 0 {
+			c.Publisher.ErrorHandling.MaxRetryAttempts = 3
+		}
+		if c.Publisher.ErrorHandling.RetryBackoffBase == 0 {
+			c.Publisher.ErrorHandling.RetryBackoffBase = 1 * time.Second
+		}
+		if c.Publisher.ErrorHandling.RetryBackoffMax == 0 {
+			c.Publisher.ErrorHandling.RetryBackoffMax = 30 * time.Second
+		}
+	}
+
+	// 4. 订阅端默认值
 	if c.Subscriber.MaxConcurrency == 0 {
 		c.Subscriber.MaxConcurrency = 10
 	}
 	if c.Subscriber.ProcessTimeout == 0 {
 		c.Subscriber.ProcessTimeout = 30 * time.Second
 	}
+
+	// 订阅端积压检测默认值
+	if c.Subscriber.BacklogDetection.Enabled {
+		if c.Subscriber.BacklogDetection.MaxLagThreshold == 0 {
+			c.Subscriber.BacklogDetection.MaxLagThreshold = 10000
+		}
+		if c.Subscriber.BacklogDetection.MaxTimeThreshold == 0 {
+			c.Subscriber.BacklogDetection.MaxTimeThreshold = 5 * time.Minute
+		}
+		if c.Subscriber.BacklogDetection.CheckInterval == 0 {
+			c.Subscriber.BacklogDetection.CheckInterval = 30 * time.Second
+		}
+	}
+
+	// 订阅端流量控制默认值
+	if c.Subscriber.RateLimit.Enabled {
+		if c.Subscriber.RateLimit.RatePerSecond == 0 {
+			c.Subscriber.RateLimit.RatePerSecond = 1000.0 // 1000 msg/sec
+		}
+		if c.Subscriber.RateLimit.BurstSize == 0 {
+			c.Subscriber.RateLimit.BurstSize = 100
+		}
+	}
+
+	// 订阅端错误处理默认值
+	if c.Subscriber.ErrorHandling.DeadLetterTopic != "" {
+		if c.Subscriber.ErrorHandling.MaxRetryAttempts == 0 {
+			c.Subscriber.ErrorHandling.MaxRetryAttempts = 3
+		}
+		if c.Subscriber.ErrorHandling.RetryBackoffBase == 0 {
+			c.Subscriber.ErrorHandling.RetryBackoffBase = 1 * time.Second
+		}
+		if c.Subscriber.ErrorHandling.RetryBackoffMax == 0 {
+			c.Subscriber.ErrorHandling.RetryBackoffMax = 30 * time.Second
+		}
+	}
+
+	// 5. 监控配置默认值
+	if c.Monitoring.Enabled {
+		if c.Monitoring.CollectInterval == 0 {
+			c.Monitoring.CollectInterval = 30 * time.Second
+		}
+	}
+
+	// 6. 根据EventBus类型设置特定默认值
+	switch c.Type {
+	case "kafka":
+		c.setKafkaDefaults()
+	case "nats":
+		c.setNATSDefaults()
+	case "memory":
+		c.setMemoryDefaults()
+	}
+}
+
+// setKafkaDefaults 设置Kafka特定的默认值
+func (c *EventBusConfig) setKafkaDefaults() {
+	// Producer默认值
+	if c.Kafka.Producer.RequiredAcks == 0 {
+		c.Kafka.Producer.RequiredAcks = 1 // Leader确认
+	}
+	if c.Kafka.Producer.Compression == "" {
+		c.Kafka.Producer.Compression = "snappy"
+	}
+	if c.Kafka.Producer.FlushFrequency == 0 {
+		c.Kafka.Producer.FlushFrequency = 500 * time.Millisecond
+	}
+	if c.Kafka.Producer.FlushMessages == 0 {
+		c.Kafka.Producer.FlushMessages = 100
+	}
+	if c.Kafka.Producer.Timeout == 0 {
+		c.Kafka.Producer.Timeout = 10 * time.Second
+	}
+
+	// Consumer默认值
+	if c.Kafka.Consumer.AutoOffsetReset == "" {
+		c.Kafka.Consumer.AutoOffsetReset = "latest"
+	}
+	if c.Kafka.Consumer.SessionTimeout == 0 {
+		c.Kafka.Consumer.SessionTimeout = 30 * time.Second
+	}
+	if c.Kafka.Consumer.HeartbeatInterval == 0 {
+		c.Kafka.Consumer.HeartbeatInterval = 3 * time.Second
+	}
+}
+
+// setNATSDefaults 设置NATS特定的默认值
+func (c *EventBusConfig) setNATSDefaults() {
+	// 基础连接默认值
+	if c.NATS.MaxReconnects == 0 {
+		c.NATS.MaxReconnects = 10
+	}
+	if c.NATS.ReconnectWait == 0 {
+		c.NATS.ReconnectWait = 2 * time.Second
+	}
+	if c.NATS.ConnectionTimeout == 0 {
+		c.NATS.ConnectionTimeout = 10 * time.Second
+	}
+
+	// JetStream默认值
+	if c.NATS.JetStream.Enabled {
+		if c.NATS.JetStream.PublishTimeout == 0 {
+			c.NATS.JetStream.PublishTimeout = 10 * time.Second
+		}
+		if c.NATS.JetStream.AckWait == 0 {
+			c.NATS.JetStream.AckWait = 30 * time.Second
+		}
+		if c.NATS.JetStream.MaxDeliver == 0 {
+			c.NATS.JetStream.MaxDeliver = 5
+		}
+
+		// Stream默认值
+		if c.NATS.JetStream.Stream.Retention == "" {
+			c.NATS.JetStream.Stream.Retention = "limits"
+		}
+		if c.NATS.JetStream.Stream.Storage == "" {
+			c.NATS.JetStream.Stream.Storage = "file"
+		}
+		if c.NATS.JetStream.Stream.Replicas == 0 {
+			c.NATS.JetStream.Stream.Replicas = 1
+		}
+		if c.NATS.JetStream.Stream.MaxAge == 0 {
+			c.NATS.JetStream.Stream.MaxAge = 24 * time.Hour
+		}
+		if c.NATS.JetStream.Stream.MaxBytes == 0 {
+			c.NATS.JetStream.Stream.MaxBytes = 1024 * 1024 * 1024 // 1GB
+		}
+		if c.NATS.JetStream.Stream.MaxMsgs == 0 {
+			c.NATS.JetStream.Stream.MaxMsgs = 1000000 // 1M messages
+		}
+		if c.NATS.JetStream.Stream.Discard == "" {
+			c.NATS.JetStream.Stream.Discard = "old"
+		}
+
+		// Consumer默认值
+		if c.NATS.JetStream.Consumer.DeliverPolicy == "" {
+			c.NATS.JetStream.Consumer.DeliverPolicy = "all"
+		}
+		if c.NATS.JetStream.Consumer.AckPolicy == "" {
+			c.NATS.JetStream.Consumer.AckPolicy = "explicit"
+		}
+		if c.NATS.JetStream.Consumer.ReplayPolicy == "" {
+			c.NATS.JetStream.Consumer.ReplayPolicy = "instant"
+		}
+		if c.NATS.JetStream.Consumer.MaxAckPending == 0 {
+			c.NATS.JetStream.Consumer.MaxAckPending = 1000
+		}
+		if c.NATS.JetStream.Consumer.MaxWaiting == 0 {
+			c.NATS.JetStream.Consumer.MaxWaiting = 512
+		}
+		if c.NATS.JetStream.Consumer.MaxDeliver == 0 {
+			c.NATS.JetStream.Consumer.MaxDeliver = 5
+		}
+	}
+}
+
+// setMemoryDefaults 设置Memory特定的默认值
+func (c *EventBusConfig) setMemoryDefaults() {
+	if c.Memory.MaxChannelSize == 0 {
+		c.Memory.MaxChannelSize = 1000
+	}
+	if c.Memory.BufferSize == 0 {
+		c.Memory.BufferSize = 100
+	}
 }
 
 // Validate 验证EventBusConfig配置
 func (c *EventBusConfig) Validate() error {
+	// 1. 验证基础配置
 	if c.Type == "" {
 		return fmt.Errorf("eventbus type is required")
 	}
@@ -344,7 +553,7 @@ func (c *EventBusConfig) Validate() error {
 		return fmt.Errorf("service name is required")
 	}
 
-	// 验证健康检查配置
+	// 2. 验证健康检查配置
 	if c.HealthCheck.Enabled {
 		if c.HealthCheck.Publisher.Interval <= 0 {
 			return fmt.Errorf("health check publisher interval must be positive")
@@ -352,9 +561,347 @@ func (c *EventBusConfig) Validate() error {
 		if c.HealthCheck.Publisher.Timeout <= 0 {
 			return fmt.Errorf("health check publisher timeout must be positive")
 		}
+		if c.HealthCheck.Publisher.FailureThreshold <= 0 {
+			return fmt.Errorf("health check publisher failure threshold must be positive")
+		}
+		if c.HealthCheck.Publisher.MessageTTL <= 0 {
+			return fmt.Errorf("health check publisher message TTL must be positive")
+		}
+
 		if c.HealthCheck.Subscriber.MonitorInterval <= 0 {
 			return fmt.Errorf("health check subscriber monitor interval must be positive")
 		}
+		if c.HealthCheck.Subscriber.WarningThreshold <= 0 {
+			return fmt.Errorf("health check subscriber warning threshold must be positive")
+		}
+		if c.HealthCheck.Subscriber.ErrorThreshold <= 0 {
+			return fmt.Errorf("health check subscriber error threshold must be positive")
+		}
+		if c.HealthCheck.Subscriber.CriticalThreshold <= 0 {
+			return fmt.Errorf("health check subscriber critical threshold must be positive")
+		}
+		// 验证阈值递增关系
+		if c.HealthCheck.Subscriber.WarningThreshold >= c.HealthCheck.Subscriber.ErrorThreshold {
+			return fmt.Errorf("warning threshold must be less than error threshold")
+		}
+		if c.HealthCheck.Subscriber.ErrorThreshold >= c.HealthCheck.Subscriber.CriticalThreshold {
+			return fmt.Errorf("error threshold must be less than critical threshold")
+		}
+	}
+
+	// 3. 验证发布端配置
+	if c.Publisher.MaxReconnectAttempts < 0 {
+		return fmt.Errorf("publisher max reconnect attempts must be non-negative")
+	}
+	if c.Publisher.InitialBackoff < 0 {
+		return fmt.Errorf("publisher initial backoff must be non-negative")
+	}
+	if c.Publisher.MaxBackoff < 0 {
+		return fmt.Errorf("publisher max backoff must be non-negative")
+	}
+	if c.Publisher.InitialBackoff > c.Publisher.MaxBackoff && c.Publisher.MaxBackoff > 0 {
+		return fmt.Errorf("publisher initial backoff must be less than or equal to max backoff")
+	}
+	if c.Publisher.PublishTimeout <= 0 {
+		return fmt.Errorf("publisher publish timeout must be positive")
+	}
+
+	// 验证发布端积压检测
+	if c.Publisher.BacklogDetection.Enabled {
+		if c.Publisher.BacklogDetection.MaxQueueDepth <= 0 {
+			return fmt.Errorf("publisher backlog detection max queue depth must be positive")
+		}
+		if c.Publisher.BacklogDetection.MaxPublishLatency <= 0 {
+			return fmt.Errorf("publisher backlog detection max publish latency must be positive")
+		}
+		if c.Publisher.BacklogDetection.RateThreshold <= 0 {
+			return fmt.Errorf("publisher backlog detection rate threshold must be positive")
+		}
+		if c.Publisher.BacklogDetection.CheckInterval <= 0 {
+			return fmt.Errorf("publisher backlog detection check interval must be positive")
+		}
+	}
+
+	// 验证发布端流量控制
+	if c.Publisher.RateLimit.Enabled {
+		if c.Publisher.RateLimit.RatePerSecond <= 0 {
+			return fmt.Errorf("publisher rate limit rate per second must be positive")
+		}
+		if c.Publisher.RateLimit.BurstSize <= 0 {
+			return fmt.Errorf("publisher rate limit burst size must be positive")
+		}
+	}
+
+	// 验证发布端错误处理
+	if c.Publisher.ErrorHandling.DeadLetterTopic != "" {
+		if c.Publisher.ErrorHandling.MaxRetryAttempts < 0 {
+			return fmt.Errorf("publisher error handling max retry attempts must be non-negative")
+		}
+		if c.Publisher.ErrorHandling.RetryBackoffBase < 0 {
+			return fmt.Errorf("publisher error handling retry backoff base must be non-negative")
+		}
+		if c.Publisher.ErrorHandling.RetryBackoffMax < 0 {
+			return fmt.Errorf("publisher error handling retry backoff max must be non-negative")
+		}
+		if c.Publisher.ErrorHandling.RetryBackoffBase > c.Publisher.ErrorHandling.RetryBackoffMax && c.Publisher.ErrorHandling.RetryBackoffMax > 0 {
+			return fmt.Errorf("publisher error handling retry backoff base must be less than or equal to max")
+		}
+	}
+
+	// 4. 验证订阅端配置
+	if c.Subscriber.MaxConcurrency <= 0 {
+		return fmt.Errorf("subscriber max concurrency must be positive")
+	}
+	if c.Subscriber.ProcessTimeout <= 0 {
+		return fmt.Errorf("subscriber process timeout must be positive")
+	}
+
+	// 验证订阅端积压检测
+	if c.Subscriber.BacklogDetection.Enabled {
+		if c.Subscriber.BacklogDetection.MaxLagThreshold <= 0 {
+			return fmt.Errorf("subscriber backlog detection max lag threshold must be positive")
+		}
+		if c.Subscriber.BacklogDetection.MaxTimeThreshold <= 0 {
+			return fmt.Errorf("subscriber backlog detection max time threshold must be positive")
+		}
+		if c.Subscriber.BacklogDetection.CheckInterval <= 0 {
+			return fmt.Errorf("subscriber backlog detection check interval must be positive")
+		}
+	}
+
+	// 验证订阅端流量控制
+	if c.Subscriber.RateLimit.Enabled {
+		if c.Subscriber.RateLimit.RatePerSecond <= 0 {
+			return fmt.Errorf("subscriber rate limit rate per second must be positive")
+		}
+		if c.Subscriber.RateLimit.BurstSize <= 0 {
+			return fmt.Errorf("subscriber rate limit burst size must be positive")
+		}
+	}
+
+	// 验证订阅端错误处理
+	if c.Subscriber.ErrorHandling.DeadLetterTopic != "" {
+		if c.Subscriber.ErrorHandling.MaxRetryAttempts < 0 {
+			return fmt.Errorf("subscriber error handling max retry attempts must be non-negative")
+		}
+		if c.Subscriber.ErrorHandling.RetryBackoffBase < 0 {
+			return fmt.Errorf("subscriber error handling retry backoff base must be non-negative")
+		}
+		if c.Subscriber.ErrorHandling.RetryBackoffMax < 0 {
+			return fmt.Errorf("subscriber error handling retry backoff max must be non-negative")
+		}
+		if c.Subscriber.ErrorHandling.RetryBackoffBase > c.Subscriber.ErrorHandling.RetryBackoffMax && c.Subscriber.ErrorHandling.RetryBackoffMax > 0 {
+			return fmt.Errorf("subscriber error handling retry backoff base must be less than or equal to max")
+		}
+	}
+
+	// 5. 验证安全配置
+	if c.Security.Enabled {
+		if c.Security.Protocol == "" {
+			return fmt.Errorf("security protocol is required when security is enabled")
+		}
+		// 验证协议类型
+		validProtocols := map[string]bool{"SASL_PLAINTEXT": true, "SASL_SSL": true, "SSL": true}
+		if !validProtocols[c.Security.Protocol] {
+			return fmt.Errorf("unsupported security protocol: %s (supported: SASL_PLAINTEXT, SASL_SSL, SSL)", c.Security.Protocol)
+		}
+	}
+
+	// 6. 根据EventBus类型验证特定配置
+	switch c.Type {
+	case "kafka":
+		if err := c.validateKafkaConfig(); err != nil {
+			return err
+		}
+	case "nats":
+		if err := c.validateNATSConfig(); err != nil {
+			return err
+		}
+	case "memory":
+		if err := c.validateMemoryConfig(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateKafkaConfig 验证Kafka配置
+func (c *EventBusConfig) validateKafkaConfig() error {
+	if len(c.Kafka.Brokers) == 0 {
+		return fmt.Errorf("kafka brokers are required")
+	}
+
+	// 验证生产者配置
+	if c.Kafka.Producer.RequiredAcks < -1 || c.Kafka.Producer.RequiredAcks > 1 {
+		return fmt.Errorf("kafka producer required acks must be -1, 0, or 1")
+	}
+
+	if c.Kafka.Producer.Compression != "" {
+		validCompressions := map[string]bool{"none": true, "gzip": true, "snappy": true, "lz4": true, "zstd": true}
+		if !validCompressions[c.Kafka.Producer.Compression] {
+			return fmt.Errorf("unsupported kafka compression: %s (supported: none, gzip, snappy, lz4, zstd)", c.Kafka.Producer.Compression)
+		}
+	}
+
+	if c.Kafka.Producer.FlushFrequency < 0 {
+		return fmt.Errorf("kafka producer flush frequency must be non-negative")
+	}
+	if c.Kafka.Producer.FlushMessages < 0 {
+		return fmt.Errorf("kafka producer flush messages must be non-negative")
+	}
+	if c.Kafka.Producer.Timeout < 0 {
+		return fmt.Errorf("kafka producer timeout must be non-negative")
+	}
+
+	// 验证消费者配置
+	if c.Kafka.Consumer.GroupID == "" {
+		return fmt.Errorf("kafka consumer group ID is required")
+	}
+
+	if c.Kafka.Consumer.AutoOffsetReset != "" {
+		validResets := map[string]bool{"earliest": true, "latest": true, "none": true}
+		if !validResets[c.Kafka.Consumer.AutoOffsetReset] {
+			return fmt.Errorf("unsupported kafka auto offset reset: %s (supported: earliest, latest, none)", c.Kafka.Consumer.AutoOffsetReset)
+		}
+	}
+
+	if c.Kafka.Consumer.SessionTimeout < 0 {
+		return fmt.Errorf("kafka consumer session timeout must be non-negative")
+	}
+	if c.Kafka.Consumer.HeartbeatInterval < 0 {
+		return fmt.Errorf("kafka consumer heartbeat interval must be non-negative")
+	}
+
+	return nil
+}
+
+// validateNATSConfig 验证NATS配置
+func (c *EventBusConfig) validateNATSConfig() error {
+	if len(c.NATS.URLs) == 0 {
+		return fmt.Errorf("nats URLs are required")
+	}
+
+	if c.NATS.MaxReconnects < -1 {
+		return fmt.Errorf("nats max reconnects must be -1 (unlimited) or non-negative")
+	}
+	if c.NATS.ReconnectWait < 0 {
+		return fmt.Errorf("nats reconnect wait must be non-negative")
+	}
+	if c.NATS.ConnectionTimeout < 0 {
+		return fmt.Errorf("nats connection timeout must be non-negative")
+	}
+
+	// 验证JetStream配置
+	if c.NATS.JetStream.Enabled {
+		if c.NATS.JetStream.PublishTimeout < 0 {
+			return fmt.Errorf("nats jetstream publish timeout must be non-negative")
+		}
+		if c.NATS.JetStream.AckWait < 0 {
+			return fmt.Errorf("nats jetstream ack wait must be non-negative")
+		}
+		if c.NATS.JetStream.MaxDeliver < 0 {
+			return fmt.Errorf("nats jetstream max deliver must be non-negative")
+		}
+
+		// 验证流配置
+		if c.NATS.JetStream.Stream.Name == "" {
+			return fmt.Errorf("nats jetstream stream name is required")
+		}
+		if len(c.NATS.JetStream.Stream.Subjects) == 0 {
+			return fmt.Errorf("nats jetstream stream subjects are required")
+		}
+
+		if c.NATS.JetStream.Stream.Retention != "" {
+			validRetentions := map[string]bool{"limits": true, "interest": true, "workqueue": true}
+			if !validRetentions[c.NATS.JetStream.Stream.Retention] {
+				return fmt.Errorf("unsupported nats jetstream retention: %s (supported: limits, interest, workqueue)", c.NATS.JetStream.Stream.Retention)
+			}
+		}
+
+		if c.NATS.JetStream.Stream.Storage != "" {
+			validStorages := map[string]bool{"file": true, "memory": true}
+			if !validStorages[c.NATS.JetStream.Stream.Storage] {
+				return fmt.Errorf("unsupported nats jetstream storage: %s (supported: file, memory)", c.NATS.JetStream.Stream.Storage)
+			}
+		}
+
+		if c.NATS.JetStream.Stream.Replicas < 0 {
+			return fmt.Errorf("nats jetstream stream replicas must be non-negative")
+		}
+		if c.NATS.JetStream.Stream.MaxAge < 0 {
+			return fmt.Errorf("nats jetstream stream max age must be non-negative")
+		}
+		if c.NATS.JetStream.Stream.MaxBytes < 0 {
+			return fmt.Errorf("nats jetstream stream max bytes must be non-negative")
+		}
+		if c.NATS.JetStream.Stream.MaxMsgs < 0 {
+			return fmt.Errorf("nats jetstream stream max msgs must be non-negative")
+		}
+
+		if c.NATS.JetStream.Stream.Discard != "" {
+			validDiscards := map[string]bool{"old": true, "new": true}
+			if !validDiscards[c.NATS.JetStream.Stream.Discard] {
+				return fmt.Errorf("unsupported nats jetstream discard: %s (supported: old, new)", c.NATS.JetStream.Stream.Discard)
+			}
+		}
+
+		// 验证消费者配置
+		if c.NATS.JetStream.Consumer.DeliverPolicy != "" {
+			validPolicies := map[string]bool{"all": true, "last": true, "new": true, "by_start_sequence": true, "by_start_time": true}
+			if !validPolicies[c.NATS.JetStream.Consumer.DeliverPolicy] {
+				return fmt.Errorf("unsupported nats jetstream deliver policy: %s (supported: all, last, new, by_start_sequence, by_start_time)", c.NATS.JetStream.Consumer.DeliverPolicy)
+			}
+		}
+
+		if c.NATS.JetStream.Consumer.AckPolicy != "" {
+			validAckPolicies := map[string]bool{"none": true, "all": true, "explicit": true}
+			if !validAckPolicies[c.NATS.JetStream.Consumer.AckPolicy] {
+				return fmt.Errorf("unsupported nats jetstream ack policy: %s (supported: none, all, explicit)", c.NATS.JetStream.Consumer.AckPolicy)
+			}
+		}
+
+		if c.NATS.JetStream.Consumer.ReplayPolicy != "" {
+			validReplayPolicies := map[string]bool{"instant": true, "original": true}
+			if !validReplayPolicies[c.NATS.JetStream.Consumer.ReplayPolicy] {
+				return fmt.Errorf("unsupported nats jetstream replay policy: %s (supported: instant, original)", c.NATS.JetStream.Consumer.ReplayPolicy)
+			}
+		}
+
+		if c.NATS.JetStream.Consumer.MaxAckPending < 0 {
+			return fmt.Errorf("nats jetstream consumer max ack pending must be non-negative")
+		}
+		if c.NATS.JetStream.Consumer.MaxWaiting < 0 {
+			return fmt.Errorf("nats jetstream consumer max waiting must be non-negative")
+		}
+		if c.NATS.JetStream.Consumer.MaxDeliver < 0 {
+			return fmt.Errorf("nats jetstream consumer max deliver must be non-negative")
+		}
+	}
+
+	// 验证安全配置
+	if c.NATS.Security.Enabled {
+		// 至少需要一种认证方式
+		hasAuth := c.NATS.Security.Token != "" ||
+			(c.NATS.Security.Username != "" && c.NATS.Security.Password != "") ||
+			c.NATS.Security.NKeyFile != "" ||
+			c.NATS.Security.CredFile != ""
+
+		if !hasAuth {
+			return fmt.Errorf("nats security enabled but no authentication method provided (token, username/password, nkey, or cred file)")
+		}
+	}
+
+	return nil
+}
+
+// validateMemoryConfig 验证Memory配置
+func (c *EventBusConfig) validateMemoryConfig() error {
+	if c.Memory.MaxChannelSize < 0 {
+		return fmt.Errorf("memory max channel size must be non-negative")
+	}
+	if c.Memory.BufferSize < 0 {
+		return fmt.Errorf("memory buffer size must be non-negative")
 	}
 
 	return nil

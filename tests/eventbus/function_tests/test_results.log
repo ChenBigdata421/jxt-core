@@ -1,0 +1,50 @@
+# github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/backup [github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/backup.test]
+backup\kafka_nats_test.go:19:6: TestKafkaBasicPublishSubscribe redeclared in this block
+	backup\basic_test.go:14:6: other declaration of TestKafkaBasicPublishSubscribe
+backup\kafka_nats_test.go:60:6: TestNATSBasicPublishSubscribe redeclared in this block
+	backup\basic_test.go:57:6: other declaration of TestNATSBasicPublishSubscribe
+backup\kafka_nats_test.go:97:6: TestKafkaMultipleMessages redeclared in this block
+	backup\basic_test.go:103:6: other declaration of TestKafkaMultipleMessages
+backup\kafka_nats_test.go:136:6: TestNATSMultipleMessages redeclared in this block
+	backup\basic_test.go:141:6: other declaration of TestNATSMultipleMessages
+backup\kafka_nats_test.go:172:6: TestKafkaPublishWithOptions redeclared in this block
+	backup\basic_test.go:180:6: other declaration of TestKafkaPublishWithOptions
+backup\kafka_nats_test.go:215:6: TestNATSPublishWithOptions redeclared in this block
+	backup\basic_test.go:219:6: other declaration of TestNATSPublishWithOptions
+backup\backlog_test.go:14:12: undefined: NewTestHelper
+backup\backlog_test.go:48:12: undefined: NewTestHelper
+backup\backlog_test.go:83:12: undefined: NewTestHelper
+backup\backlog_test.go:117:12: undefined: NewTestHelper
+backup\backlog_test.go:117:12: too many errors
+=== RUN   TestE2E_MemoryEventBus_WithEnvelope
+--- FAIL: TestE2E_MemoryEventBus_WithEnvelope (0.00s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered]
+	panic: runtime error: invalid memory address or nil pointer dereference
+[signal 0xc0000005 code=0x0 addr=0x0 pc=0xf774c9]
+
+goroutine 13 [running]:
+testing.tRunner.func1.2({0x14995c0, 0x1d772a0})
+	C:/Program Files/Go/src/testing/testing.go:1734 +0x219
+testing.tRunner.func1()
+	C:/Program Files/Go/src/testing/testing.go:1737 +0x359
+panic({0x14995c0?, 0x1d772a0?})
+	C:/Program Files/Go/src/runtime/panic.go:792 +0x132
+go.uber.org/zap.(*SugaredLogger).log(0x0, 0x0, {0x0, 0x0}, {0xc0004adcd0, 0x1, 0x1}, {0x0, 0x0, 0x0})
+	C:/Users/jiyua/go/pkg/mod/go.uber.org/zap@v1.13.0/sugar.go:221 +0x49
+go.uber.org/zap.(*SugaredLogger).Info(...)
+	C:/Users/jiyua/go/pkg/mod/go.uber.org/zap@v1.13.0/sugar.go:102
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Info(...)
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:48
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*eventBusManager).initMemory(0xc0000d6000)
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/memory.go:228 +0x346
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewEventBus(0xc00017a908)
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/eventbus.go:79 +0x23f
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests.TestE2E_MemoryEventBus_WithEnvelope(0xc000106380)
+	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/function_tests/integration_test.go:26 +0x5c
+testing.tRunner(0xc000106380, 0x1628438)
+	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1851 +0x3f6
+FAIL	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests	0.456s
+FAIL	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/backup [build failed]
+FAIL

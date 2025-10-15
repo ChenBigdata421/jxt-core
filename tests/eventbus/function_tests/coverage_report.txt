@@ -1,0 +1,17 @@
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:27:	NewTestHelper				100.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:39:	CreateKafkaEventBus			80.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:82:	CreateKafkaEventBusWithHealthCheck	80.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:136:	CreateNATSEventBus			80.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:155:	CreateNATSEventBusWithHealthCheck	80.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:184:	CleanupKafkaTopics			42.9%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:210:	CleanupNATSStreams			55.6%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:245:	Cleanup					77.8%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:266:	WaitForMessages				83.3%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:278:	AssertEqual				50.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:285:	AssertNoError				100.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:292:	AssertTrue				50.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:299:	CreateKafkaTopics			85.7%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:328:	WaitForCondition			71.4%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:341:	GetTimestamp				100.0%
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests/test_helper.go:346:	CloseEventBus				77.8%
+total:											(statements)				70.8%

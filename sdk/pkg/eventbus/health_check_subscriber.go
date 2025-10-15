@@ -248,8 +248,19 @@ func (hcs *HealthCheckSubscriber) checkHealthStatus() {
 	// 如果从未收到消息，且启动时间超过期望间隔，则告警
 	if lastMsgTime.IsZero() {
 		if time.Since(hcs.stats.StartTime) > hcs.config.Publisher.Interval {
-			hcs.triggerAlert("no_messages", "warning",
-				"No health check messages received since startup", now, lastMsgTime)
+			// 增加连续错过计数
+			misses := hcs.consecutiveMisses.Add(1)
+
+			// 根据连续错过次数确定告警级别
+			severity := "warning"
+			if misses >= int32(hcs.config.Publisher.FailureThreshold) {
+				severity = "critical"
+			} else if misses >= int32(hcs.config.Publisher.FailureThreshold)/2 {
+				severity = "error"
+			}
+
+			hcs.triggerAlert("no_messages", severity,
+				fmt.Sprintf("No health check messages received since startup (consecutive misses: %d)", misses), now, lastMsgTime)
 		}
 		return
 	}

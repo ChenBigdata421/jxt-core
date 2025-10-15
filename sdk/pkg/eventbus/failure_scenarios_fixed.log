@@ -1,0 +1,176 @@
+=== RUN   TestHealthCheckFailureScenarios
+=== RUN   TestHealthCheckFailureScenarios/SubscriberTimeoutDetection
+2025-10-15T09:01:31.288+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:01:31.302+0800	INFO	logger/logger.go:48	EventBus created successfullytypememory
+2025-10-15T09:01:31.302+0800	INFO	logger/logger.go:48	Global EventBus initialized successfullytypememory
+2025-10-15T09:01:31.302+0800	INFO	logger/logger.go:48	EventBus initialized from unified config successfullytypememoryserviceNametest-servicehealthCheckEnabledtruepublisherConfiguredtruesubscriberConfiguredtrue
+2025-10-15T09:01:31.302+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-timeouttotalSubscribers1
+2025-10-15T09:01:31.302+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-timeout
+2025-10-15T09:01:31.302+0800	INFO	logger/logger.go:48	Health check subscriber startedsourcememory-eventbuseventBusTypememorytopictest-timeoutexpectedInterval2s
+2025-10-15T09:01:31.302+0800	INFO	logger/logger.go:48	Health check subscriber started for memory eventbus
+2025-10-15T09:01:31.302+0800	DEBUG	logger/logger.go:64	Health check monitoring loop startedsourcememory-eventbusmonitorInterval500msexpectedInterval2s
+2025-10-15T09:01:33.303+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+    health_check_integration_test.go:635: Received alert: {AlertType:no_messages Severity:warning Source:memory-eventbus EventBusType:memory Topic:test-timeout LastMessageTime:0001-01-01 00:00:00 +0000 UTC TimeSinceLastMsg:2562047h47m16.854775807s ExpectedInterval:2s ConsecutiveMisses:0 Timestamp:2025-10-15 09:01:33.3034964 +0800 CST m=+2.024639801 Metadata:map[message:No health check messages received since startup]}
+2025-10-15T09:01:33.803+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+    health_check_integration_test.go:635: Received alert: {AlertType:no_messages Severity:warning Source:memory-eventbus EventBusType:memory Topic:test-timeout LastMessageTime:0001-01-01 00:00:00 +0000 UTC TimeSinceLastMsg:2562047h47m16.854775807s ExpectedInterval:2s ConsecutiveMisses:0 Timestamp:2025-10-15 09:01:33.8033445 +0800 CST m=+2.524487901 Metadata:map[message:No health check messages received since startup]}
+2025-10-15T09:01:34.302+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+    health_check_integration_test.go:635: Received alert: {AlertType:no_messages Severity:warning Source:memory-eventbus EventBusType:memory Topic:test-timeout LastMessageTime:0001-01-01 00:00:00 +0000 UTC TimeSinceLastMsg:2562047h47m16.854775807s ExpectedInterval:2s ConsecutiveMisses:0 Timestamp:2025-10-15 09:01:34.302841 +0800 CST m=+3.023984401 Metadata:map[message:No health check messages received since startup]}
+2025-10-15T09:01:34.802+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+    health_check_integration_test.go:635: Received alert: {AlertType:no_messages Severity:warning Source:memory-eventbus EventBusType:memory Topic:test-timeout LastMessageTime:0001-01-01 00:00:00 +0000 UTC TimeSinceLastMsg:2562047h47m16.854775807s ExpectedInterval:2s ConsecutiveMisses:0 Timestamp:2025-10-15 09:01:34.8028939 +0800 CST m=+3.524037301 Metadata:map[message:No health check messages received since startup]}
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+    health_check_integration_test.go:651: Received 4 alerts as expected
+    health_check_integration_test.go:635: Received alert: {AlertType:no_messages Severity:warning Source:memory-eventbus EventBusType:memory Topic:test-timeout LastMessageTime:0001-01-01 00:00:00 +0000 UTC TimeSinceLastMsg:2562047h47m16.854775807s ExpectedInterval:2s ConsecutiveMisses:0 Timestamp:2025-10-15 09:01:35.303338 +0800 CST m=+4.024481401 Metadata:map[message:No health check messages received since startup]}
+    health_check_integration_test.go:656: Expected consecutive misses > 0
+    health_check_integration_test.go:658: Final subscriber stats: {StartTime:2025-10-15 09:01:31.302771 +0800 CST m=+0.023914401 LastMessageTime:0001-01-01 00:00:00 +0000 UTC TotalMessagesReceived:0 ConsecutiveMisses:0 TotalAlerts:5 LastAlertTime:2025-10-15 09:01:35.303338 +0800 CST m=+4.024481401 IsHealthy:true UptimeSeconds:4.000567}
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Stopping health check subscriber before closing EventBus
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Health check monitoring loop stoppedsourcememory-eventbus
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Health check subscriber stoppedsourcememory-eventbuseventBusTypememory
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Global EventBus closed successfully
+=== RUN   TestHealthCheckFailureScenarios/PublisherFailureRecovery
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	EventBus created successfullytypememory
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Global EventBus initialized successfullytypememory
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	EventBus initialized from unified config successfullytypememoryserviceNametest-servicehealthCheckEnabledtruepublisherConfiguredtruesubscriberConfiguredtrue
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Health checker startedsourcememory-eventbuseventBusTypememorytopictest-recoveryinterval1s
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Health check publisher started for memory eventbus
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-recoverytotalSubscribers1
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-recovery
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Health check subscriber startedsourcememory-eventbuseventBusTypememorytopictest-recoveryexpectedInterval1s
+2025-10-15T09:01:35.303+0800	INFO	logger/logger.go:48	Health check subscriber started for memory eventbus
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Health check monitoring loop startedsourcememory-eventbusmonitorInterval500msexpectedInterval1s
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-recoverysubscribers1
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-recoverysize250
+2025-10-15T09:01:35.303+0800	DEBUG	logger/logger.go:64	Health check succeededsourcememory-eventbusduration0stopictest-recovery
+2025-10-15T09:01:35.304+0800	DEBUG	logger/logger.go:64	Received health check messagesourcememory-eventbusmessageSourcememory-eventbusmessageIdhc-1760490095303844400-dd885e5da41f0604eventBusTypememorytimestamp2025-10-15 09:01:35.3038444 +0800 CST
+2025-10-15T09:01:35.304+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-recoverysize250
+2025-10-15T09:01:36.304+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-recoverysubscribers1
+2025-10-15T09:01:36.304+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-recoverysize250
+2025-10-15T09:01:36.304+0800	DEBUG	logger/logger.go:64	Health check succeededsourcememory-eventbusduration0stopictest-recovery
+2025-10-15T09:01:36.304+0800	DEBUG	logger/logger.go:64	Received health check messagesourcememory-eventbusmessageSourcememory-eventbusmessageIdhc-1760490096304191700-6f6268667774a756eventBusTypememorytimestamp2025-10-15 09:01:36.3041917 +0800 CST
+2025-10-15T09:01:36.304+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-recoverysize250
+2025-10-15T09:01:37.304+0800	INFO	logger/logger.go:48	Health checker stoppedsourcememory-eventbus
+2025-10-15T09:01:37.304+0800	INFO	logger/logger.go:48	Health check publisher stopped for memory eventbus
+2025-10-15T09:01:37.304+0800	WARN	logger/logger.go:72	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseverityerrormessageNo health check messages received for 1.0000496s (consecutive misses: 1)timeSinceLastMsg1.0000496sconsecutiveMisses1
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Warn
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:72
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).triggerAlert
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:310
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).checkHealthStatus
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:271
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).monitoringLoop
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:238
+2025-10-15T09:01:37.804+0800	ERROR	logger/logger.go:80	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritycriticalmessageNo health check messages received for 1.5003544s (consecutive misses: 2)timeSinceLastMsg1.5003544sconsecutiveMisses2
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).triggerAlert
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:310
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).checkHealthStatus
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:271
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).monitoringLoop
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:238
+2025-10-15T09:01:38.304+0800	ERROR	logger/logger.go:80	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritycriticalmessageNo health check messages received for 2.0001166s (consecutive misses: 3)timeSinceLastMsg2.0001166sconsecutiveMisses3
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).triggerAlert
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:310
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).checkHealthStatus
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:271
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).monitoringLoop
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:238
+2025-10-15T09:01:38.804+0800	ERROR	logger/logger.go:80	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritycriticalmessageNo health check messages received for 2.5001391s (consecutive misses: 4)timeSinceLastMsg2.5001391sconsecutiveMisses4
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).triggerAlert
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:310
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).checkHealthStatus
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:271
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).monitoringLoop
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:238
+2025-10-15T09:01:39.303+0800	ERROR	logger/logger.go:80	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritycriticalmessageNo health check messages received for 2.9998041s (consecutive misses: 5)timeSinceLastMsg2.9998041sconsecutiveMisses5
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).triggerAlert
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:310
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).checkHealthStatus
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:271
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).monitoringLoop
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:238
+2025-10-15T09:01:39.804+0800	ERROR	logger/logger.go:80	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritycriticalmessageNo health check messages received for 3.5001078s (consecutive misses: 6)timeSinceLastMsg3.5001078sconsecutiveMisses6
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).triggerAlert
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:310
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).checkHealthStatus
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:271
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).monitoringLoop
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:238
+2025-10-15T09:01:40.304+0800	ERROR	logger/logger.go:80	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritycriticalmessageNo health check messages received for 4.0000434s (consecutive misses: 7)timeSinceLastMsg4.0000434sconsecutiveMisses7
+github.com/ChenBigdata421/jxt-core/sdk/pkg/logger.Error
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/logger/logger.go:80
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).triggerAlert
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:310
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).checkHealthStatus
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:271
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*HealthCheckSubscriber).monitoringLoop
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/health_check_subscriber.go:238
+2025-10-15T09:01:40.304+0800	INFO	logger/logger.go:48	Health checker startedsourcememory-eventbuseventBusTypememorytopictest-recoveryinterval1s
+2025-10-15T09:01:40.304+0800	INFO	logger/logger.go:48	Health check publisher started for memory eventbus
+2025-10-15T09:01:40.304+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-recoverysubscribers1
+2025-10-15T09:01:40.304+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-recoverysize250
+2025-10-15T09:01:40.304+0800	DEBUG	logger/logger.go:64	Received health check messagesourcememory-eventbusmessageSourcememory-eventbusmessageIdhc-1760490100304846600-15c4e383bc2ed2d1eventBusTypememorytimestamp2025-10-15 09:01:40.3048466 +0800 CST
+2025-10-15T09:01:40.304+0800	DEBUG	logger/logger.go:64	Health check succeededsourcememory-eventbusduration0stopictest-recovery
+2025-10-15T09:01:40.304+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-recoverysize250
+2025-10-15T09:01:41.305+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-recoverysubscribers1
+2025-10-15T09:01:41.305+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-recoverysize250
+2025-10-15T09:01:41.305+0800	DEBUG	logger/logger.go:64	Health check succeededsourcememory-eventbusduration0stopictest-recovery
+2025-10-15T09:01:41.305+0800	DEBUG	logger/logger.go:64	Received health check messagesourcememory-eventbusmessageSourcememory-eventbusmessageIdhc-1760490101305164300-c05a3bfb0e4fd4c9eventBusTypememorytimestamp2025-10-15 09:01:41.3051643 +0800 CST
+2025-10-15T09:01:41.305+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-recoverysize250
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-recoverysubscribers1
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-recoverysize250
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Health check succeededsourcememory-eventbusduration0stopictest-recovery
+    health_check_integration_test.go:726: Recovery test stats: {StartTime:2025-10-15 09:01:35.3038444 +0800 CST m=+4.024987801 LastMessageTime:2025-10-15 09:01:41.3051643 +0800 CST m=+10.026307701 TotalMessagesReceived:4 ConsecutiveMisses:0 TotalAlerts:7 LastAlertTime:2025-10-15 09:01:40.3042351 +0800 CST m=+9.025378501 IsHealthy:true UptimeSeconds:7.0014978}
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Stopping health check publisher before closing EventBus
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Health checker stoppedsourcememory-eventbus
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Stopping health check subscriber before closing EventBus
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Health check monitoring loop stoppedsourcememory-eventbus
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Health check subscriber stoppedsourcememory-eventbuseventBusTypememory
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Received health check messagesourcememory-eventbusmessageSourcememory-eventbusmessageIdhc-1760490102305342200-875e1e38310a9388eventBusTypememorytimestamp2025-10-15 09:01:42.3053422 +0800 CST
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Global EventBus closed successfully
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-recoverysize250
+=== RUN   TestHealthCheckFailureScenarios/CallbackErrorHandling
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	EventBus created successfullytypememory
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Global EventBus initialized successfullytypememory
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	EventBus initialized from unified config successfullytypememoryserviceNametest-servicehealthCheckEnabledtruepublisherConfiguredtruesubscriberConfiguredtrue
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-callback-errortotalSubscribers1
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-callback-error
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Health check subscriber startedsourcememory-eventbuseventBusTypememorytopictest-callback-errorexpectedInterval2s
+2025-10-15T09:01:42.305+0800	INFO	logger/logger.go:48	Health check subscriber started for memory eventbus
+2025-10-15T09:01:42.305+0800	DEBUG	logger/logger.go:64	Health check monitoring loop startedsourcememory-eventbusmonitorInterval500msexpectedInterval2s
+2025-10-15T09:01:44.305+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+    health_check_integration_test.go:770: Error callback called 1 times
+2025-10-15T09:01:44.805+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+    health_check_integration_test.go:770: Error callback called 2 times
+    health_check_integration_test.go:785: Callback was called 2 times as expected
+2025-10-15T09:01:45.305+0800	INFO	logger/logger.go:48	Health check alert triggeredsourcememory-eventbusalertTypeno_messagesseveritywarningmessageNo health check messages received since startuptimeSinceLastMsg2562047h47m16.854775807sconsecutiveMisses0
+2025-10-15T09:01:45.305+0800	DEBUG	logger/logger.go:64	Stopping health check subscriber before closing EventBus
+2025-10-15T09:01:45.305+0800	DEBUG	logger/logger.go:64	Health check monitoring loop stoppedsourcememory-eventbus
+    health_check_integration_test.go:770: Error callback called 3 times
+2025-10-15T09:01:45.305+0800	INFO	logger/logger.go:48	Health check subscriber stoppedsourcememory-eventbuseventBusTypememory
+2025-10-15T09:01:45.305+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:01:45.305+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:01:45.305+0800	INFO	logger/logger.go:48	EventBus closed successfully
+2025-10-15T09:01:45.305+0800	INFO	logger/logger.go:48	Global EventBus closed successfully
+--- FAIL: TestHealthCheckFailureScenarios (14.02s)
+    --- FAIL: TestHealthCheckFailureScenarios/SubscriberTimeoutDetection (4.01s)
+    --- PASS: TestHealthCheckFailureScenarios/PublisherFailureRecovery (7.00s)
+    --- PASS: TestHealthCheckFailureScenarios/CallbackErrorHandling (3.00s)
+FAIL
+exit status 1
+FAIL	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus	14.653s

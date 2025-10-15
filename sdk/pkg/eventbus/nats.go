@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
@@ -264,6 +265,8 @@ type natsEventBus struct {
 	healthCheckSubscriber *HealthCheckSubscriber
 	// 健康检查发布器
 	healthChecker *HealthChecker
+	// 健康检查配置（从 Enterprise.HealthCheck 转换而来）
+	healthCheckConfig config.HealthCheckConfig
 
 	// 异步发布结果通道（用于Outbox模式）
 	publishResultChan chan *PublishResult
@@ -322,6 +325,9 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		}
 	}
 
+	// 转换健康检查配置（从 eventbus.HealthCheckConfig 转换为 config.HealthCheckConfig）
+	healthCheckConfig := convertHealthCheckConfig(config.Enterprise.HealthCheck)
+
 	// 创建事件总线实例
 	bus := &natsEventBus{
 		conn:               nc,
@@ -331,6 +337,8 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		logger:             zap.NewNop(), // 使用空logger，避免依赖问题
 		reconnectCallbacks: make([]func(ctx context.Context) error, 0),
 		topicConfigs:       make(map[string]TopicOptions),
+		// 健康检查配置
+		healthCheckConfig: healthCheckConfig,
 		// 🔥 初始化统一Consumer管理字段
 		topicHandlers:        make(map[string]MessageHandler),
 		subscribedTopics:     make([]string, 0),
@@ -1804,9 +1812,9 @@ func (n *natsEventBus) RegisterHealthCheckCallback(callback HealthCheckCallback)
 // StartHealthCheckSubscriber 启动健康检查消息订阅监控
 func (n *natsEventBus) StartHealthCheckSubscriber(ctx context.Context) error {
 	n.mu.Lock()
-	defer n.mu.Unlock()
 
 	if n.healthCheckSubscriber != nil {
+		n.mu.Unlock()
 		return nil // 已经启动
 	}
 
@@ -1814,9 +1822,18 @@ func (n *natsEventBus) StartHealthCheckSubscriber(ctx context.Context) error {
 	config := GetDefaultHealthCheckConfig()
 	n.healthCheckSubscriber = NewHealthCheckSubscriber(config, n, "nats-eventbus", "nats")
 
-	// 启动监控器
-	if err := n.healthCheckSubscriber.Start(ctx); err != nil {
+	// 🔧 修复死锁：在调用 Start 之前释放锁
+	// Start 方法内部会调用 Subscribe，而 Subscribe 也需要获取 n.mu 锁
+	// 如果不释放锁，会导致死锁
+	subscriber := n.healthCheckSubscriber
+	n.mu.Unlock()
+
+	// 启动监控器（不持有锁）
+	if err := subscriber.Start(ctx); err != nil {
+		// 启动失败，需要清理
+		n.mu.Lock()
 		n.healthCheckSubscriber = nil
+		n.mu.Unlock()
 		return fmt.Errorf("failed to start health check subscriber: %w", err)
 	}
 
@@ -2376,27 +2393,45 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 		return fmt.Errorf("failed to serialize envelope: %w", err)
 	}
 
-	// ✅ 重构：直接异步发布，不创建 Header（性能优化）
-	// Header 创建开销大，且在高并发场景下会导致性能下降
-	// NATS JetStream 的全局错误处理器会处理所有 ACK 错误
-	_, err = n.js.PublishAsync(topic, envelopeBytes)
+	// 如果 JetStream 已启用，使用 JetStream 发布
+	if n.js != nil {
+		// ✅ 重构：直接异步发布，不创建 Header（性能优化）
+		// Header 创建开销大，且在高并发场景下会导致性能下降
+		// NATS JetStream 的全局错误处理器会处理所有 ACK 错误
+		_, err = n.js.PublishAsync(topic, envelopeBytes)
+		if err != nil {
+			n.errorCount.Add(1)
+			n.logger.Error("Failed to submit async publish for envelope message",
+				zap.String("subject", topic),
+				zap.String("aggregateID", envelope.AggregateID),
+				zap.String("eventType", envelope.EventType),
+				zap.Int64("eventVersion", envelope.EventVersion),
+				zap.Error(err))
+			return fmt.Errorf("failed to submit async publish: %w", err)
+		}
+
+		// ✅ 重构：立即返回，不等待 ACK（完全异步）
+		// ACK 处理由全局错误处理器负责（在 NewNATSEventBus 中配置）
+		// 这样可以：
+		// 1. 消除 per-message goroutine（解决 goroutine 泄漏）
+		// 2. 大幅提升性能（减少 goroutine 创建开销）
+		// 3. 简化代码逻辑
+		return nil
+	}
+
+	// 如果 JetStream 未启用，使用 NATS Core 发布
+	err = n.conn.Publish(topic, envelopeBytes)
 	if err != nil {
 		n.errorCount.Add(1)
-		n.logger.Error("Failed to submit async publish for envelope message",
+		n.logger.Error("Failed to publish envelope message",
 			zap.String("subject", topic),
 			zap.String("aggregateID", envelope.AggregateID),
 			zap.String("eventType", envelope.EventType),
 			zap.Int64("eventVersion", envelope.EventVersion),
 			zap.Error(err))
-		return fmt.Errorf("failed to submit async publish: %w", err)
+		return fmt.Errorf("failed to publish: %w", err)
 	}
 
-	// ✅ 重构：立即返回，不等待 ACK（完全异步）
-	// ACK 处理由全局错误处理器负责（在 NewNATSEventBus 中配置）
-	// 这样可以：
-	// 1. 消除 per-message goroutine（解决 goroutine 泄漏）
-	// 2. 大幅提升性能（减少 goroutine 创建开销）
-	// 3. 简化代码逻辑
 	return nil
 }
 
@@ -2596,8 +2631,12 @@ func (n *natsEventBus) StartHealthCheckPublisher(ctx context.Context) error {
 		return nil // 已经启动
 	}
 
-	// 创建健康检查发布器
-	config := GetDefaultHealthCheckConfig()
+	// 使用保存的健康检查配置（如果未配置，则使用默认配置）
+	config := n.healthCheckConfig
+	if !config.Enabled {
+		config = GetDefaultHealthCheckConfig()
+	}
+
 	n.healthChecker = NewHealthChecker(config, n, "nats-eventbus", "nats")
 
 	// 启动健康检查发布器
@@ -2606,7 +2645,9 @@ func (n *natsEventBus) StartHealthCheckPublisher(ctx context.Context) error {
 		return fmt.Errorf("failed to start health check publisher: %w", err)
 	}
 
-	n.logger.Info("Health check publisher started for nats eventbus")
+	n.logger.Info("Health check publisher started for nats eventbus",
+		zap.Duration("interval", config.Publisher.Interval),
+		zap.String("topic", config.Publisher.Topic))
 	return nil
 }
 

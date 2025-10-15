@@ -1,0 +1,8 @@
+=== RUN   TestKafkaTopicConfiguration
+    test_helper.go:330: ✅ Created Kafka topic: test.kafka.topic.config.1760445016325
+    kafka_nats_test.go:675: ✅ Kafka topic configuration test passed
+    test_helper.go:369: ⚠️  Failed to close EventBus: errors during kafka eventbus close: [failed to close kafka client: kafka: tried to use a client that was closed]
+    test_helper.go:213: ✅ Deleted Kafka topic: test.kafka.topic.config.1760445016325
+--- PASS: TestKafkaTopicConfiguration (5.25s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests	5.495s

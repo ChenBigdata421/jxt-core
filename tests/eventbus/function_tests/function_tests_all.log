@@ -1,0 +1,82 @@
+=== RUN   TestKafkaSubscriberBacklogMonitoring
+    backlog_test.go:43: ✅ Kafka subscriber backlog monitoring test passed (callback called: false)
+--- PASS: TestKafkaSubscriberBacklogMonitoring (4.03s)
+=== RUN   TestNATSSubscriberBacklogMonitoring
+    backlog_test.go:78: ✅ NATS subscriber backlog monitoring test passed (callback called: false)
+--- PASS: TestNATSSubscriberBacklogMonitoring (4.01s)
+=== RUN   TestKafkaPublisherBacklogMonitoring
+    backlog_test.go:112: ✅ Kafka publisher backlog monitoring test passed (callback called: false)
+--- PASS: TestKafkaPublisherBacklogMonitoring (4.01s)
+=== RUN   TestNATSPublisherBacklogMonitoring
+    backlog_test.go:147: ✅ NATS publisher backlog monitoring test passed (callback called: false)
+--- PASS: TestNATSPublisherBacklogMonitoring (4.01s)
+=== RUN   TestKafkaStartAllBacklogMonitoring
+    backlog_test.go:188: ✅ Kafka StartAllBacklogMonitoring test passed (sub: false, pub: false)
+--- PASS: TestKafkaStartAllBacklogMonitoring (4.01s)
+=== RUN   TestNATSStartAllBacklogMonitoring
+    backlog_test.go:231: ✅ NATS StartAllBacklogMonitoring test passed (sub: false, pub: false)
+--- PASS: TestNATSStartAllBacklogMonitoring (4.01s)
+=== RUN   TestKafkaSetMessageRouter
+    backlog_test.go:250: ✅ Kafka SetMessageRouter test passed
+--- PASS: TestKafkaSetMessageRouter (1.02s)
+=== RUN   TestNATSSetMessageRouter
+    backlog_test.go:269: ✅ NATS SetMessageRouter test passed
+--- PASS: TestNATSSetMessageRouter (1.01s)
+=== RUN   TestKafkaSetErrorHandler
+    backlog_test.go:297: ✅ Kafka SetErrorHandler test passed
+--- PASS: TestKafkaSetErrorHandler (1.01s)
+=== RUN   TestKafkaBasicPublishSubscribe
+    test_helper.go:230: ✅ Created Kafka topic: test.kafka.basic.1760407599105
+    basic_test.go:34: 📨 Received message: Hello Kafka!
+    basic_test.go:53: ✅ Kafka basic publish/subscribe test passed
+    test_helper.go:113: ✅ Deleted Kafka topic: test.kafka.basic.1760407599105
+--- PASS: TestKafkaBasicPublishSubscribe (10.49s)
+=== RUN   TestNATSBasicPublishSubscribe
+    basic_test.go:80: 📨 Received message: Hello NATS!
+    basic_test.go:99: ✅ NATS basic publish/subscribe test passed
+--- PASS: TestNATSBasicPublishSubscribe (4.12s)
+=== RUN   TestKafkaMultipleMessages
+    test_helper.go:230: ✅ Created Kafka topic: test.kafka.multiple.1760407613711
+    basic_test.go:137: ✅ Kafka multiple messages test passed
+    test_helper.go:113: ✅ Deleted Kafka topic: test.kafka.multiple.1760407613711
+--- PASS: TestKafkaMultipleMessages (10.51s)
+=== RUN   TestNATSMultipleMessages
+    basic_test.go:176: ✅ NATS multiple messages test passed
+--- PASS: TestNATSMultipleMessages (4.12s)
+=== RUN   TestKafkaPublishWithOptions
+    test_helper.go:230: ✅ Created Kafka topic: test.kafka.options.1760407628339
+    basic_test.go:215: ✅ Kafka PublishWithOptions test passed
+    test_helper.go:113: ✅ Deleted Kafka topic: test.kafka.options.1760407628339
+--- PASS: TestKafkaPublishWithOptions (10.46s)
+=== RUN   TestNATSPublishWithOptions
+    basic_test.go:255: ✅ NATS PublishWithOptions test passed
+--- PASS: TestNATSPublishWithOptions (4.12s)
+=== RUN   TestKafkaEnvelopePublishSubscribe
+    test_helper.go:230: ✅ Created Kafka topic: test.kafka.envelope.1760407642921
+    envelope_test.go:33: 📨 Received envelope: AggregateID=test-aggregate-1, EventType=TestEvent, Version=1
+    envelope_test.go:61: ✅ Kafka Envelope publish/subscribe test passed
+    test_helper.go:113: ✅ Deleted Kafka topic: test.kafka.envelope.1760407642921
+--- PASS: TestKafkaEnvelopePublishSubscribe (10.48s)
+=== RUN   TestNATSEnvelopePublishSubscribe
+--- FAIL: TestNATSEnvelopePublishSubscribe (4.02s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered]
+	panic: runtime error: invalid memory address or nil pointer dereference
+[signal 0xc0000005 code=0x0 addr=0xe8 pc=0x150e6b4]
+
+goroutine 5109 [running]:
+testing.tRunner.func1.2({0x16793a0, 0x1f3b190})
+	C:/Program Files/Go/src/testing/testing.go:1734 +0x219
+testing.tRunner.func1()
+	C:/Program Files/Go/src/testing/testing.go:1737 +0x359
+panic({0x16793a0?, 0x1f3b190?})
+	C:/Program Files/Go/src/runtime/panic.go:792 +0x132
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*natsEventBus).PublishEnvelope(0xc000326488, {0x190b8a8?, 0x1fb2020?}, {0xc00011caa0, 0x20}, 0xc0004a2380)
+	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/nats.go:2382 +0x214
+github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests.TestNATSEnvelopePublishSubscribe(0xc000f4efc0)
+	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/function_tests/envelope_test.go:101 +0x50b
+testing.tRunner(0xc000f4efc0, 0x1803388)
+	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1851 +0x3f6
+FAIL	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests	85.905s
+FAIL

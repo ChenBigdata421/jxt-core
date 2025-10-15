@@ -274,6 +274,12 @@ type PublisherEnterpriseConfig struct {
 
 	// 重试策略
 	RetryPolicy RetryPolicyConfig `mapstructure:"retryPolicy"`
+
+	// 流量控制
+	RateLimit RateLimitConfig `mapstructure:"rateLimit"`
+
+	// 错误处理
+	ErrorHandling config.ErrorHandlingConfig `mapstructure:"errorHandling"`
 }
 
 // SubscriberEnterpriseConfig 订阅端企业特性配置

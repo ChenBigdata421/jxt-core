@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/IBM/sarama"
@@ -32,6 +33,18 @@ func NewTestHelper(t *testing.T) *TestHelper {
 		createdTopics:  make([]string, 0),
 		createdStreams: make([]string, 0),
 	}
+}
+
+// CreateMemoryEventBus 创建 Memory EventBus 用于测试
+func (h *TestHelper) CreateMemoryEventBus() eventbus.EventBus {
+	cfg := &eventbus.EventBusConfig{
+		Type: "memory",
+	}
+
+	bus, err := eventbus.NewEventBus(cfg)
+	h.AssertNoError(err, "Failed to create Memory EventBus")
+
+	return bus
 }
 
 // CreateKafkaEventBus 创建 Kafka EventBus 用于测试
@@ -77,11 +90,98 @@ func (h *TestHelper) CreateKafkaEventBus(clientID string) eventbus.EventBus {
 	return bus
 }
 
+// CreateKafkaEventBusWithHealthCheck 创建带自定义健康检查配置的 Kafka EventBus 用于测试
+func (h *TestHelper) CreateKafkaEventBusWithHealthCheck(groupID string, healthCheckConfig config.HealthCheckConfig) eventbus.EventBus {
+	cfg := &eventbus.KafkaConfig{
+		Brokers: []string{"localhost:29094"},
+		Producer: eventbus.ProducerConfig{
+			RequiredAcks:    1,
+			Compression:     "snappy",
+			FlushFrequency:  10 * time.Millisecond,
+			FlushMessages:   100,
+			Timeout:         5 * time.Second,
+			FlushBytes:      1048576,
+			RetryMax:        3,
+			BatchSize:       16384,
+			BufferSize:      8388608,
+			MaxMessageBytes: 1048576,
+		},
+		Consumer: eventbus.ConsumerConfig{
+			GroupID:            groupID,
+			SessionTimeout:     10 * time.Second,
+			HeartbeatInterval:  3 * time.Second,
+			MaxProcessingTime:  5 * time.Second,
+			AutoOffsetReset:    "earliest",
+			EnableAutoCommit:   true,
+			AutoCommitInterval: 1 * time.Second,
+			FetchMaxWait:       100 * time.Millisecond,
+			MaxPollRecords:     500,
+		},
+		Net: eventbus.NetConfig{
+			DialTimeout:  10 * time.Second,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		},
+		ClientID: groupID,
+		Enterprise: eventbus.EnterpriseConfig{
+			HealthCheck: eventbus.HealthCheckConfig{
+				Enabled:          healthCheckConfig.Enabled,
+				Topic:            healthCheckConfig.Publisher.Topic,
+				Interval:         healthCheckConfig.Publisher.Interval,
+				Timeout:          healthCheckConfig.Publisher.Timeout,
+				FailureThreshold: healthCheckConfig.Publisher.FailureThreshold,
+				MessageTTL:       healthCheckConfig.Publisher.MessageTTL,
+			},
+		},
+	}
+
+	bus, err := eventbus.NewKafkaEventBus(cfg)
+	if err != nil {
+		h.t.Fatalf("Failed to create Kafka EventBus: %v", err)
+	}
+
+	return bus
+}
+
 // CreateNATSEventBus 创建 NATS EventBus 用于测试
+// 注意：基本功能测试不需要 JetStream，只有 Envelope 测试需要
 func (h *TestHelper) CreateNATSEventBus(clientID string) eventbus.EventBus {
 	cfg := &eventbus.NATSConfig{
 		URLs:     []string{"nats://localhost:4223"},
 		ClientID: clientID,
+		// 不启用 JetStream，使用基本的 NATS Core
+		JetStream: eventbus.JetStreamConfig{
+			Enabled: false,
+		},
+	}
+
+	bus, err := eventbus.NewNATSEventBus(cfg)
+	if err != nil {
+		h.t.Fatalf("Failed to create NATS EventBus: %v", err)
+	}
+
+	return bus
+}
+
+// CreateNATSEventBusWithHealthCheck 创建带自定义健康检查配置的 NATS EventBus 用于测试
+func (h *TestHelper) CreateNATSEventBusWithHealthCheck(clientID string, healthCheckConfig config.HealthCheckConfig) eventbus.EventBus {
+	cfg := &eventbus.NATSConfig{
+		URLs:     []string{"nats://localhost:4223"},
+		ClientID: clientID,
+		// 不启用 JetStream，使用基本的 NATS Core
+		JetStream: eventbus.JetStreamConfig{
+			Enabled: false,
+		},
+		Enterprise: eventbus.EnterpriseConfig{
+			HealthCheck: eventbus.HealthCheckConfig{
+				Enabled:          healthCheckConfig.Enabled,
+				Topic:            healthCheckConfig.Publisher.Topic,
+				Interval:         healthCheckConfig.Publisher.Interval,
+				Timeout:          healthCheckConfig.Publisher.Timeout,
+				FailureThreshold: healthCheckConfig.Publisher.FailureThreshold,
+				MessageTTL:       healthCheckConfig.Publisher.MessageTTL,
+			},
+		},
 	}
 
 	bus, err := eventbus.NewNATSEventBus(cfg)

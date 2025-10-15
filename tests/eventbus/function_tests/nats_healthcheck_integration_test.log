@@ -1,0 +1,15 @@
+=== RUN   TestNATSHealthCheckPublisherSubscriberIntegration
+    healthcheck_test.go:409: 🚀 B 端：先启动健康检查订阅器（NATS Core 需要先订阅）
+    healthcheck_test.go:417: 🚀 A 端：再启动健康检查发布器
+    healthcheck_test.go:423: ⏳ 等待健康检查消息发送和接收（5秒）...
+    healthcheck_test.go:428: 📊 A 端发布器状态: IsHealthy=true, ConsecutiveFailures=0, LastSuccessTime=2025-10-14 14:38:23.004636 +0800 CST m=+1.039709701
+    healthcheck_test.go:450: 📊 B 端订阅器统计: TotalMessagesReceived=1, ConsecutiveMisses=0, IsHealthy=true, LastMessageTime=2025-10-14 14:38:23.0068659 +0800 CST m=+1.041939601
+    healthcheck_test.go:468: ⚠️  B 端订阅器在 5 秒内只接收到 1 条消息，预期至少 3 条
+    healthcheck_test.go:479: 🛑 停止 A 端健康检查发布器
+    healthcheck_test.go:484: 🛑 停止 B 端健康检查订阅器
+    healthcheck_test.go:488: ✅ NATS 健康检查发布端和订阅端集成测试通过
+    healthcheck_test.go:489:    - A 端成功发送健康检查消息
+    healthcheck_test.go:490:    - B 端成功接收 1 条健康检查消息
+--- PASS: TestNATSHealthCheckPublisherSubscriberIntegration (8.04s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_tests	8.530s

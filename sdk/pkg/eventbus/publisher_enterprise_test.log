@@ -1,0 +1,92 @@
+=== RUN   TestPublisher_RateLimit_Enabled
+2025-10-15T09:31:07.520+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_RateLimit_Enabled (0.01s)
+=== RUN   TestPublisher_RateLimit_Disabled
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_RateLimit_Disabled (0.00s)
+=== RUN   TestPublisher_ErrorHandling_DeadLetterTopic
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_ErrorHandling_DeadLetterTopic (0.00s)
+=== RUN   TestPublisher_RetryPolicy_Enabled
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_RetryPolicy_Enabled (0.00s)
+=== RUN   TestPublisher_RetryPolicy_Disabled
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_RetryPolicy_Disabled (0.00s)
+=== RUN   TestPublisher_EnterpriseFeatures_ConfigConversion
+    publisher_enterprise_features_test.go:183: 
+        	Error Trace:	D:/JXT/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/publisher_enterprise_features_test.go:183
+        	Error:      	Not equal: 
+        	            	expected: int(1000)
+        	            	actual  : int64(1000)
+        	Test:       	TestPublisher_EnterpriseFeatures_ConfigConversion
+--- FAIL: TestPublisher_EnterpriseFeatures_ConfigConversion (0.00s)
+=== RUN   TestPublisher_RateLimit_Integration
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-rate-limittotalSubscribers1
+2025-10-15T09:31:07.532+0800	INFO	logger/logger.go:48	Successfully subscribed to topictopictest-rate-limit
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-rate-limitsubscribers1
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message published successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+    publisher_enterprise_features_test.go:256: Published 10 messages in 0s
+2025-10-15T09:31:07.532+0800	DEBUG	logger/logger.go:64	Message processed successfullytopictest-rate-limitsize12
+2025-10-15T09:31:07.633+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.633+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.633+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_RateLimit_Integration (0.10s)
+=== RUN   TestPublisher_ErrorHandling_Integration
+2025-10-15T09:31:07.633+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.633+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.633+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.633+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_ErrorHandling_Integration (0.00s)
+=== RUN   TestPublisher_RetryPolicy_Integration
+2025-10-15T09:31:07.633+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T09:31:07.633+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T09:31:07.633+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T09:31:07.633+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestPublisher_RetryPolicy_Integration (0.00s)
+FAIL
+exit status 1
+FAIL	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus	0.896s

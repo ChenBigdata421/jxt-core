@@ -1,0 +1,103 @@
+=== RUN   TestEventBusManager_HealthCheck_Infrastructure
+2025-10-15T01:14:00.151+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T01:14:00.190+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopichealth_check_topictotalSubscribers1
+2025-10-15T01:14:00.291+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopichealth_check_topicsubscribers1
+2025-10-15T01:14:00.291+0800	DEBUG	logger/logger.go:64	End-to-end health check successfulpublishLatency0stotalLatency0smessagehealth-check-1760462040190813500
+2025-10-15T01:14:00.291+0800	DEBUG	logger/logger.go:64	Health check completed successfully
+2025-10-15T01:14:00.291+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T01:14:00.291+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T01:14:00.291+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestEventBusManager_HealthCheck_Infrastructure (0.14s)
+=== RUN   TestNewHealthChecker_DefaultConfig
+2025-10-15T01:14:00.300+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T01:14:00.300+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T01:14:00.300+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T01:14:00.300+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestNewHealthChecker_DefaultConfig (0.00s)
+=== RUN   TestHealthCheckSubscriber_DefaultConfig
+2025-10-15T01:14:00.301+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T01:14:00.301+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T01:14:00.301+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T01:14:00.301+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestHealthCheckSubscriber_DefaultConfig (0.00s)
+=== RUN   TestGetHealthCheckTopic_AllTypes
+=== RUN   TestGetHealthCheckTopic_AllTypes/memory
+=== RUN   TestGetHealthCheckTopic_AllTypes/kafka
+=== RUN   TestGetHealthCheckTopic_AllTypes/nats
+=== RUN   TestGetHealthCheckTopic_AllTypes/unknown
+--- PASS: TestGetHealthCheckTopic_AllTypes (0.00s)
+    --- PASS: TestGetHealthCheckTopic_AllTypes/memory (0.00s)
+    --- PASS: TestGetHealthCheckTopic_AllTypes/kafka (0.00s)
+    --- PASS: TestGetHealthCheckTopic_AllTypes/nats (0.00s)
+    --- PASS: TestGetHealthCheckTopic_AllTypes/unknown (0.00s)
+=== RUN   TestEventBusManager_PerformHealthCheck_Closed
+2025-10-15T01:14:00.306+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T01:14:00.306+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T01:14:00.306+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T01:14:00.306+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestEventBusManager_PerformHealthCheck_Closed (0.00s)
+=== RUN   TestEventBusManager_PerformEndToEndTest_Timeout
+2025-10-15T01:14:00.307+0800	INFO	logger/logger.go:48	Memory eventbus initialized successfully
+2025-10-15T01:14:00.307+0800	INFO	logger/logger.go:48	Subscribed to topic in memory eventbustopictest-e2e-topictotalSubscribers1
+2025-10-15T01:14:00.407+0800	DEBUG	logger/logger.go:64	Message published to memory eventbustopictest-e2e-topicsubscribers1
+2025-10-15T01:14:00.407+0800	DEBUG	logger/logger.go:64	End-to-end health check successfulpublishLatency0stotalLatency0smessagehealth-check-test
+2025-10-15T01:14:00.408+0800	DEBUG	logger/logger.go:64	Memory publisher closed
+2025-10-15T01:14:00.408+0800	DEBUG	logger/logger.go:64	Memory subscriber closed
+2025-10-15T01:14:00.408+0800	INFO	logger/logger.go:48	EventBus closed successfully
+--- PASS: TestEventBusManager_PerformEndToEndTest_Timeout (0.10s)
+=== RUN   TestSetDefaults_Kafka
+--- PASS: TestSetDefaults_Kafka (0.00s)
+=== RUN   TestSetDefaults_KafkaPartial
+--- PASS: TestSetDefaults_KafkaPartial (0.00s)
+=== RUN   TestExtractAggregateIDFromTopics
+=== RUN   TestExtractAggregateIDFromTopics/Simple_topic
+    internal_test.go:387: Topic: debug.simple
+    internal_test.go:388: Extracted AggregateID: 'simple'
+    internal_test.go:389: Error: <nil>
+    internal_test.go:390: Has AggregateID: true
+=== RUN   TestExtractAggregateIDFromTopics/Topic_with_underscore
+    internal_test.go:387: Topic: debug.test_1
+    internal_test.go:388: Extracted AggregateID: 'test_1'
+    internal_test.go:389: Error: <nil>
+    internal_test.go:390: Has AggregateID: true
+=== RUN   TestExtractAggregateIDFromTopics/Topic_with_dash
+    internal_test.go:387: Topic: debug.test-1
+    internal_test.go:388: Extracted AggregateID: 'test-1'
+    internal_test.go:389: Error: <nil>
+    internal_test.go:390: Has AggregateID: true
+=== RUN   TestExtractAggregateIDFromTopics/Topic_with_special_char_@
+    internal_test.go:387: Topic: debug.test@1
+    internal_test.go:388: Extracted AggregateID: 'debug'
+    internal_test.go:389: Error: <nil>
+    internal_test.go:390: Has AggregateID: true
+=== RUN   TestExtractAggregateIDFromTopics/Topic_with_numbers
+    internal_test.go:387: Topic: debug.123
+    internal_test.go:388: Extracted AggregateID: '123'
+    internal_test.go:389: Error: <nil>
+    internal_test.go:390: Has AggregateID: true
+=== RUN   TestExtractAggregateIDFromTopics/Stage2_test_topic
+    internal_test.go:387: Topic: stage2.1234567890.test_1
+    internal_test.go:388: Extracted AggregateID: 'test_1'
+    internal_test.go:389: Error: <nil>
+    internal_test.go:390: Has AggregateID: true
+=== RUN   TestExtractAggregateIDFromTopics/Stage2_test_topic_with_timestamp
+    internal_test.go:387: Topic: stage2.�.test_1
+    internal_test.go:388: Extracted AggregateID: 'test_1'
+    internal_test.go:389: Error: <nil>
+    internal_test.go:390: Has AggregateID: true
+=== RUN   TestExtractAggregateIDFromTopics/Stage2_topic_with_special_chars
+    internal_test.go:387: Topic: stage2@1234567890.test@1.msg#1
+    internal_test.go:388: Extracted AggregateID: ''
+    internal_test.go:389: Error: aggregate_id not found in any source
+    internal_test.go:390: Has AggregateID: false
+--- PASS: TestExtractAggregateIDFromTopics (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Simple_topic (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Topic_with_underscore (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Topic_with_dash (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Topic_with_special_char_@ (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Topic_with_numbers (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Stage2_test_topic (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Stage2_test_topic_with_timestamp (0.00s)
+    --- PASS: TestExtractAggregateIDFromTopics/Stage2_topic_with_special_chars (0.00s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus	1.372s

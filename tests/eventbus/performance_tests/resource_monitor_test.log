@@ -1,0 +1,16 @@
+=== RUN   TestResourceMonitoringImpact
+=== RUN   TestResourceMonitoringImpact/Kafka-WithMonitoring
+    resource_monitoring_impact_test.go:140: 📊 Kafka 有监控: 耗时=0.09s, 吞吐量=56440.80 msg/s, 峰值协程=343, 峰值内存=6MB
+=== RUN   TestResourceMonitoringImpact/Kafka-WithoutMonitoring
+    resource_monitoring_impact_test.go:140: 📊 Kafka 无监控: 耗时=0.01s, 吞吐量=369041.82 msg/s, 峰值协程=0, 峰值内存=0MB
+=== RUN   TestResourceMonitoringImpact/NATS-WithMonitoring
+    resource_monitoring_impact_test.go:241: 📊 NATS 有监控: 耗时=31.43s, 吞吐量=159.10 msg/s, 峰值协程=282, 峰值内存=11MB
+=== RUN   TestResourceMonitoringImpact/NATS-WithoutMonitoring
+    resource_monitoring_impact_test.go:241: 📊 NATS 无监控: 耗时=29.64s, 吞吐量=168.71 msg/s, 峰值协程=0, 峰值内存=0MB
+--- PASS: TestResourceMonitoringImpact (76.36s)
+    --- PASS: TestResourceMonitoringImpact/Kafka-WithMonitoring (5.73s)
+    --- PASS: TestResourceMonitoringImpact/Kafka-WithoutMonitoring (5.11s)
+    --- PASS: TestResourceMonitoringImpact/NATS-WithMonitoring (33.69s)
+    --- PASS: TestResourceMonitoringImpact/NATS-WithoutMonitoring (31.83s)
+PASS
+ok  	github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_tests	76.840s

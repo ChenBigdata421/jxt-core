@@ -193,6 +193,14 @@ func convertConfig(cfg *config.EventBusConfig) *EventBusConfig {
 			MaxInterval:     cfg.Publisher.MaxBackoff,
 			Multiplier:      2.0, // 默认倍数
 		},
+		// 添加发布端流量控制配置
+		RateLimit: RateLimitConfig{
+			Enabled:       cfg.Publisher.RateLimit.Enabled,
+			RatePerSecond: cfg.Publisher.RateLimit.RatePerSecond,
+			BurstSize:     cfg.Publisher.RateLimit.BurstSize,
+		},
+		// 添加发布端错误处理配置
+		ErrorHandling: cfg.Publisher.ErrorHandling,
 	}
 
 	// 转换订阅端企业特性（根据现有结构）
