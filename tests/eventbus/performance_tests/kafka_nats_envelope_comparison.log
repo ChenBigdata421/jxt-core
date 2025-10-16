@@ -450,7 +450,7 @@
     kafka_nats_envelope_comparison_test.go:1162: 消费者组个数               | Kafka:        1 | NATS:        1
     kafka_nats_envelope_comparison_test.go:1166: 
         🏆 最终结论:
-    kafka_nats_envelope_comparison_test.go:1173:    ✅ 吞吐量: Kafka 胜出 (+0.24%)
+    kafka_nats_envelope_comparison_test.go:1173:    ✅ 吞吐量: Kafka 胜出 (+0.24%)  
     kafka_nats_envelope_comparison_test.go:1187:    ✅ 延迟: NATS 胜出 (-8.16%)
     kafka_nats_envelope_comparison_test.go:1197:    ✅ 内存效率: NATS 胜出 (-10.16%)
     kafka_nats_envelope_comparison_test.go:1201: 

@@ -261,6 +261,10 @@ type natsEventBus struct {
 	topicConfigStrategy   TopicConfigStrategy       // 配置策略
 	topicConfigOnMismatch TopicConfigMismatchAction // 配置不一致时的行为
 
+	// ✅ Stream预创建优化：本地缓存已创建的Stream，避免运行时RPC调用
+	createdStreams   map[string]bool // streamName -> true
+	createdStreamsMu sync.RWMutex
+
 	// 健康检查订阅监控器
 	healthCheckSubscriber *HealthCheckSubscriber
 	// 健康检查发布器
@@ -330,11 +334,12 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 
 	// 创建事件总线实例
 	bus := &natsEventBus{
-		conn:               nc,
-		js:                 js,
-		config:             config,
-		subscriptions:      make(map[string]*nats.Subscription),
-		logger:             zap.NewNop(), // 使用空logger，避免依赖问题
+		conn:          nc,
+		js:            js,
+		config:        config,
+		subscriptions: make(map[string]*nats.Subscription),
+		// 临时开启开发日志便于定位问题（后续可改回 zap.NewNop()）
+		logger:             zap.NewExample(),
 		reconnectCallbacks: make([]func(ctx context.Context) error, 0),
 		topicConfigs:       make(map[string]TopicOptions),
 		// 健康检查配置
@@ -345,6 +350,8 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		subscriptionHandlers: make(map[string]MessageHandler),
 		// 🚀 初始化异步发布结果通道（缓冲区大小：10000）
 		publishResultChan: make(chan *PublishResult, 10000),
+		// ✅ Stream预创建优化：初始化本地缓存
+		createdStreams: make(map[string]bool),
 	}
 
 	// 🔥 创建全局 Keyed-Worker Pool（所有 topic 共享，与 Kafka 保持一致）
@@ -428,6 +435,12 @@ func (n *natsEventBus) ensureStreamExists() error {
 	if err == nil {
 		// Stream已存在
 		n.logger.Info("JetStream stream already exists", zap.String("stream", streamName))
+
+		// ✅ Stream预创建优化：Stream已存在，添加到本地缓存
+		n.createdStreamsMu.Lock()
+		n.createdStreams[streamName] = true
+		n.createdStreamsMu.Unlock()
+
 		return nil
 	}
 
@@ -453,6 +466,11 @@ func (n *natsEventBus) ensureStreamExists() error {
 		zap.String("stream", streamName),
 		zap.Strings("subjects", streamConfig.Subjects),
 		zap.String("storage", streamConfig.Storage.String()))
+
+	// ✅ Stream预创建优化：Stream创建成功，添加到本地缓存
+	n.createdStreamsMu.Lock()
+	n.createdStreams[streamName] = true
+	n.createdStreamsMu.Unlock()
 
 	return nil
 }
@@ -894,25 +912,44 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 	var err error
 
 	if shouldUsePersistent && n.js != nil {
-		// 确保主题在JetStream中存在（如果需要持久化）
-		if err := n.ensureTopicInJetStream(topic, topicConfig); err != nil {
-			n.logger.Warn("Failed to ensure topic in JetStream, falling back to Core NATS",
-				zap.String("topic", topic),
-				zap.Error(err))
-			// 降级到Core NATS
-			shouldUsePersistent = false
+		// ✅ Stream预创建优化：根据策略决定是否检查Stream
+		// 策略说明：
+		// - StrategySkip: 跳过检查（性能最优，适用于预创建场景）
+		// - 其他策略: 检查Stream是否存在（兼容动态创建场景）
+		shouldCheckStream := n.topicConfigStrategy != StrategySkip
+
+		// ✅ 优化：检查本地缓存，避免重复RPC调用
+		streamName := n.getStreamNameForTopic(topic)
+		n.createdStreamsMu.RLock()
+		streamExists := n.createdStreams[streamName]
+		n.createdStreamsMu.RUnlock()
+
+		// 只有在需要检查且缓存中不存在时，才调用ensureTopicInJetStream
+		if shouldCheckStream && !streamExists {
+			// 确保主题在JetStream中存在（如果需要持久化）
+			if err := n.ensureTopicInJetStream(topic, topicConfig); err != nil {
+				n.logger.Warn("Failed to ensure topic in JetStream, falling back to Core NATS",
+					zap.String("topic", topic),
+					zap.Error(err))
+				// 降级到Core NATS
+				shouldUsePersistent = false
+			} else {
+				// ✅ 成功创建/验证Stream后，添加到本地缓存
+				n.createdStreamsMu.Lock()
+				n.createdStreams[streamName] = true
+				n.createdStreamsMu.Unlock()
+			}
 		}
 	}
 
 	if shouldUsePersistent && n.js != nil {
 		// ✅ 优化 1: 使用JetStream异步发布（持久化）
-		var pubOpts []nats.PubOpt
-		if n.config.JetStream.PublishTimeout > 0 {
-			pubOpts = append(pubOpts, nats.AckWait(n.config.JetStream.PublishTimeout))
-		}
+		// 注意：不要同时设置 Context 和 Timeout，否则 nats 会报错
+		// 这里不设置 AckWait，采用全局 PublishAsyncErrHandler 处理失败 ACK
+		// 需要自定义超时时，可改为同步 Publish 并传入 nats.Context(ctx) 或 nats.AckWait，但二者不可同时设置
 
 		// ✅ 异步发布（不等待ACK，由统一错误处理器处理失败）
-		_, err = n.js.PublishAsync(topic, message, pubOpts...)
+		_, err = n.js.PublishAsync(topic, message)
 		if err != nil {
 			n.errorCount.Add(1)
 			n.logger.Error("Failed to publish message to NATS JetStream",
@@ -2817,6 +2854,14 @@ func (n *natsEventBus) ConfigureTopic(ctx context.Context, topic string, options
 			zap.Error(err),
 			zap.Duration("duration", duration))
 		return fmt.Errorf("failed to configure topic %s: %w", topic, err)
+	}
+
+	// ✅ Stream预创建优化：成功创建/配置Stream后，添加到本地缓存
+	if options.IsPersistent(n.config.JetStream.Enabled) && n.js != nil && err == nil {
+		streamName := n.getStreamNameForTopic(topic)
+		n.createdStreamsMu.Lock()
+		n.createdStreams[streamName] = true
+		n.createdStreamsMu.Unlock()
 	}
 
 	n.logger.Info("Topic configured successfully",
