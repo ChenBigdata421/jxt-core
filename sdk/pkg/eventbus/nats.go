@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -280,8 +281,20 @@ type natsEventBus struct {
 	// 是否启用发布结果通道（性能优化：默认禁用）
 	enablePublishResult bool
 
-	// ✅ 重构：移除 per-message goroutine，使用全局错误处理器
-	// asyncAckCtx, asyncAckCancel, asyncAckWg 已移除
+	// ✅ 方案2：共享 ACK 处理器（避免 per-message goroutine）
+	ackChan        chan *ackTask  // ACK 任务通道
+	ackWorkerWg    sync.WaitGroup // ACK worker 等待组
+	ackWorkerStop  chan struct{}  // ACK worker 停止信号
+	ackWorkerCount int            // ACK worker 数量（可配置）
+}
+
+// ackTask ACK 处理任务
+type ackTask struct {
+	future      nats.PubAckFuture
+	eventID     string
+	topic       string
+	aggregateID string
+	eventType   string
 }
 
 // NewNATSEventBus 创建NATS JetStream事件总线
@@ -348,10 +361,14 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		topicHandlers:        make(map[string]MessageHandler),
 		subscribedTopics:     make([]string, 0),
 		subscriptionHandlers: make(map[string]MessageHandler),
-		// 🚀 初始化异步发布结果通道（缓冲区大小：10000）
-		publishResultChan: make(chan *PublishResult, 10000),
+		// 🚀 初始化异步发布结果通道（缓冲区大小：100000）
+		publishResultChan: make(chan *PublishResult, 100000),
 		// ✅ Stream预创建优化：初始化本地缓存
 		createdStreams: make(map[string]bool),
+		// ✅ 方案2：初始化 ACK 处理器
+		ackChan:        make(chan *ackTask, 100000), // ACK 任务通道（大缓冲区）
+		ackWorkerStop:  make(chan struct{}),
+		ackWorkerCount: runtime.NumCPU() * 2, // 默认：CPU核心数 * 2
 	}
 
 	// 🔥 创建全局 Keyed-Worker Pool（所有 topic 共享，与 Kafka 保持一致）
@@ -414,6 +431,13 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 			nc.Close()
 			return nil, fmt.Errorf("failed to initialize unified consumer: %w", err)
 		}
+
+		// ✅ 方案2：启动 ACK worker 池
+		bus.startACKWorkers()
+		logger.Info("NATS ACK worker pool started",
+			zap.Int("workerCount", bus.ackWorkerCount),
+			zap.Int("ackChanSize", cap(bus.ackChan)),
+			zap.Int("resultChanSize", cap(bus.publishResultChan)))
 	}
 
 	return bus, nil
@@ -892,7 +916,10 @@ func parseReplayPolicy(policy string) nats.ReplayPolicy {
 	}
 }
 
-// Publish 发布消息到指定主题
+// Publish 发布普通消息到指定主题
+// ⚠️ 注意：不支持 Outbox 模式，消息容许丢失
+// 适用场景：通知、缓存失效、系统事件等可容忍丢失的消息
+// 如需可靠投递和 Outbox 模式支持，请使用 PublishEnvelope()
 func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte) error {
 	start := time.Now()
 
@@ -1435,6 +1462,14 @@ func (n *natsEventBus) Close() error {
 
 	// 清空订阅映射
 	n.subscriptions = make(map[string]*nats.Subscription)
+
+	// ✅ 方案2：停止 ACK worker 池
+	if n.ackWorkerStop != nil {
+		n.logger.Info("Stopping ACK worker pool...")
+		close(n.ackWorkerStop) // 发送停止信号
+		n.ackWorkerWg.Wait()   // 等待所有 worker 退出
+		n.logger.Info("ACK worker pool stopped")
+	}
 
 	// ✅ 重构：等待所有异步发布完成（优雅关闭）
 	if n.js != nil {
@@ -2409,7 +2444,13 @@ func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 
 // ========== 方案A：Envelope 支持 ==========
 
-// PublishEnvelope 发布Envelope消息（方案A）
+// PublishEnvelope 发布Envelope消息（领域事件）
+// ✅ 支持 Outbox 模式：通过 GetPublishResultChannel() 获取 ACK 结果
+// ✅ 可靠投递：不容许丢失的领域事件必须使用此方法
+// 适用场景：订单创建、支付完成、库存变更等关键业务事件
+// 与 Publish() 的区别：
+//   - PublishEnvelope(): 支持 Outbox 模式，发送 ACK 结果到 publishResultChan
+//   - Publish(): 不支持 Outbox 模式，消息容许丢失
 func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelope *Envelope) error {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -2432,10 +2473,8 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 
 	// 如果 JetStream 已启用，使用 JetStream 发布
 	if n.js != nil {
-		// ✅ 重构：直接异步发布，不创建 Header（性能优化）
-		// Header 创建开销大，且在高并发场景下会导致性能下降
-		// NATS JetStream 的全局错误处理器会处理所有 ACK 错误
-		_, err = n.js.PublishAsync(topic, envelopeBytes)
+		// ✅ 方案2：异步发布，获取 Future
+		pubAckFuture, err := n.js.PublishAsync(topic, envelopeBytes)
 		if err != nil {
 			n.errorCount.Add(1)
 			n.logger.Error("Failed to submit async publish for envelope message",
@@ -2447,13 +2486,40 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 			return fmt.Errorf("failed to submit async publish: %w", err)
 		}
 
-		// ✅ 重构：立即返回，不等待 ACK（完全异步）
-		// ACK 处理由全局错误处理器负责（在 NewNATSEventBus 中配置）
-		// 这样可以：
-		// 1. 消除 per-message goroutine（解决 goroutine 泄漏）
-		// 2. 大幅提升性能（减少 goroutine 创建开销）
-		// 3. 简化代码逻辑
-		return nil
+		// ✅ 生成事件ID（用于Outbox模式）
+		// 使用 AggregateID + EventType + EventVersion + Timestamp 组合生成唯一ID
+		eventID := fmt.Sprintf("%s:%s:%d:%d",
+			envelope.AggregateID,
+			envelope.EventType,
+			envelope.EventVersion,
+			envelope.Timestamp.UnixNano())
+
+		// ✅ 方案2：发送 ACK 任务到共享 worker 池
+		task := &ackTask{
+			future:      pubAckFuture,
+			eventID:     eventID,
+			topic:       topic,
+			aggregateID: envelope.AggregateID,
+			eventType:   envelope.EventType,
+		}
+
+		select {
+		case n.ackChan <- task:
+			// 成功发送到 ACK 处理队列
+			return nil
+		case <-ctx.Done():
+			// Context 取消
+			return ctx.Err()
+		default:
+			// ACK 通道满，记录警告但仍然返回成功
+			// 这样可以避免阻塞发布流程
+			n.logger.Warn("ACK channel full, ACK processing may be delayed",
+				zap.String("eventID", eventID),
+				zap.String("topic", topic),
+				zap.Int("ackChanLen", len(n.ackChan)),
+				zap.Int("ackChanCap", cap(n.ackChan)))
+			return nil
+		}
 	}
 
 	// 如果 JetStream 未启用，使用 NATS Core 发布
@@ -3177,4 +3243,96 @@ func (n *natsEventBus) GetTopicConfigStrategy() TopicConfigStrategy {
 	n.topicConfigsMu.RLock()
 	defer n.topicConfigsMu.RUnlock()
 	return n.topicConfigStrategy
+}
+
+// ========== 方案2：共享 ACK 处理器实现 ==========
+
+// startACKWorkers 启动 ACK worker 池
+func (n *natsEventBus) startACKWorkers() {
+	for i := 0; i < n.ackWorkerCount; i++ {
+		n.ackWorkerWg.Add(1)
+		go n.ackWorker(i)
+	}
+}
+
+// ackWorker ACK 处理 worker
+func (n *natsEventBus) ackWorker(workerID int) {
+	defer n.ackWorkerWg.Done()
+
+	n.logger.Debug("ACK worker started", zap.Int("workerID", workerID))
+
+	for {
+		select {
+		case task := <-n.ackChan:
+			// 处理 ACK 任务
+			n.processACKTask(task)
+
+		case <-n.ackWorkerStop:
+			// 收到停止信号，退出
+			n.logger.Debug("ACK worker stopping", zap.Int("workerID", workerID))
+			return
+		}
+	}
+}
+
+// processACKTask 处理单个 ACK 任务
+func (n *natsEventBus) processACKTask(task *ackTask) {
+	select {
+	case <-task.future.Ok():
+		// ✅ 发布成功
+		n.publishedMessages.Add(1)
+
+		// 发送成功结果到通道（用于Outbox Processor）
+		result := &PublishResult{
+			EventID:     task.eventID,
+			Topic:       task.topic,
+			Success:     true,
+			Error:       nil,
+			Timestamp:   time.Now(),
+			AggregateID: task.aggregateID,
+			EventType:   task.eventType,
+		}
+
+		select {
+		case n.publishResultChan <- result:
+			// 成功发送结果
+		default:
+			// 通道满，记录警告
+			n.logger.Warn("Publish result channel full, dropping success result",
+				zap.String("eventID", task.eventID),
+				zap.String("topic", task.topic))
+		}
+
+	case err := <-task.future.Err():
+		// ❌ 发布失败
+		n.errorCount.Add(1)
+		n.logger.Error("Async publish ACK failed",
+			zap.String("eventID", task.eventID),
+			zap.String("topic", task.topic),
+			zap.String("aggregateID", task.aggregateID),
+			zap.String("eventType", task.eventType),
+			zap.Error(err))
+
+		// 发送失败结果到通道（用于Outbox Processor）
+		result := &PublishResult{
+			EventID:     task.eventID,
+			Topic:       task.topic,
+			Success:     false,
+			Error:       err,
+			Timestamp:   time.Now(),
+			AggregateID: task.aggregateID,
+			EventType:   task.eventType,
+		}
+
+		select {
+		case n.publishResultChan <- result:
+			// 成功发送结果
+		default:
+			// 通道满，记录警告
+			n.logger.Warn("Publish result channel full, dropping error result",
+				zap.String("eventID", task.eventID),
+				zap.String("topic", task.topic),
+				zap.Error(err))
+		}
+	}
 }

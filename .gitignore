@@ -19,3 +19,5 @@
 
 /plugins/logger/zap/testdata/*
 go.sum
+
+*.log

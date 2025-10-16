@@ -42,8 +42,12 @@ type PublishResult struct {
 // EventBus 统一事件总线接口（合并基础功能和企业特性）
 type EventBus interface {
 	// ========== 基础功能 ==========
-	// 发布消息到指定主题
+	// Publish 发布普通消息到指定主题
+	// ⚠️ 注意：不支持 Outbox 模式，消息容许丢失
+	// 适用场景：通知、缓存失效、系统事件等可容忍丢失的消息
+	// 如需可靠投递和 Outbox 模式支持，请使用 PublishEnvelope()
 	Publish(ctx context.Context, topic string, message []byte) error
+
 	// Subscribe 订阅原始消息（不使用Keyed-Worker池）
 	// 特点：直接并发处理，极致性能，无顺序保证
 	// 适用：简单消息、通知、缓存失效等不需要顺序的场景
@@ -156,8 +160,15 @@ type EventBus interface {
 	GetTopicConfigStrategy() TopicConfigStrategy
 
 	// ========== Envelope 支持（可选使用） ==========
-	// 发布Envelope消息（异步发布，立即返回）
+	// PublishEnvelope 发布Envelope消息（领域事件）
+	// ✅ 支持 Outbox 模式：通过 GetPublishResultChannel() 获取 ACK 结果
+	// ✅ 可靠投递：不容许丢失的领域事件必须使用此方法
+	// 适用场景：订单创建、支付完成、库存变更等关键业务事件
+	// 与 Publish() 的区别：
+	//   - PublishEnvelope(): 支持 Outbox 模式，发送 ACK 结果到 publishResultChan
+	//   - Publish(): 不支持 Outbox 模式，消息容许丢失
 	PublishEnvelope(ctx context.Context, topic string, envelope *Envelope) error
+
 	// SubscribeEnvelope 订阅Envelope消息（自动使用Keyed-Worker池）
 	// 特点：按聚合ID顺序处理，事件溯源支持，毫秒级延迟
 	// 适用：领域事件、事件溯源、聚合管理等需要顺序保证的场景
@@ -165,7 +176,9 @@ type EventBus interface {
 
 	// ========== 异步发布结果处理（用于Outbox模式） ==========
 	// GetPublishResultChannel 获取异步发布结果通道
-	// 用于Outbox Processor监听发布结果并更新Outbox状态
+	// ⚠️ 仅 PublishEnvelope() 发送 ACK 结果到此通道
+	// ⚠️ Publish() 不发送 ACK 结果（不支持 Outbox 模式）
+	// 用于 Outbox Processor 监听发布结果并更新 Outbox 状态
 	GetPublishResultChannel() <-chan *PublishResult
 }
 
