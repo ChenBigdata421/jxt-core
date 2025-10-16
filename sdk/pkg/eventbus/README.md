@@ -364,7 +364,9 @@ func (p *OutboxPublisher) PublishEvents(ctx context.Context) {
     events, _ := p.outboxRepo.FindUnpublished(ctx, 100)
 
     for _, event := range events {
+        // ✅ 创建 Envelope，使用 Outbox 事件的 ID 作为 EventID
         envelope := &eventbus.Envelope{
+            EventID:      event.ID,  // ⚠️ EventID 是必填字段，使用 Outbox 事件的 ID
             AggregateID:  event.AggregateID,
             EventType:    event.EventType,
             EventVersion: event.EventVersion,
@@ -906,22 +908,25 @@ Envelope 是事件溯源的核心数据结构，包含完整的事件元数据�
 ```go
 type Envelope struct {
     // ========== 核心字段（必填） ==========
+    EventID       string    `json:"event_id"`       // 事件唯一ID（必填，用户必须提供，用于Outbox模式）
     AggregateID   string    `json:"aggregate_id"`   // 聚合根ID
     EventType     string    `json:"event_type"`     // 事件类型
-    EventVersion  int       `json:"event_version"`  // 事件版本
+    EventVersion  int64     `json:"event_version"`  // 事件版本
     Payload       []byte    `json:"payload"`        // 事件负载
     Timestamp     time.Time `json:"timestamp"`      // 事件时间戳
 
     // ========== 可选字段 ==========
-    EventID       string            `json:"event_id,omitempty"`       // 事件唯一ID
     TraceID       string            `json:"trace_id,omitempty"`       // 链路追踪ID
     CorrelationID string            `json:"correlation_id,omitempty"` // 关联ID
-    Headers       map[string]string `json:"headers,omitempty"`        // 自定义头部
-    Source        string            `json:"source,omitempty"`         // 事件源
 }
 
 // 创建新的Envelope
-func NewEnvelope(aggregateID, eventType string, eventVersion int, payload []byte) *Envelope
+// eventID: 事件唯一ID（必填，用户必须提供）
+// aggregateID: 聚合根ID
+// eventType: 事件类型
+// eventVersion: 事件版本
+// payload: 事件负载
+func NewEnvelope(eventID, aggregateID, eventType string, eventVersion int64, payload []byte) *Envelope
 
 // 序列化和反序列化
 func (e *Envelope) ToBytes() ([]byte, error)
@@ -1558,8 +1563,11 @@ func (s *OrderService) CreateOrder(ctx context.Context, orderID, customerID stri
 
     payload, _ := json.Marshal(event)
 
+    // ✅ 生成 EventID（必填字段）
+    eventID := fmt.Sprintf("%s:OrderCreated:1:%d", orderID, time.Now().UnixNano())
+
     // 创建 Envelope（包含聚合ID、事件类型、版本等元数据）
-    envelope := eventbus.NewEnvelope(orderID, "OrderCreated", 1, payload)
+    envelope := eventbus.NewEnvelope(eventID, orderID, "OrderCreated", 1, payload)
     envelope.TraceID = "trace-" + orderID
 
     // 发布到持久化主题，EventBus 自动使用 JetStream/Kafka 持久化存储
@@ -1993,8 +2001,11 @@ func (s *OrderService) CreateOrder(ctx context.Context, orderID, customerID stri
 
     payload, _ := json.Marshal(event)
 
+    // ✅ 生成 EventID（必填字段）
+    eventID := fmt.Sprintf("%s:OrderCreated:1:%d", orderID, time.Now().UnixNano())
+
     // 创建Envelope（包含聚合ID，确保同一订单的事件顺序处理）
-    envelope := eventbus.NewEnvelope(orderID, "OrderCreated", 1, payload)
+    envelope := eventbus.NewEnvelope(eventID, orderID, "OrderCreated", 1, payload)
     envelope.TraceID = "trace-" + orderID
 
     // 使用SubscribeEnvelope订阅的消息会自动路由到Keyed-Worker池
@@ -2248,20 +2259,20 @@ func main() {
 
 func publishDomainEvents(bus eventbus.EventBus, ctx context.Context) {
     // 订单事件：order-123 的事件会路由到 orders.events 池的同一个Worker
-    orderEnv1 := eventbus.NewEnvelope("order-123", "OrderCreated", 1, orderData)
-    orderEnv2 := eventbus.NewEnvelope("order-123", "OrderPaid", 2, orderData)
+    orderEnv1 := eventbus.NewEnvelope("order-123:OrderCreated:1:"+fmt.Sprint(time.Now().UnixNano()), "order-123", "OrderCreated", 1, orderData)
+    orderEnv2 := eventbus.NewEnvelope("order-123:OrderPaid:2:"+fmt.Sprint(time.Now().UnixNano()), "order-123", "OrderPaid", 2, orderData)
     bus.PublishEnvelope(ctx, "orders.events", orderEnv1)
     bus.PublishEnvelope(ctx, "orders.events", orderEnv2)  // 严格在orderEnv1之后处理
 
     // 用户事件：user-456 的事件会路由到 users.events 池的同一个Worker
-    userEnv1 := eventbus.NewEnvelope("user-456", "UserRegistered", 1, userData)
-    userEnv2 := eventbus.NewEnvelope("user-456", "UserActivated", 2, userData)
+    userEnv1 := eventbus.NewEnvelope("user-456:UserRegistered:1:"+fmt.Sprint(time.Now().UnixNano()), "user-456", "UserRegistered", 1, userData)
+    userEnv2 := eventbus.NewEnvelope("user-456:UserActivated:2:"+fmt.Sprint(time.Now().UnixNano()), "user-456", "UserActivated", 2, userData)
     bus.PublishEnvelope(ctx, "users.events", userEnv1)
     bus.PublishEnvelope(ctx, "users.events", userEnv2)    // 严格在userEnv1之后处理
 
     // 库存事件：product-789 的事件会路由到 inventory.events 池的同一个Worker
-    invEnv1 := eventbus.NewEnvelope("product-789", "StockAdded", 1, invData)
-    invEnv2 := eventbus.NewEnvelope("product-789", "StockReserved", 2, invData)
+    invEnv1 := eventbus.NewEnvelope("product-789:StockAdded:1:"+fmt.Sprint(time.Now().UnixNano()), "product-789", "StockAdded", 1, invData)
+    invEnv2 := eventbus.NewEnvelope("product-789:StockReserved:2:"+fmt.Sprint(time.Now().UnixNano()), "product-789", "StockReserved", 2, invData)
     bus.PublishEnvelope(ctx, "inventory.events", invEnv1)
     bus.PublishEnvelope(ctx, "inventory.events", invEnv2) // 严格在invEnv1之后处理
 }
@@ -5645,8 +5656,11 @@ func InitializeOrderTopics(bus eventbus.EventBus, ctx context.Context) error {
 
 // 2. 发布消息时专注于业务逻辑
 func PublishOrderEvent(bus eventbus.EventBus, ctx context.Context, orderID string, eventType string, payload []byte) error {
+    // ✅ 生成 EventID（必填字段）
+    eventID := fmt.Sprintf("%s:%s:1:%d", orderID, eventType, time.Now().UnixNano())
+
     // 直接发布，主题配置已在启动时完成
-    envelope := eventbus.NewEnvelope(orderID, eventType, 1, payload)
+    envelope := eventbus.NewEnvelope(eventID, orderID, eventType, 1, payload)
     return bus.PublishEnvelope(ctx, "business.orders", envelope)
 }
 
@@ -5725,7 +5739,9 @@ func PublishSmartMessage(bus eventbus.EventBus, ctx context.Context, messageType
     switch messageType {
     case "order_created", "payment_completed":
         // 业务关键事件：使用预配置的持久化主题 + Envelope 模式
-        envelope := eventbus.NewEnvelope("business-event", messageType, 1, data)
+        // ✅ 生成 EventID（必填字段）
+        eventID := fmt.Sprintf("business-event:%s:1:%d", messageType, time.Now().UnixNano())
+        envelope := eventbus.NewEnvelope(eventID, "business-event", messageType, 1, data)
         return bus.PublishEnvelope(ctx, "business.events", envelope)
 
     case "user_login", "cache_invalidation":
@@ -8290,7 +8306,9 @@ func (p *OutboxPublisher) publishPendingEvents() {
 
     for _, event := range events {
         // 构建 Envelope
+        // ✅ 使用 Outbox 事件的 ID 作为 EventID（必填字段）
         envelope := &eventbus.Envelope{
+            EventID:      event.ID,  // ⚠️ EventID 是必填字段
             AggregateID:  event.AggregateID,
             EventType:    event.EventType,
             EventVersion: event.EventVersion,

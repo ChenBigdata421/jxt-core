@@ -2479,6 +2479,7 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 			n.errorCount.Add(1)
 			n.logger.Error("Failed to submit async publish for envelope message",
 				zap.String("subject", topic),
+				zap.String("eventID", envelope.EventID),
 				zap.String("aggregateID", envelope.AggregateID),
 				zap.String("eventType", envelope.EventType),
 				zap.Int64("eventVersion", envelope.EventVersion),
@@ -2486,18 +2487,11 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 			return fmt.Errorf("failed to submit async publish: %w", err)
 		}
 
-		// ✅ 生成事件ID（用于Outbox模式）
-		// 使用 AggregateID + EventType + EventVersion + Timestamp 组合生成唯一ID
-		eventID := fmt.Sprintf("%s:%s:%d:%d",
-			envelope.AggregateID,
-			envelope.EventType,
-			envelope.EventVersion,
-			envelope.Timestamp.UnixNano())
-
 		// ✅ 方案2：发送 ACK 任务到共享 worker 池
+		// 使用 Envelope 中的 EventID
 		task := &ackTask{
 			future:      pubAckFuture,
-			eventID:     eventID,
+			eventID:     envelope.EventID, // ← 使用 Envelope 的 EventID
 			topic:       topic,
 			aggregateID: envelope.AggregateID,
 			eventType:   envelope.EventType,
@@ -2514,7 +2508,7 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 			// ACK 通道满，记录警告但仍然返回成功
 			// 这样可以避免阻塞发布流程
 			n.logger.Warn("ACK channel full, ACK processing may be delayed",
-				zap.String("eventID", eventID),
+				zap.String("eventID", envelope.EventID),
 				zap.String("topic", topic),
 				zap.Int("ackChanLen", len(n.ackChan)),
 				zap.Int("ackChanCap", cap(n.ackChan)))

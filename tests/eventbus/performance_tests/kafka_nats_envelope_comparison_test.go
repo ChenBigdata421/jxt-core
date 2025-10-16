@@ -746,7 +746,11 @@ func runPerformanceTestMultiTopic(t *testing.T, eb eventbus.EventBus, topics []s
 				// 轮询选择 topic
 				topic := topics[aggregateIndex%len(topics)]
 
+				// 生成 EventID（格式：AggregateID:EventType:EventVersion:Timestamp）
+				eventID := fmt.Sprintf("%s:TestEvent:%d:%d", aggregateID, version, time.Now().UnixNano())
+
 				envelope := &eventbus.Envelope{
+					EventID:      eventID,
 					AggregateID:  aggregateID,
 					EventType:    "TestEvent",
 					EventVersion: version, // 严格递增的版本号
@@ -902,8 +906,12 @@ func runPerformanceTest(t *testing.T, eb eventbus.EventBus, topic string, messag
 
 			// 串行发送该聚合ID的所有消息
 			for version := int64(1); version <= int64(msgCount); version++ {
+				// 生成 EventID（格式：AggregateID:EventType:EventVersion:Timestamp）
+				eventID := fmt.Sprintf("%s:PerformanceTestEvent:%d:%d", aggregateID, version, time.Now().UnixNano())
+
 				// 创建 Envelope
 				envelope := &eventbus.Envelope{
+					EventID:      eventID,
 					AggregateID:  aggregateID,
 					EventType:    "PerformanceTestEvent",
 					EventVersion: version, // 严格递增的版本号

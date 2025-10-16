@@ -10,6 +10,7 @@ import (
 
 // Envelope 统一消息包络结构（方案A）
 type Envelope struct {
+	EventID       string     `json:"event_id"`                 // 事件ID（可选，用户可自定义或自动生成，用于Outbox模式）
 	AggregateID   string     `json:"aggregate_id"`             // 聚合ID（必填）
 	EventType     string     `json:"event_type"`               // 事件类型（必填）
 	EventVersion  int64      `json:"event_version"`            // 事件版本（预留，为了将来可能实现事件溯源预留）
@@ -20,8 +21,10 @@ type Envelope struct {
 }
 
 // NewEnvelope 创建新的消息包络
-func NewEnvelope(aggregateID, eventType string, eventVersion int64, payload []byte) *Envelope {
+// 用于需要自定义 EventID 的场景（例如：使用外部生成的 UUID）
+func NewEnvelope(eventID, aggregateID, eventType string, eventVersion int64, payload []byte) *Envelope {
 	return &Envelope{
+		EventID:      eventID,
 		AggregateID:  aggregateID,
 		EventType:    eventType,
 		EventVersion: eventVersion,
@@ -32,6 +35,9 @@ func NewEnvelope(aggregateID, eventType string, eventVersion int64, payload []by
 
 // Validate 校验包络字段
 func (e *Envelope) Validate() error {
+	if strings.TrimSpace(e.EventID) == "" {
+		return errors.New("event_id is required")
+	}
 	if strings.TrimSpace(e.AggregateID) == "" {
 		return errors.New("aggregate_id is required")
 	}

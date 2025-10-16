@@ -571,6 +571,44 @@ func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 		// 记录成功指标
 		k.publishedMessages.Add(1)
 
+		// ✅ 提取 EventID（从 Header 中）
+		var eventID string
+		var aggregateID string
+		var eventType string
+		for _, header := range success.Headers {
+			switch string(header.Key) {
+			case "X-Event-ID":
+				eventID = string(header.Value)
+			case "X-Aggregate-ID":
+				aggregateID = string(header.Value)
+			case "X-Event-Type":
+				eventType = string(header.Value)
+			}
+		}
+
+		// ✅ 如果有 EventID，发送成功结果到 publishResultChan（用于 Outbox 模式）
+		if eventID != "" {
+			result := &PublishResult{
+				EventID:     eventID,
+				Topic:       success.Topic,
+				Success:     true,
+				Error:       nil,
+				Timestamp:   time.Now(),
+				AggregateID: aggregateID,
+				EventType:   eventType,
+			}
+
+			select {
+			case k.publishResultChan <- result:
+				// 成功发送结果
+			default:
+				// 通道满，记录警告
+				k.logger.Warn("Publish result channel full, dropping success result",
+					zap.String("eventID", eventID),
+					zap.String("topic", success.Topic))
+			}
+		}
+
 		// 如果配置了回调，执行回调
 		if k.publishCallback != nil {
 			// 提取消息内容
@@ -591,6 +629,44 @@ func (k *kafkaEventBus) handleAsyncProducerErrors() {
 		k.logger.Error("Async producer error",
 			zap.String("topic", err.Msg.Topic),
 			zap.Error(err.Err))
+
+		// ✅ 提取 EventID（从 Header 中）
+		var eventID string
+		var aggregateID string
+		var eventType string
+		for _, header := range err.Msg.Headers {
+			switch string(header.Key) {
+			case "X-Event-ID":
+				eventID = string(header.Value)
+			case "X-Aggregate-ID":
+				aggregateID = string(header.Value)
+			case "X-Event-Type":
+				eventType = string(header.Value)
+			}
+		}
+
+		// ✅ 如果有 EventID，发送失败结果到 publishResultChan（用于 Outbox 模式）
+		if eventID != "" {
+			result := &PublishResult{
+				EventID:     eventID,
+				Topic:       err.Msg.Topic,
+				Success:     false,
+				Error:       err.Err,
+				Timestamp:   time.Now(),
+				AggregateID: aggregateID,
+				EventType:   eventType,
+			}
+
+			select {
+			case k.publishResultChan <- result:
+				// 成功发送结果
+			default:
+				// 通道满，记录警告
+				k.logger.Warn("Publish result channel full, dropping error result",
+					zap.String("eventID", eventID),
+					zap.String("topic", err.Msg.Topic))
+			}
+		}
 
 		// 提取消息内容
 		var message []byte
@@ -2485,6 +2561,7 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 		Key:   sarama.StringEncoder(envelope.AggregateID), // 镜像到Kafka Key
 		Value: sarama.ByteEncoder(envelopeBytes),
 		Headers: []sarama.RecordHeader{
+			{Key: []byte("X-Event-ID"), Value: []byte(envelope.EventID)}, // ← 添加 EventID
 			{Key: []byte("X-Aggregate-ID"), Value: []byte(envelope.AggregateID)},
 			{Key: []byte("X-Event-Version"), Value: []byte(fmt.Sprintf("%d", envelope.EventVersion))},
 			{Key: []byte("X-Event-Type"), Value: []byte(envelope.EventType)},
@@ -2509,6 +2586,7 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 		// 消息已提交到发送队列
 		k.logger.Debug("Envelope message queued for async publishing",
 			zap.String("topic", topic),
+			zap.String("eventID", envelope.EventID),
 			zap.String("aggregateID", envelope.AggregateID),
 			zap.String("eventType", envelope.EventType),
 			zap.Int64("eventVersion", envelope.EventVersion))
@@ -2517,6 +2595,7 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 		// 发送队列满，应用背压
 		k.logger.Warn("Async producer input queue full for envelope message",
 			zap.String("topic", topic),
+			zap.String("eventID", envelope.EventID),
 			zap.String("aggregateID", envelope.AggregateID))
 		// 阻塞等待
 		k.asyncProducer.Input() <- msg
@@ -2996,9 +3075,16 @@ func (k *kafkaEventBus) getActualTopicConfig(ctx context.Context, topic string) 
 
 // GetPublishResultChannel 获取异步发布结果通道
 // 用于Outbox Processor监听发布结果并更新Outbox状态
-// 注意：Kafka 使用 AsyncProducer，发布结果通过 Successes/Errors channel 处理
-// 此方法返回的通道用于与 NATS 保持接口一致，但 Kafka 不会主动推送结果
-// 如需监听 Kafka 发布结果，请使用 AsyncProducer 的 Successes() 和 Errors() channel
+//
+// ✅ Kafka 实现说明：
+// - PublishEnvelope() 会在 Envelope 中生成 EventID 并添加到 Kafka Message Header
+// - handleAsyncProducerSuccess() 从 Header 提取 EventID 并发送成功结果到 publishResultChan
+// - handleAsyncProducerErrors() 从 Header 提取 EventID 并发送失败结果到 publishResultChan
+// - Outbox Processor 可通过此通道获取 ACK 结果
+//
+// ⚠️ 注意：只有通过 PublishEnvelope() 发布的消息才会发送 ACK 结果
+//
+//	通过 Publish() 发布的普通消息不会发送 ACK 结果
 func (k *kafkaEventBus) GetPublishResultChannel() <-chan *PublishResult {
 	return k.publishResultChan
 }
