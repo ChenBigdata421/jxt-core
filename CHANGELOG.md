@@ -5,7 +5,7 @@ All notable changes to go-admin-core will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.0-beta] - 2025-10-17
+## [1.6.0-beta] - 2025-10-17
 
 ### 🎯 Package Structure Optimization
 
@@ -46,14 +46,14 @@ This release focuses on **package structure optimization** to improve import cla
 
 **Migration Example**:
 ```go
-// Before (v1.7.x)
+// Before (v1.5.x)
 import (
     "github.com/go-admin-team/go-admin-core/sdk/pkg/jwtauth"
     "github.com/go-admin-team/go-admin-core/sdk/pkg/response"
     "github.com/go-admin-team/go-admin-core/observability/audit"
 )
 
-// After (v1.8.0+)
+// After (v1.6.0+)
 import (
     "github.com/go-admin-team/go-admin-core/jwtauth"
     "github.com/go-admin-team/go-admin-core/response"
@@ -95,16 +95,16 @@ func New(params ...string) (*jwtauth.GinJWTMiddleware, error) {
 
 #### 2. Migration Tools
 
-**Automated Migration Script**: `tools/migrate-v1.8.sh`
+**Automated Migration Script**: `tools/migrate-v1.6.sh`
 
 ```bash
 # Automatic migration (recommended)
 cd /path/to/your/project
-bash /path/to/go-admin-core/tools/migrate-v1.8.sh
+bash /path/to/go-admin-core/tools/migrate-v1.6.sh
 
 # What it does:
 # - Replaces old import paths with new ones
-# - Updates go.mod to v1.8.0
+# - Updates go.mod to v1.6.0
 # - Runs go mod tidy
 # - Creates backup before changes
 ```
@@ -123,7 +123,7 @@ See `tools/README.md` for detailed usage.
 
 #### 1. Comprehensive Migration Guide
 
-**File**: `docs/migration/v1.7-to-v1.8.md` (500+ lines)
+**File**: `docs/migration/v1.5-to-v1.6.md` (500+ lines)
 
 **Contents**:
 - Quick start (automated migration)
@@ -166,7 +166,7 @@ See `tools/README.md` for detailed usage.
 
 #### 3. Technical Design Document
 
-**File**: `docs/migration/v1.8.0-plan.md` (450+ lines)
+**File**: `docs/migration/v1.6.0-plan.md` (450+ lines)
 
 **Contents**:
 - Refactoring strategy and principles
@@ -253,10 +253,10 @@ result := oldcaptcha.Verify(captchaId, "test", true)
 ```bash
 # Download migration script
 cd /path/to/your/project
-curl -O https://raw.githubusercontent.com/go-admin-team/go-admin-core/main/tools/migrate-v1.8.sh
+curl -O https://raw.githubusercontent.com/go-admin-team/go-admin-core/main/tools/migrate-v1.6.sh
 
 # Run migration
-bash migrate-v1.8.sh
+bash migrate-v1.6.sh
 
 # Verify
 go mod tidy
@@ -268,7 +268,7 @@ go test ./...
 
 1. **Update go.mod**:
    ```bash
-   go get github.com/go-admin-team/go-admin-core@v1.8.0-beta
+   go get github.com/go-admin-team/go-admin-core@v1.6.0-beta
    go mod tidy
    ```
 
@@ -301,7 +301,7 @@ go test ./...
 
 #### Verification Checklist
 
-- [ ] Update go.mod to v1.8.0-beta
+- [ ] Update go.mod to v1.6.0-beta
 - [ ] Replace 6 import paths
 - [ ] Run `go mod tidy`
 - [ ] Verify compilation: `go build ./...`
@@ -332,11 +332,11 @@ Type Alias Overhead:        0% (compile-time only)
 - **Backward Compatibility**: 100% maintained until v2.0.0
 - **Migration Urgency**: Low (old paths work fine)
 - **Recommended Action**: Migrate during next maintenance window
-- **Support**: See `docs/migration/v1.7-to-v1.8.md` for help
+- **Support**: See `docs/migration/v1.5-to-v1.6.md` for help
 
 **Related Issues**: #TBD  
 **Related PRs**: #TBD  
-**Migration Guide**: [docs/migration/v1.7-to-v1.8.md](docs/migration/v1.7-to-v1.8.md)  
+**Migration Guide**: [docs/migration/v1.5-to-v1.6.md](docs/migration/v1.5-to-v1.6.md)  
 **Test Report**: [docs/migration/INTEGRATION_TEST_REPORT.md](docs/migration/INTEGRATION_TEST_REPORT.md)
 
 ---
@@ -449,7 +449,7 @@ find . -name "*.go" -type f -exec sed -i '' 's|go-admin-core/plugins/logger/zap|
 #### Removed Logrus Plugin Support
 
 - **Removed** `plugins/logger/logrus/` directory and all Logrus integration code
-- **Reason**: Logrus plugin was already disabled (commented out) and using outdated dependencies (Go 1.18, logrus v1.8.0)
+- **Reason**: Logrus plugin was already disabled (commented out) and using outdated dependencies (Go 1.18, logrus v1.6.0)
 - **Impact**: Projects using `type: "logrus"` in logger configuration will need to migrate to Zap or default logger
 - **Migration Path**:
   ```yaml

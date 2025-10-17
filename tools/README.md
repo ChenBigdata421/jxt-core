@@ -1,10 +1,10 @@
 # go-admin-core 迁移工具
 
-## v1.8.0 迁移脚本
+## v1.6.0 迁移脚本
 
 ### 功能说明
 
-`migrate-v1.8.sh` 脚本用于自动将项目代码从 go-admin-core v1.7.x 迁移到 v1.8.0。
+`migrate-v1.6.sh` 脚本用于自动将项目代码从 go-admin-core v1.5.x 迁移到 v1.6.0。
 
 主要变更:
 - `sdk/pkg/captcha` → `captcha`
@@ -20,23 +20,23 @@
 
 ```bash
 # 下载脚本
-curl -O https://raw.githubusercontent.com/go-admin-team/go-admin-core/dev/tools/migrate-v1.8.sh
+curl -O https://raw.githubusercontent.com/go-admin-team/go-admin-core/dev/tools/migrate-v1.6.sh
 
 # 或者如果已经在 go-admin-core 项目中
-cp /path/to/go-admin-core/tools/migrate-v1.8.sh .
+cp /path/to/go-admin-core/tools/migrate-v1.6.sh .
 
 # 添加执行权限
-chmod +x migrate-v1.8.sh
+chmod +x migrate-v1.6.sh
 
 # 运行迁移
-./migrate-v1.8.sh
+./migrate-v1.6.sh
 ```
 
 #### 2. 对于 go-admin-pro 项目
 
 ```bash
 cd /path/to/go-admin-pro
-bash /path/to/go-admin-core/tools/migrate-v1.8.sh
+bash /path/to/go-admin-core/tools/migrate-v1.6.sh
 ```
 
 ### 脚本功能
@@ -72,7 +72,7 @@ bash /path/to/go-admin-core/tools/migrate-v1.8.sh
 #### 1. 更新 go.mod
 
 ```bash
-go get github.com/go-admin-team/go-admin-core@v1.8.0-beta
+go get github.com/go-admin-team/go-admin-core@v1.6.0-beta
 go mod tidy
 ```
 
@@ -125,7 +125,7 @@ cp -r ../backup_before_v1.8_TIMESTAMP/* ./
 
 ### 兼容性说明
 
-- ✅ **v1.8.0 - v1.9.x**: 新旧路径都可用，旧路径会有 deprecated 警告
+- ✅ **v1.6.0 - v1.9.x**: 新旧路径都可用，旧路径会有 deprecated 警告
 - ⚠️ **v2.0.0**: 旧路径将被移除，必须使用新路径
 
 ### 常见问题
@@ -148,14 +148,14 @@ A:
 
 #### Q: 需要更新依赖版本吗？
 
-A: 是的，建议更新到 v1.8.0-beta 或更高版本:
+A: 是的，建议更新到 v1.6.0-beta 或更高版本:
 ```bash
-go get github.com/go-admin-team/go-admin-core@v1.8.0-beta
+go get github.com/go-admin-team/go-admin-core@v1.6.0-beta
 ```
 
 ### 获取帮助
 
-- 📖 [完整迁移文档](../../docs/migration/v1.8.0-plan.md)
+- 📖 [完整迁移文档](../../docs/migration/v1.6.0-plan.md)
 - 🐛 [提交 Issue](https://github.com/go-admin-team/go-admin-core/issues)
 - 💬 [讨论区](https://github.com/go-admin-team/go-admin-core/discussions)
 
@@ -163,7 +163,7 @@ go get github.com/go-admin-team/go-admin-core@v1.8.0-beta
 
 ```
 ================================================
-  go-admin-core v1.8.0 自动迁移工具
+  go-admin-core v1.6.0 自动迁移工具
 ================================================
 
 [INFO] 检测到 Go 项目: github.com/go-admin-team/go-admin-pro
@@ -190,5 +190,5 @@ go get github.com/go-admin-team/go-admin-core@v1.8.0-beta
 [INFO] 下一步:
   1. 检查变更: git diff
   2. 运行测试: go test ./...
-  3. 提交变更: git commit -am 'chore: migrate to go-admin-core v1.8.0'
+  3. 提交变更: git commit -am 'chore: migrate to go-admin-core v1.6.0'
 ```

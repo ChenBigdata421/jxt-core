@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# go-admin-core v1.8.0 Migration Tool
+# go-admin-core v1.6.0 Migration Tool
 # 自动更新导入路径从 sdk/pkg/* 到根目录
 
 set -e
@@ -155,7 +155,7 @@ generate_report() {
     print_info "生成迁移报告: $report_file"
     
     cat > "$report_file" << EOF
-go-admin-core v1.8.0 迁移报告
+go-admin-core v1.6.0 迁移报告
 ====================================
 迁移时间: $(date)
 项目模块: $(grep "^module" go.mod | awk '{print $2}')
@@ -168,12 +168,12 @@ go-admin-core v1.8.0 迁移报告
 
 注意事项:
 1. 旧路径将在 v2.0.0 版本中移除
-2. 新旧路径在 v1.8.0 - v1.9.x 期间都可用
+2. 新旧路径在 v1.6.0 - v1.9.x 期间都可用
 3. 建议尽快迁移到新路径
 4. 如遇到问题，可恢复备份目录
 
 更多信息:
-https://github.com/go-admin-team/go-admin-core/blob/dev/docs/migration/v1.8.0-plan.md
+https://github.com/go-admin-team/go-admin-core/blob/dev/docs/migration/v1.6.0-plan.md
 EOF
     
     print_success "报告已生成: $report_file"
@@ -183,7 +183,7 @@ EOF
 main() {
     echo ""
     echo "================================================"
-    echo "  go-admin-core v1.8.0 自动迁移工具"
+    echo "  go-admin-core v1.6.0 自动迁移工具"
     echo "================================================"
     echo ""
     
@@ -238,7 +238,7 @@ main() {
     print_info "下一步:"
     echo "  1. 检查变更: git diff"
     echo "  2. 运行测试: go test ./..."
-    echo "  3. 提交变更: git commit -am 'chore: migrate to go-admin-core v1.8.0'"
+    echo "  3. 提交变更: git commit -am 'chore: migrate to go-admin-core v1.6.0'"
     echo ""
 }
 
