@@ -3,6 +3,7 @@ package performance_tests
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -60,11 +61,11 @@ type MemoryPerfMetrics struct {
 
 	// 资源占用
 	InitialGoroutines int     // 初始协程数
-	PeakGoroutines    int     // 峰值协程数
+	PeakGoroutines    int32   // 峰值协程数 (使用 int32 以便原子操作)
 	FinalGoroutines   int     // 最终协程数
 	GoroutineLeak     int     // 协程泄漏数
 	InitialMemoryMB   float64 // 初始内存 (MB)
-	PeakMemoryMB      float64 // 峰值内存 (MB)
+	PeakMemoryMB      uint64  // 峰值内存 (MB) - 存储为 uint64 bits 以便原子操作
 	FinalMemoryMB     float64 // 最终内存 (MB)
 	MemoryDeltaMB     float64 // 内存增量 (MB)
 
@@ -379,8 +380,8 @@ func testMemoryKafka(t *testing.T, pressure string, messageCount int, topicCount
 	time.Sleep(100 * time.Millisecond)
 	metrics.InitialGoroutines = getGoroutineCount()
 	metrics.InitialMemoryMB = getMemoryUsageMB()
-	metrics.PeakGoroutines = metrics.InitialGoroutines
-	metrics.PeakMemoryMB = metrics.InitialMemoryMB
+	atomic.StoreInt32(&metrics.PeakGoroutines, int32(metrics.InitialGoroutines))
+	atomic.StoreUint64(&metrics.PeakMemoryMB, math.Float64bits(metrics.InitialMemoryMB))
 
 	t.Logf("📊 初始资源: Goroutines=%d, Memory=%.2f MB",
 		metrics.InitialGoroutines, metrics.InitialMemoryMB)
@@ -465,14 +466,29 @@ func testMemoryKafka(t *testing.T, pressure string, messageCount int, topicCount
 					metrics.recordSendLatency(latency)
 				}
 
-				// 更新峰值资源
-				currentGoroutines := getGoroutineCount()
-				currentMemory := getMemoryUsageMB()
-				if currentGoroutines > metrics.PeakGoroutines {
-					metrics.PeakGoroutines = currentGoroutines
+				// 更新峰值资源（原子操作）
+				currentGoroutines := int32(getGoroutineCount())
+				for {
+					oldPeak := atomic.LoadInt32(&metrics.PeakGoroutines)
+					if currentGoroutines <= oldPeak {
+						break
+					}
+					if atomic.CompareAndSwapInt32(&metrics.PeakGoroutines, oldPeak, currentGoroutines) {
+						break
+					}
 				}
-				if currentMemory > metrics.PeakMemoryMB {
-					metrics.PeakMemoryMB = currentMemory
+
+				currentMemory := getMemoryUsageMB()
+				currentMemoryBits := math.Float64bits(currentMemory)
+				for {
+					oldPeakBits := atomic.LoadUint64(&metrics.PeakMemoryMB)
+					oldPeakMB := math.Float64frombits(oldPeakBits)
+					if currentMemory <= oldPeakMB {
+						break
+					}
+					if atomic.CompareAndSwapUint64(&metrics.PeakMemoryMB, oldPeakBits, currentMemoryBits) {
+						break
+					}
 				}
 			}
 		}(topic, topicIdx)
@@ -625,8 +641,8 @@ func testMemoryNATS(t *testing.T, pressure string, messageCount int, topicCount 
 	time.Sleep(100 * time.Millisecond)
 	metrics.InitialGoroutines = getGoroutineCount()
 	metrics.InitialMemoryMB = getMemoryUsageMB()
-	metrics.PeakGoroutines = metrics.InitialGoroutines
-	metrics.PeakMemoryMB = metrics.InitialMemoryMB
+	atomic.StoreInt32(&metrics.PeakGoroutines, int32(metrics.InitialGoroutines))
+	atomic.StoreUint64(&metrics.PeakMemoryMB, math.Float64bits(metrics.InitialMemoryMB))
 
 	t.Logf("📊 初始资源: Goroutines=%d, Memory=%.2f MB",
 		metrics.InitialGoroutines, metrics.InitialMemoryMB)
@@ -702,14 +718,29 @@ func testMemoryNATS(t *testing.T, pressure string, messageCount int, topicCount 
 					metrics.recordSendLatency(latency)
 				}
 
-				// 更新峰值资源
-				currentGoroutines := getGoroutineCount()
-				currentMemory := getMemoryUsageMB()
-				if currentGoroutines > metrics.PeakGoroutines {
-					metrics.PeakGoroutines = currentGoroutines
+				// 更新峰值资源（原子操作）
+				currentGoroutines := int32(getGoroutineCount())
+				for {
+					oldPeak := atomic.LoadInt32(&metrics.PeakGoroutines)
+					if currentGoroutines <= oldPeak {
+						break
+					}
+					if atomic.CompareAndSwapInt32(&metrics.PeakGoroutines, oldPeak, currentGoroutines) {
+						break
+					}
 				}
-				if currentMemory > metrics.PeakMemoryMB {
-					metrics.PeakMemoryMB = currentMemory
+
+				currentMemory := getMemoryUsageMB()
+				currentMemoryBits := math.Float64bits(currentMemory)
+				for {
+					oldPeakBits := atomic.LoadUint64(&metrics.PeakMemoryMB)
+					oldPeakMB := math.Float64frombits(oldPeakBits)
+					if currentMemory <= oldPeakMB {
+						break
+					}
+					if atomic.CompareAndSwapUint64(&metrics.PeakMemoryMB, oldPeakBits, currentMemoryBits) {
+						break
+					}
 				}
 			}
 		}(topic, topicIdx)
@@ -815,9 +846,11 @@ func printMemoryComparisonReport(t *testing.T, kafkaMetrics, natsMetrics *Memory
 	t.Logf("  %-20s | %-15d | %-15d | %+d",
 		"初始协程数", kafkaMetrics.InitialGoroutines, natsMetrics.InitialGoroutines,
 		natsMetrics.InitialGoroutines-kafkaMetrics.InitialGoroutines)
+	kafkaPeakGoroutines := atomic.LoadInt32(&kafkaMetrics.PeakGoroutines)
+	natsPeakGoroutines := atomic.LoadInt32(&natsMetrics.PeakGoroutines)
 	t.Logf("  %-20s | %-15d | %-15d | %+d",
-		"峰值协程数", kafkaMetrics.PeakGoroutines, natsMetrics.PeakGoroutines,
-		natsMetrics.PeakGoroutines-kafkaMetrics.PeakGoroutines)
+		"峰值协程数", kafkaPeakGoroutines, natsPeakGoroutines,
+		natsPeakGoroutines-kafkaPeakGoroutines)
 	t.Logf("  %-20s | %-15d | %-15d | %+d",
 		"最终协程数", kafkaMetrics.FinalGoroutines, natsMetrics.FinalGoroutines,
 		natsMetrics.FinalGoroutines-kafkaMetrics.FinalGoroutines)
@@ -826,9 +859,11 @@ func printMemoryComparisonReport(t *testing.T, kafkaMetrics, natsMetrics *Memory
 	t.Logf("  %-20s | %-15.2f | %-15.2f | %+.2f",
 		"初始内存 (MB)", kafkaMetrics.InitialMemoryMB, natsMetrics.InitialMemoryMB,
 		natsMetrics.InitialMemoryMB-kafkaMetrics.InitialMemoryMB)
+	kafkaPeakMemoryMB := math.Float64frombits(atomic.LoadUint64(&kafkaMetrics.PeakMemoryMB))
+	natsPeakMemoryMB := math.Float64frombits(atomic.LoadUint64(&natsMetrics.PeakMemoryMB))
 	t.Logf("  %-20s | %-15.2f | %-15.2f | %+.2f",
-		"峰值内存 (MB)", kafkaMetrics.PeakMemoryMB, natsMetrics.PeakMemoryMB,
-		natsMetrics.PeakMemoryMB-kafkaMetrics.PeakMemoryMB)
+		"峰值内存 (MB)", kafkaPeakMemoryMB, natsPeakMemoryMB,
+		natsPeakMemoryMB-kafkaPeakMemoryMB)
 	t.Logf("  %-20s | %-15.2f | %-15.2f | %+.2f",
 		"最终内存 (MB)", kafkaMetrics.FinalMemoryMB, natsMetrics.FinalMemoryMB,
 		natsMetrics.FinalMemoryMB-kafkaMetrics.FinalMemoryMB)

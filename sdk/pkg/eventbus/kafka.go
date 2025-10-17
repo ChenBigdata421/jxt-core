@@ -240,23 +240,29 @@ func DefaultReconnectConfig() ReconnectConfig {
 // kafkaEventBus Kafka事件总线实现
 // 企业级增强版本，集成积压检测、流量控制、聚合处理等特性
 // 支持方案A（Envelope）消息包络
+//
+// 🔥 性能优化：高频路径免锁，低频路径保留锁
+// - 高频路径（Publish、ConsumeClaim、配置读取）：使用 atomic.Value、sync.Map 实现无锁读取
+// - 低频路径（Subscribe、Close、配置设置）：保留 sync.Mutex，保持代码清晰
 type kafkaEventBus struct {
-	config        *KafkaConfig         // 使用内部配置结构，实现解耦
-	asyncProducer sarama.AsyncProducer // 🚀 优化1：使用AsyncProducer替代SyncProducer
-	consumer      sarama.Consumer
-	client        sarama.Client
-	admin         sarama.ClusterAdmin
-	logger        *zap.Logger
-	mu            sync.RWMutex
-	closed        bool
+	config *KafkaConfig // 使用内部配置结构，实现解耦
+	logger *zap.Logger
+
+	// ✅ 低频路径：保留 mu（用于 Subscribe、Close 等低频操作）
+	mu     sync.Mutex
+	closed atomic.Bool // 🔥 P0修复：改为 atomic.Bool，热路径无锁读取
+
+	// 🔥 高频路径：改为 atomic.Value（发布时无锁读取）
+	asyncProducer atomic.Value // stores sarama.AsyncProducer
+	consumer      atomic.Value // stores sarama.Consumer
+	client        atomic.Value // stores sarama.Client
+	admin         atomic.Value // stores sarama.ClusterAdmin
 
 	// 企业级特性
 	backlogDetector          *BacklogDetector          // 订阅端积压检测器
 	publisherBacklogDetector *PublisherBacklogDetector // 发送端积压检测器
 	rateLimiter              *RateLimiter              // 订阅端流量控制器
 	publishRateLimiter       *RateLimiter              // 发布端流量控制器
-
-	// 移除fullConfig字段，企业级特性配置现在在config.Enterprise中
 
 	messageFormatter MessageFormatter
 	publishCallback  PublishCallback
@@ -286,15 +292,18 @@ type kafkaEventBus struct {
 	reconnectCallback ReconnectCallback
 
 	// 预订阅模式 - 统一消费者组管理
-	unifiedConsumerGroup sarama.ConsumerGroup
+	unifiedConsumerGroup atomic.Value // stores sarama.ConsumerGroup
 
 	// 全局Worker池
 	globalWorkerPool *GlobalWorkerPool
 
-	// 预订阅topic管理
-	allPossibleTopics   []string                  // 所有可能的topic列表（预订阅）
-	activeTopicHandlers map[string]MessageHandler // 激活的topic处理器
-	topicHandlersMu     sync.RWMutex
+	// 🔥 P0修复：预订阅topic管理 - 使用 atomic.Value 存储不可变切片快照
+	allPossibleTopicsMu sync.Mutex   // 保护写入
+	allPossibleTopics   []string     // 主副本（仅在持有锁时修改）
+	topicsSnapshot      atomic.Value // 只读快照（[]string），消费goroutine无锁读取
+
+	// 🔥 P0修复：改为 sync.Map（消息路由时无锁查找）
+	activeTopicHandlers sync.Map // key: string (topic), value: MessageHandler
 
 	// 预订阅消费控制
 	consumerCtx     context.Context
@@ -315,18 +324,85 @@ type kafkaEventBus struct {
 	// 异步发布结果通道（用于Outbox模式）
 	publishResultChan chan *PublishResult
 
+	// 🔥 高频路径：改为 sync.Map（消息处理时无锁查找）
 	// 订阅管理（用于重连后恢复订阅）- 保持兼容性
-	subscriptions   map[string]MessageHandler // topic -> handler
-	subscriptionsMu sync.RWMutex
+	subscriptions sync.Map // key: string (topic), value: MessageHandler
 
 	// 全局 Keyed-Worker Pool（所有 topic 共享）
 	globalKeyedPool *KeyedWorkerPool
 
+	// 🔥 高频路径：改为 sync.Map（发布时无锁读取配置）
 	// 主题配置管理
-	topicConfigs          map[string]TopicOptions
-	topicConfigsMu        sync.RWMutex
+	topicConfigs          sync.Map                  // key: string (topic), value: TopicOptions
 	topicConfigStrategy   TopicConfigStrategy       // 配置策略
 	topicConfigOnMismatch TopicConfigMismatchAction // 配置不一致时的行为
+}
+
+// 🔥 高频路径辅助方法：无锁读取 atomic.Value 存储的对象
+
+// getAsyncProducer 无锁读取 AsyncProducer
+func (k *kafkaEventBus) getAsyncProducer() (sarama.AsyncProducer, error) {
+	producerAny := k.asyncProducer.Load()
+	if producerAny == nil {
+		return nil, fmt.Errorf("async producer not initialized")
+	}
+	producer, ok := producerAny.(sarama.AsyncProducer)
+	if !ok {
+		return nil, fmt.Errorf("invalid async producer type")
+	}
+	return producer, nil
+}
+
+// getConsumer 无锁读取 Consumer
+func (k *kafkaEventBus) getConsumer() (sarama.Consumer, error) {
+	consumerAny := k.consumer.Load()
+	if consumerAny == nil {
+		return nil, fmt.Errorf("consumer not initialized")
+	}
+	consumer, ok := consumerAny.(sarama.Consumer)
+	if !ok {
+		return nil, fmt.Errorf("invalid consumer type")
+	}
+	return consumer, nil
+}
+
+// getClient 无锁读取 Client
+func (k *kafkaEventBus) getClient() (sarama.Client, error) {
+	clientAny := k.client.Load()
+	if clientAny == nil {
+		return nil, fmt.Errorf("client not initialized")
+	}
+	client, ok := clientAny.(sarama.Client)
+	if !ok {
+		return nil, fmt.Errorf("invalid client type")
+	}
+	return client, nil
+}
+
+// getAdmin 无锁读取 ClusterAdmin
+func (k *kafkaEventBus) getAdmin() (sarama.ClusterAdmin, error) {
+	adminAny := k.admin.Load()
+	if adminAny == nil {
+		return nil, fmt.Errorf("admin not initialized")
+	}
+	admin, ok := adminAny.(sarama.ClusterAdmin)
+	if !ok {
+		return nil, fmt.Errorf("invalid admin type")
+	}
+	return admin, nil
+}
+
+// getUnifiedConsumerGroup 无锁读取 ConsumerGroup
+func (k *kafkaEventBus) getUnifiedConsumerGroup() (sarama.ConsumerGroup, error) {
+	groupAny := k.unifiedConsumerGroup.Load()
+	if groupAny == nil {
+		return nil, fmt.Errorf("consumer group not initialized")
+	}
+	group, ok := groupAny.(sarama.ConsumerGroup)
+	if !ok {
+		return nil, fmt.Errorf("invalid consumer group type")
+	}
+	return group, nil
 }
 
 // NewKafkaEventBus 创建企业级Kafka事件总线
@@ -504,34 +580,34 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 
 	// 创建事件总线实例
 	bus := &kafkaEventBus{
-		config:               cfg,
-		client:               client,
-		asyncProducer:        asyncProducer,
-		unifiedConsumerGroup: unifiedConsumerGroup,
-		admin:                admin, // 设置 admin client
-		closed:               false,
-		logger:               zap.NewNop(), // 使用无操作logger
+		config: cfg,
+		logger: zap.NewNop(), // 使用无操作logger
 
 		// 健康检查配置
 		healthCheckConfig: healthCheckConfig,
 
-		// 预订阅模式字段
+		// 🔥 P0修复：预订阅模式字段
 		globalWorkerPool:       globalWorkerPool,
 		allPossibleTopics:      make([]string, 0),
-		activeTopicHandlers:    make(map[string]MessageHandler),
 		preSubscriptionEnabled: true,
 		maxTopicsPerGroup:      100, // 默认最大100个topic
 		consumerDone:           make(chan struct{}),
 
-		// 兼容性字段
-		subscriptions: make(map[string]MessageHandler),
-		topicConfigs:  make(map[string]TopicOptions),
-		// topicConfigStrategy:   StrategyCreateOrUpdate,
-		// topicConfigOnMismatch: ActionLogWarning,
-
 		// 🚀 异步发布结果通道（缓冲区大小：10000）
 		publishResultChan: make(chan *PublishResult, 10000),
 	}
+
+	// 🔥 P0修复：初始化 atomic 字段
+	bus.closed.Store(false)
+	bus.topicsSnapshot.Store([]string{})
+
+	// ✅ 使用 atomic.Value 存储（高频路径无锁读取）
+	bus.client.Store(client)
+	bus.asyncProducer.Store(asyncProducer)
+	bus.unifiedConsumerGroup.Store(unifiedConsumerGroup)
+	bus.admin.Store(admin)
+
+	// 注意：subscriptions 和 topicConfigs 是 sync.Map，零值可用，不需要初始化
 
 	// 创建全局 Keyed-Worker Pool（所有 topic 共享）
 	// 使用较大的 worker 数量以支持多个 topic 的并发处理
@@ -567,7 +643,15 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 
 // 优化1：处理AsyncProducer成功消息
 func (k *kafkaEventBus) handleAsyncProducerSuccess() {
-	for success := range k.asyncProducer.Successes() {
+	// ✅ 无锁读取 asyncProducer
+	producerAny := k.asyncProducer.Load()
+	if producerAny == nil {
+		k.logger.Warn("AsyncProducer not initialized, cannot handle success messages")
+		return
+	}
+	producer := producerAny.(sarama.AsyncProducer)
+
+	for success := range producer.Successes() {
 		// 记录成功指标
 		k.publishedMessages.Add(1)
 
@@ -623,7 +707,14 @@ func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 
 // 优化1：处理AsyncProducer错误
 func (k *kafkaEventBus) handleAsyncProducerErrors() {
-	for err := range k.asyncProducer.Errors() {
+	// ✅ 无锁读取 asyncProducer
+	producer, err := k.getAsyncProducer()
+	if err != nil {
+		k.logger.Warn("AsyncProducer not initialized, cannot handle error messages", zap.Error(err))
+		return
+	}
+
+	for err := range producer.Errors() {
 		// 记录错误
 		k.errorCount.Add(1)
 		k.logger.Error("Async producer error",
@@ -718,13 +809,23 @@ func (k *kafkaEventBus) sendToPublisherDeadLetter(originalTopic string, message 
 
 // sendWithRetry 使用重试策略发送消息
 func (k *kafkaEventBus) sendWithRetry(msg *sarama.ProducerMessage, retryPolicy RetryPolicyConfig, originalTopic, targetTopic string) {
+	// ✅ 无锁读取 asyncProducer
+	producer, err := k.getAsyncProducer()
+	if err != nil {
+		k.logger.Error("Failed to get async producer for retry",
+			zap.String("originalTopic", originalTopic),
+			zap.String("targetTopic", targetTopic),
+			zap.Error(err))
+		return
+	}
+
 	var lastErr error
 	backoff := retryPolicy.InitialInterval
 
 	for attempt := 0; attempt <= retryPolicy.MaxRetries; attempt++ {
 		// 尝试发送
 		select {
-		case k.asyncProducer.Input() <- msg:
+		case producer.Input() <- msg:
 			k.logger.Info("Message sent successfully with retry",
 				zap.String("originalTopic", originalTopic),
 				zap.String("targetTopic", targetTopic),
@@ -763,8 +864,18 @@ func (k *kafkaEventBus) sendWithRetry(msg *sarama.ProducerMessage, retryPolicy R
 
 // sendMessageNonBlocking 非阻塞发送消息
 func (k *kafkaEventBus) sendMessageNonBlocking(msg *sarama.ProducerMessage, originalTopic, targetTopic string) {
+	// ✅ 无锁读取 asyncProducer
+	producer, err := k.getAsyncProducer()
+	if err != nil {
+		k.logger.Error("Failed to get async producer for non-blocking send",
+			zap.String("originalTopic", originalTopic),
+			zap.String("targetTopic", targetTopic),
+			zap.Error(err))
+		return
+	}
+
 	select {
-	case k.asyncProducer.Input() <- msg:
+	case producer.Input() <- msg:
 		k.logger.Info("Message sent to target topic",
 			zap.String("originalTopic", originalTopic),
 			zap.String("targetTopic", targetTopic))
@@ -995,12 +1106,16 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 				return nil
 			}
 
-			// 根据topic路由到激活的handler
-			h.eventBus.topicHandlersMu.RLock()
-			handler, exists := h.eventBus.activeTopicHandlers[message.Topic]
-			h.eventBus.topicHandlersMu.RUnlock()
+			// 🔥 P0修复：无锁读取 handler（使用 sync.Map）
+			handlerAny, exists := h.eventBus.activeTopicHandlers.Load(message.Topic)
+			if !exists {
+				// 未激活的 topic，跳过
+				session.MarkMessage(message, "")
+				continue
+			}
+			handler := handlerAny.(MessageHandler)
 
-			if exists {
+			if true {
 				// 优化：增强消息处理错误处理和监控
 				h.eventBus.logger.Debug("Processing message",
 					zap.String("topic", message.Topic),
@@ -1133,12 +1248,22 @@ func (k *kafkaEventBus) initEnterpriseFeatures() error {
 
 	// 初始化订阅端积压检测器
 	if enterpriseConfig.Subscriber.BacklogDetection.Enabled {
+		// ✅ 无锁读取 client 和 admin
+		client, err := k.getClient()
+		if err != nil {
+			return fmt.Errorf("failed to get client for backlog detector: %w", err)
+		}
+		admin, err := k.getAdmin()
+		if err != nil {
+			return fmt.Errorf("failed to get admin for backlog detector: %w", err)
+		}
+
 		backlogConfig := BacklogDetectionConfig{
 			MaxLagThreshold:  enterpriseConfig.Subscriber.BacklogDetection.MaxLagThreshold,
 			MaxTimeThreshold: enterpriseConfig.Subscriber.BacklogDetection.MaxTimeThreshold,
 			CheckInterval:    enterpriseConfig.Subscriber.BacklogDetection.CheckInterval,
 		}
-		k.backlogDetector = NewBacklogDetector(k.client, k.admin, k.config.Consumer.GroupID, backlogConfig)
+		k.backlogDetector = NewBacklogDetector(client, admin, k.config.Consumer.GroupID, backlogConfig)
 		k.logger.Info("Subscriber backlog detector initialized",
 			zap.Int64("maxLagThreshold", backlogConfig.MaxLagThreshold),
 			zap.Duration("maxTimeThreshold", backlogConfig.MaxTimeThreshold),
@@ -1147,7 +1272,17 @@ func (k *kafkaEventBus) initEnterpriseFeatures() error {
 
 	// 初始化发送端积压检测器
 	if enterpriseConfig.Publisher.BacklogDetection.Enabled {
-		k.publisherBacklogDetector = NewPublisherBacklogDetector(k.client, k.admin, enterpriseConfig.Publisher.BacklogDetection)
+		// ✅ 无锁读取 client 和 admin
+		client, err := k.getClient()
+		if err != nil {
+			return fmt.Errorf("failed to get client for publisher backlog detector: %w", err)
+		}
+		admin, err := k.getAdmin()
+		if err != nil {
+			return fmt.Errorf("failed to get admin for publisher backlog detector: %w", err)
+		}
+
+		k.publisherBacklogDetector = NewPublisherBacklogDetector(client, admin, enterpriseConfig.Publisher.BacklogDetection)
 		k.logger.Info("Publisher backlog detector initialized",
 			zap.Int64("maxQueueDepth", enterpriseConfig.Publisher.BacklogDetection.MaxQueueDepth),
 			zap.Duration("maxPublishLatency", enterpriseConfig.Publisher.BacklogDetection.MaxPublishLatency),
@@ -1162,11 +1297,10 @@ func (k *kafkaEventBus) initEnterpriseFeatures() error {
 // Kafka EventBus 实现
 
 // Publish 发布消息
+// 🔥 高频路径优化：无锁检查关闭状态，无锁读取 producer
 func (k *kafkaEventBus) Publish(ctx context.Context, topic string, message []byte) error {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-
-	if k.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if k.closed.Load() {
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
@@ -1186,6 +1320,13 @@ func (k *kafkaEventBus) Publish(ctx context.Context, topic string, message []byt
 		}
 	}
 
+	// ✅ 无锁读取 asyncProducer
+	producer, err := k.getAsyncProducer()
+	if err != nil {
+		k.errorCount.Add(1)
+		return fmt.Errorf("failed to get async producer: %w", err)
+	}
+
 	// 创建Kafka消息
 	msg := &sarama.ProducerMessage{
 		Topic: topic,
@@ -1194,7 +1335,7 @@ func (k *kafkaEventBus) Publish(ctx context.Context, topic string, message []byt
 
 	// 优化1：使用AsyncProducer异步发送（非阻塞）
 	select {
-	case k.asyncProducer.Input() <- msg:
+	case producer.Input() <- msg:
 		// 消息已提交到发送队列，成功/失败由后台goroutine处理
 		k.logger.Debug("Message queued for async publishing",
 			zap.String("topic", topic))
@@ -1205,7 +1346,7 @@ func (k *kafkaEventBus) Publish(ctx context.Context, topic string, message []byt
 		k.logger.Warn("Async producer input queue full, applying backpressure",
 			zap.String("topic", topic))
 		// 阻塞等待，确保消息不丢失
-		k.asyncProducer.Input() <- msg
+		producer.Input() <- msg
 		return nil
 	}
 }
@@ -1235,9 +1376,12 @@ func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error 
 	// the consumer session will need to be recreated to get the new claims"
 	go func() {
 		defer close(k.consumerDone)
+
+		// 🔥 P0修复：无锁读取 topicsSnapshot
+		topics := k.topicsSnapshot.Load().([]string)
 		k.logger.Info("Pre-subscription consumer started",
-			zap.Int("topicCount", len(k.allPossibleTopics)),
-			zap.Strings("topics", k.allPossibleTopics))
+			zap.Int("topicCount", len(topics)),
+			zap.Strings("topics", topics))
 
 		for {
 			// 检查 context 是否已取消
@@ -1246,8 +1390,11 @@ func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error 
 				return
 			}
 
+			// 🔥 P0修复：无锁读取 topicsSnapshot
+			topics := k.topicsSnapshot.Load().([]string)
+
 			// 检查是否有 topic 需要订阅
-			if len(k.allPossibleTopics) == 0 {
+			if len(topics) == 0 {
 				k.logger.Warn("No topics configured for pre-subscription, consumer will wait")
 				// 等待 context 取消
 				<-k.consumerCtx.Done()
@@ -1257,10 +1404,25 @@ func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error 
 			// 关键：调用 Consume 订阅所有预配置的 topic
 			// 这会阻塞直到发生重平衡或 context 取消
 			k.logger.Info("Pre-subscription consumer consuming topics",
-				zap.Strings("topics", k.allPossibleTopics),
-				zap.Int("topicCount", len(k.allPossibleTopics)))
+				zap.Strings("topics", topics),
+				zap.Int("topicCount", len(topics)))
 
-			err := k.unifiedConsumerGroup.Consume(k.consumerCtx, k.allPossibleTopics, handler)
+			// ✅ 无锁读取 unifiedConsumerGroup
+			consumerGroup, err := k.getUnifiedConsumerGroup()
+			if err != nil {
+				k.logger.Error("Failed to get unified consumer group",
+					zap.Error(err))
+				// 短暂等待后重试
+				select {
+				case <-k.consumerCtx.Done():
+					return
+				case <-time.After(2 * time.Second):
+					continue
+				}
+			}
+
+			// ✅ 安全：topics 是不可变副本，不会被修改
+			err = consumerGroup.Consume(k.consumerCtx, topics, handler)
 			if err != nil {
 				if k.consumerCtx.Err() != nil {
 					k.logger.Info("Pre-subscription consumer context cancelled during Consume")
@@ -1285,8 +1447,11 @@ func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error 
 	}()
 
 	k.consumerStarted = true
+
+	// 🔥 P0修复：无锁读取 topicsSnapshot
+	topics := k.topicsSnapshot.Load().([]string)
 	k.logger.Info("Pre-subscription consumer system started",
-		zap.Int("topicCount", len(k.allPossibleTopics)))
+		zap.Int("topicCount", len(topics)))
 
 	// 优化1&4：添加3秒Consumer预热机制 + 状态监控
 	k.warmupMu.Lock()
@@ -1334,25 +1499,37 @@ func (k *kafkaEventBus) GetWarmupInfo() (completed bool, duration time.Duration)
 }
 
 // activateTopicHandler 激活topic处理器（预订阅模式）
+// 🔥 P0修复：使用 sync.Map 存储，无锁操作
 func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandler) {
-	k.topicHandlersMu.Lock()
-	k.activeTopicHandlers[topic] = handler
-	k.topicHandlersMu.Unlock()
+	k.activeTopicHandlers.Store(topic, handler)
+
+	// 计算当前激活的 topic 数量
+	count := 0
+	k.activeTopicHandlers.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
 
 	k.logger.Info("Topic handler activated",
 		zap.String("topic", topic),
-		zap.Int("totalActiveTopics", len(k.activeTopicHandlers)))
+		zap.Int("totalActiveTopics", count))
 }
 
 // deactivateTopicHandler 停用topic处理器（预订阅模式）
+// 🔥 P0修复：使用 sync.Map 存储，无锁操作
 func (k *kafkaEventBus) deactivateTopicHandler(topic string) {
-	k.topicHandlersMu.Lock()
-	delete(k.activeTopicHandlers, topic)
-	k.topicHandlersMu.Unlock()
+	k.activeTopicHandlers.Delete(topic)
+
+	// 计算当前激活的 topic 数量
+	count := 0
+	k.activeTopicHandlers.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
 
 	k.logger.Info("Topic handler deactivated",
 		zap.String("topic", topic),
-		zap.Int("totalActiveTopics", len(k.activeTopicHandlers)))
+		zap.Int("totalActiveTopics", count))
 }
 
 // SetPreSubscriptionTopics 设置预订阅topic列表（企业级生产环境API）
@@ -1378,19 +1555,27 @@ func (k *kafkaEventBus) deactivateTopicHandler(topic string) {
 //   - LinkedIn 实践：一次性订阅所有 topic
 //   - Uber 实践：预配置 topic 列表
 func (k *kafkaEventBus) SetPreSubscriptionTopics(topics []string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+	k.allPossibleTopicsMu.Lock()
+	defer k.allPossibleTopicsMu.Unlock()
 
-	k.allPossibleTopics = make([]string, len(topics))
-	copy(k.allPossibleTopics, topics)
+	// 🔥 P0修复：创建不可变副本并更新快照
+	newTopics := make([]string, len(topics))
+	copy(newTopics, topics)
+
+	k.allPossibleTopics = newTopics
+	k.topicsSnapshot.Store(newTopics)
 
 	k.logger.Info("Pre-subscription topics configured",
-		zap.Strings("topics", k.allPossibleTopics),
-		zap.Int("topicCount", len(k.allPossibleTopics)))
+		zap.Strings("topics", newTopics),
+		zap.Int("topicCount", len(newTopics)))
 }
 
 // addTopicToPreSubscription 添加topic到预订阅列表（内部方法）
+// 🔥 P0修复：使用 atomic.Value 存储不可变切片快照，消除数据竞态
 func (k *kafkaEventBus) addTopicToPreSubscription(topic string) {
+	k.allPossibleTopicsMu.Lock()
+	defer k.allPossibleTopicsMu.Unlock()
+
 	// 检查是否已存在
 	for _, existingTopic := range k.allPossibleTopics {
 		if existingTopic == topic {
@@ -1398,11 +1583,18 @@ func (k *kafkaEventBus) addTopicToPreSubscription(topic string) {
 		}
 	}
 
-	// 添加到预订阅列表
-	k.allPossibleTopics = append(k.allPossibleTopics, topic)
+	// 创建新的不可变副本
+	newTopics := make([]string, len(k.allPossibleTopics)+1)
+	copy(newTopics, k.allPossibleTopics)
+	newTopics[len(k.allPossibleTopics)] = topic
+
+	// 更新主副本和快照
+	k.allPossibleTopics = newTopics
+	k.topicsSnapshot.Store(newTopics)
+
 	k.logger.Info("Topic added to pre-subscription list",
 		zap.String("topic", topic),
-		zap.Int("totalTopics", len(k.allPossibleTopics)))
+		zap.Int("totalTopics", len(newTopics)))
 }
 
 // stopPreSubscriptionConsumer 停止预订阅消费循环
@@ -1451,20 +1643,26 @@ func containsString(slice []string, item string) bool {
 //	    json.Unmarshal(data, &notification)
 //	    return processNotification(notification) // 直接并发处理
 //	})
+//
+// Subscribe 订阅主题
+// ✅ 低频路径：保留锁，保持代码清晰
 func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler MessageHandler) error {
 	k.mu.Lock()
 
-	if k.closed {
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	if k.closed.Load() {
 		k.mu.Unlock()
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
 	// 预订阅模式 - 激活topic处理器
 
-	// 记录订阅信息（用于重连后恢复）- 保持兼容性
-	k.subscriptionsMu.Lock()
-	k.subscriptions[topic] = handler
-	k.subscriptionsMu.Unlock()
+	// ✅ 使用 sync.Map 存储订阅信息（用于重连后恢复）
+	// 使用 LoadOrStore 检查重复订阅
+	if _, loaded := k.subscriptions.LoadOrStore(topic, handler); loaded {
+		k.mu.Unlock()
+		return fmt.Errorf("already subscribed to topic: %s", topic)
+	}
 
 	// 全局 Keyed-Worker Pool 已在初始化时创建，无需为每个 topic 创建独立池
 
@@ -1493,17 +1691,21 @@ func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler Mes
 
 // healthCheck 内部健康检查（不对外暴露）
 func (k *kafkaEventBus) healthCheck(ctx context.Context) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	if k.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if k.closed.Load() {
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
+	// ✅ 无锁读取 client
+	client, err := k.getClient()
+	if err != nil {
+		return fmt.Errorf("failed to get client: %w", err)
+	}
+
 	// 检查客户端连接
-	if !k.client.Closed() {
+	if !client.Closed() {
 		// 尝试获取broker信息
-		brokers := k.client.Brokers()
+		brokers := client.Brokers()
 		if len(brokers) == 0 {
 			return fmt.Errorf("no available brokers")
 		}
@@ -1526,19 +1728,26 @@ func (k *kafkaEventBus) healthCheck(ctx context.Context) error {
 
 // CheckConnection 检查 Kafka 连接状态
 func (k *kafkaEventBus) CheckConnection(ctx context.Context) error {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
 
-	if k.closed {
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	if k.closed.Load() {
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
-	if k.client.Closed() {
+	// ✅ 无锁读取 client
+	client, err := k.getClient()
+	if err != nil {
+		return fmt.Errorf("failed to get client: %w", err)
+	}
+
+	if client.Closed() {
 		return fmt.Errorf("kafka client is closed")
 	}
 
 	// 检查 broker 连接
-	brokers := k.client.Brokers()
+	brokers := client.Brokers()
 	if len(brokers) == 0 {
 		return fmt.Errorf("no available brokers")
 	}
@@ -1570,14 +1779,15 @@ func (k *kafkaEventBus) CheckMessageTransport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// 检查是否支持端到端测试
-	if k.consumer != nil {
+	// ✅ 检查是否支持端到端测试
+	consumer, err := k.getConsumer()
+	if err == nil && consumer != nil {
 		return k.performKafkaEndToEndTest(ctx, testTopic, testMessage)
 	}
 
 	// 如果没有消费者组，只测试发布能力
 	start := time.Now()
-	err := k.Publish(ctx, testTopic, []byte(testMessage))
+	err = k.Publish(ctx, testTopic, []byte(testMessage))
 	publishLatency := time.Since(start)
 
 	if err != nil {
@@ -1599,8 +1809,14 @@ func (k *kafkaEventBus) performKafkaEndToEndTest(ctx context.Context, testTopic,
 	receiveChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
 
+	// ✅ 无锁读取 consumer
+	consumer, err := k.getConsumer()
+	if err != nil {
+		return fmt.Errorf("failed to get consumer: %w", err)
+	}
+
 	// 创建分区消费者来接收健康检查消息
-	partitionConsumer, err := k.consumer.ConsumePartition(testTopic, 0, sarama.OffsetNewest)
+	partitionConsumer, err := consumer.ConsumePartition(testTopic, 0, sarama.OffsetNewest)
 	if err != nil {
 		k.logger.Warn("Failed to create partition consumer for health check, falling back to publish-only test",
 			zap.Error(err))
@@ -1683,15 +1899,18 @@ func (k *kafkaEventBus) performKafkaEndToEndTest(ctx context.Context, testTopic,
 
 // GetEventBusMetrics 获取 Kafka EventBus 性能指标
 func (k *kafkaEventBus) GetEventBusMetrics() EventBusHealthMetrics {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
 
 	connectionStatus := "disconnected"
 	brokerCount := 0
 	topicCount := 0
 
-	if !k.closed && !k.client.Closed() {
-		brokers := k.client.Brokers()
+	// ✅ 无锁读取 client
+	client, err := k.getClient()
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	if err == nil && !k.closed.Load() && !client.Closed() {
+		brokers := client.Brokers()
 		brokerCount = len(brokers)
 
 		connectedBrokers := 0
@@ -1706,7 +1925,7 @@ func (k *kafkaEventBus) GetEventBusMetrics() EventBusHealthMetrics {
 		}
 
 		// 获取 topic 数量
-		if topics, err := k.client.Topics(); err == nil {
+		if topics, err := client.Topics(); err == nil {
 			topicCount = len(topics)
 		}
 	}
@@ -1745,7 +1964,8 @@ func (k *kafkaEventBus) Close() error {
 
 	defer k.mu.Unlock()
 
-	if k.closed {
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	if k.closed.Load() {
 		return nil
 	}
 
@@ -1757,29 +1977,29 @@ func (k *kafkaEventBus) Close() error {
 	// 注意：unifiedConsumerGroup.Close() 不会关闭底层的 client
 
 	// 关闭统一消费者组
-	if k.unifiedConsumerGroup != nil {
-		if err := k.unifiedConsumerGroup.Close(); err != nil {
+	if consumerGroup, err := k.getUnifiedConsumerGroup(); err == nil {
+		if err := consumerGroup.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close unified consumer group: %w", err))
 		}
 	}
 
 	// 关闭消费者
-	if k.consumer != nil {
-		if err := k.consumer.Close(); err != nil {
+	if consumer, err := k.getConsumer(); err == nil {
+		if err := consumer.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close kafka consumer: %w", err))
 		}
 	}
 
 	// 优化1：关闭AsyncProducer
-	if k.asyncProducer != nil {
-		if err := k.asyncProducer.Close(); err != nil {
+	if producer, err := k.getAsyncProducer(); err == nil {
+		if err := producer.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close kafka async producer: %w", err))
 		}
 	}
 
 	// 关闭管理客户端（在关闭 client 之前）
-	if k.admin != nil {
-		if err := k.admin.Close(); err != nil {
+	if admin, err := k.getAdmin(); err == nil {
+		if err := admin.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close kafka admin: %w", err))
 		}
 	}
@@ -1787,8 +2007,8 @@ func (k *kafkaEventBus) Close() error {
 	// 最后关闭客户端（所有其他组件都依赖它）
 	// 注意：某些版本的 sarama 可能在 ConsumerGroup.Close() 时已经关闭了 client
 	// 因此我们需要检查 client 是否已经关闭
-	if k.client != nil {
-		if err := k.client.Close(); err != nil {
+	if client, err := k.getClient(); err == nil {
+		if err := client.Close(); err != nil {
 			// 忽略 "client already closed" 错误
 			if err.Error() != "kafka: tried to use a client that was closed" {
 				errors = append(errors, fmt.Errorf("failed to close kafka client: %w", err))
@@ -1796,7 +2016,8 @@ func (k *kafkaEventBus) Close() error {
 		}
 	}
 
-	k.closed = true
+	// 🔥 P0修复：使用 atomic.Bool 设置关闭状态
+	k.closed.Store(true)
 	k.logger.Info("Kafka eventbus closed successfully")
 
 	if len(errors) > 0 {
@@ -1879,18 +2100,18 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	// 关闭现有连接
-	if k.asyncProducer != nil {
-		k.asyncProducer.Close()
+	// ✅ 关闭现有连接
+	if producer, err := k.getAsyncProducer(); err == nil && producer != nil {
+		producer.Close()
 	}
-	if k.consumer != nil {
-		k.consumer.Close()
+	if consumer, err := k.getConsumer(); err == nil && consumer != nil {
+		consumer.Close()
 	}
-	if k.admin != nil {
-		k.admin.Close()
+	if admin, err := k.getAdmin(); err == nil && admin != nil {
+		admin.Close()
 	}
-	if k.client != nil {
-		k.client.Close()
+	if client, err := k.getClient(); err == nil && client != nil {
+		client.Close()
 	}
 
 	// 创建Sarama配置
@@ -1930,11 +2151,11 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 		return fmt.Errorf("failed to create kafka admin: %w", err)
 	}
 
-	// 更新实例字段
-	k.client = client
-	k.asyncProducer = asyncProducer
-	k.consumer = consumer
-	k.admin = admin
+	// ✅ 使用 atomic.Value 存储
+	k.client.Store(client)
+	k.asyncProducer.Store(asyncProducer)
+	k.consumer.Store(consumer)
+	k.admin.Store(admin)
 
 	// 优化1：重新启动AsyncProducer处理goroutine
 	go k.handleAsyncProducerSuccess()
@@ -1946,12 +2167,14 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 
 // restoreSubscriptions 恢复订阅
 func (k *kafkaEventBus) restoreSubscriptions(ctx context.Context) error {
-	k.subscriptionsMu.RLock()
+	// ✅ 使用 sync.Map 遍历订阅
 	subscriptions := make(map[string]MessageHandler)
-	for topic, handler := range k.subscriptions {
+	k.subscriptions.Range(func(key, value interface{}) bool {
+		topic := key.(string)
+		handler := value.(MessageHandler)
 		subscriptions[topic] = handler
-	}
-	k.subscriptionsMu.RUnlock()
+		return true
+	})
 
 	for topic, handler := range subscriptions {
 		k.logger.Info("Restoring subscription", zap.String("topic", topic))
@@ -2011,7 +2234,8 @@ func (k *kafkaEventBus) Start(ctx context.Context) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	if k.closed {
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	if k.closed.Load() {
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
@@ -2085,9 +2309,16 @@ func (k *kafkaEventBus) PublishWithOptions(ctx context.Context, topic string, me
 		}
 	}
 
+	// ✅ 无锁读取 asyncProducer
+	producer, err := k.getAsyncProducer()
+	if err != nil {
+		k.errorCount.Add(1)
+		return fmt.Errorf("failed to get async producer: %w", err)
+	}
+
 	// 优化1：使用AsyncProducer异步发布
 	select {
-	case k.asyncProducer.Input() <- kafkaMsg:
+	case producer.Input() <- kafkaMsg:
 		// 消息已提交到发送队列
 		duration := time.Since(start)
 		k.logger.Debug("Message with options queued for async publishing",
@@ -2099,7 +2330,7 @@ func (k *kafkaEventBus) PublishWithOptions(ctx context.Context, topic string, me
 		k.logger.Warn("Async producer input queue full for message with options",
 			zap.String("topic", topic))
 		// 阻塞等待
-		k.asyncProducer.Input() <- kafkaMsg
+		producer.Input() <- kafkaMsg
 		return nil
 	}
 }
@@ -2398,12 +2629,17 @@ func (k *kafkaEventBus) StopHealthCheck() error {
 
 // GetHealthStatus 获取健康状态
 func (k *kafkaEventBus) GetHealthStatus() HealthCheckStatus {
+	// ✅ 无锁检查 client 是否可用
+	_, clientErr := k.getClient()
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	isHealthy := !k.closed.Load() && clientErr == nil
+
 	return HealthCheckStatus{
-		IsHealthy:           !k.closed && k.client != nil,
+		IsHealthy:           isHealthy,
 		ConsecutiveFailures: 0,
 		LastSuccessTime:     time.Now(),
 		LastFailureTime:     time.Time{},
-		IsRunning:           !k.closed,
+		IsRunning:           !k.closed.Load(),
 		EventBusType:        "kafka",
 		Source:              "kafka-eventbus",
 	}
@@ -2468,8 +2704,8 @@ func (k *kafkaEventBus) StopHealthCheckSubscriber() error {
 
 // RegisterHealthCheckAlertCallback 注册健康检查告警回调
 func (k *kafkaEventBus) RegisterHealthCheckAlertCallback(callback HealthCheckAlertCallback) error {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
 
 	if k.healthCheckSubscriber == nil {
 		return fmt.Errorf("health check subscriber not started")
@@ -2480,8 +2716,8 @@ func (k *kafkaEventBus) RegisterHealthCheckAlertCallback(callback HealthCheckAle
 
 // GetHealthCheckSubscriberStats 获取健康检查订阅监控统计信息
 func (k *kafkaEventBus) GetHealthCheckSubscriberStats() HealthCheckSubscriberStats {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
 
 	if k.healthCheckSubscriber == nil {
 		return HealthCheckSubscriberStats{}
@@ -2492,7 +2728,11 @@ func (k *kafkaEventBus) GetHealthCheckSubscriberStats() HealthCheckSubscriberSta
 
 // GetConnectionState 获取连接状态
 func (k *kafkaEventBus) GetConnectionState() ConnectionState {
-	isConnected := !k.closed && k.client != nil
+	// ✅ 无锁检查 client 是否可用
+	_, clientErr := k.getClient()
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	isConnected := !k.closed.Load() && clientErr == nil
+
 	return ConnectionState{
 		IsConnected:       isConnected,
 		LastConnectedTime: time.Now(),
@@ -2520,10 +2760,8 @@ func (k *kafkaEventBus) GetMetrics() Metrics {
 
 // PublishEnvelope 发布Envelope消息（方案A）
 func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envelope *Envelope) error {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-
-	if k.closed {
+	// 🔥 P0修复：高频路径优化 - 无锁检查关闭状态
+	if k.closed.Load() {
 		return fmt.Errorf("kafka eventbus is closed")
 	}
 
@@ -2580,9 +2818,16 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 		})
 	}
 
+	// ✅ 无锁读取 asyncProducer
+	producer, err := k.getAsyncProducer()
+	if err != nil {
+		k.errorCount.Add(1)
+		return fmt.Errorf("failed to get async producer: %w", err)
+	}
+
 	// 优化1：使用AsyncProducer异步发送
 	select {
-	case k.asyncProducer.Input() <- msg:
+	case producer.Input() <- msg:
 		// 消息已提交到发送队列
 		k.logger.Debug("Envelope message queued for async publishing",
 			zap.String("topic", topic),
@@ -2598,7 +2843,7 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 			zap.String("eventID", envelope.EventID),
 			zap.String("aggregateID", envelope.AggregateID))
 		// 阻塞等待
-		k.asyncProducer.Input() <- msg
+		producer.Input() <- msg
 		return nil
 	}
 }
@@ -2702,8 +2947,8 @@ func (k *kafkaEventBus) StopHealthCheckPublisher() error {
 
 // GetHealthCheckPublisherStatus 获取健康检查发布器状态
 func (k *kafkaEventBus) GetHealthCheckPublisherStatus() HealthCheckStatus {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
 
 	if k.healthChecker == nil {
 		return HealthCheckStatus{
@@ -2722,8 +2967,8 @@ func (k *kafkaEventBus) GetHealthCheckPublisherStatus() HealthCheckStatus {
 
 // RegisterHealthCheckPublisherCallback 注册健康检查发布器回调
 func (k *kafkaEventBus) RegisterHealthCheckPublisherCallback(callback HealthCheckCallback) error {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
+	k.mu.Lock()
+	defer k.mu.Unlock()
 
 	if k.healthChecker == nil {
 		return fmt.Errorf("health check publisher not started")
@@ -2777,12 +3022,19 @@ func (k *kafkaEventBus) StopAllHealthCheck() error {
 func (k *kafkaEventBus) ConfigureTopic(ctx context.Context, topic string, options TopicOptions) error {
 	start := time.Now()
 
-	k.topicConfigsMu.Lock()
+	// ✅ 低频路径：保留锁，保持代码清晰
+	k.mu.Lock()
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	if k.closed.Load() {
+		k.mu.Unlock()
+		return fmt.Errorf("kafka eventbus is closed")
+	}
+	k.mu.Unlock()
+
 	// 检查是否已有配置
-	_, exists := k.topicConfigs[topic]
+	_, exists := k.topicConfigs.Load(topic)
 	// 缓存配置
-	k.topicConfigs[topic] = options
-	k.topicConfigsMu.Unlock()
+	k.topicConfigs.Store(topic, options)
 
 	// 根据策略决定是否需要同步到消息中间件
 	shouldCreate, shouldUpdate := shouldCreateOrUpdate(k.topicConfigStrategy, exists)
@@ -2872,11 +3124,9 @@ func (k *kafkaEventBus) SetTopicPersistence(ctx context.Context, topic string, p
 
 // GetTopicConfig 获取主题的当前配置
 func (k *kafkaEventBus) GetTopicConfig(topic string) (TopicOptions, error) {
-	k.topicConfigsMu.RLock()
-	defer k.topicConfigsMu.RUnlock()
-
-	if config, exists := k.topicConfigs[topic]; exists {
-		return config, nil
+	// 🔥 高频路径：无锁读取配置
+	if configAny, exists := k.topicConfigs.Load(topic); exists {
+		return configAny.(TopicOptions), nil
 	}
 
 	// 返回默认配置
@@ -2885,23 +3135,18 @@ func (k *kafkaEventBus) GetTopicConfig(topic string) (TopicOptions, error) {
 
 // ListConfiguredTopics 列出所有已配置的主题
 func (k *kafkaEventBus) ListConfiguredTopics() []string {
-	k.topicConfigsMu.RLock()
-	defer k.topicConfigsMu.RUnlock()
-
-	topics := make([]string, 0, len(k.topicConfigs))
-	for topic := range k.topicConfigs {
-		topics = append(topics, topic)
-	}
+	topics := make([]string, 0)
+	k.topicConfigs.Range(func(key, value interface{}) bool {
+		topics = append(topics, key.(string))
+		return true
+	})
 
 	return topics
 }
 
 // RemoveTopicConfig 移除主题配置（恢复为默认行为）
 func (k *kafkaEventBus) RemoveTopicConfig(topic string) error {
-	k.topicConfigsMu.Lock()
-	defer k.topicConfigsMu.Unlock()
-
-	delete(k.topicConfigs, topic)
+	k.topicConfigs.Delete(topic)
 
 	k.logger.Info("Topic configuration removed", zap.String("topic", topic))
 	return nil
@@ -2909,12 +3154,14 @@ func (k *kafkaEventBus) RemoveTopicConfig(topic string) error {
 
 // ensureKafkaTopic 确保Kafka主题存在并配置正确
 func (k *kafkaEventBus) ensureKafkaTopic(topic string, options TopicOptions) error {
-	if k.admin == nil {
-		return fmt.Errorf("Kafka admin client not available")
+	// ✅ 无锁读取 admin
+	admin, err := k.getAdmin()
+	if err != nil {
+		return fmt.Errorf("Kafka admin client not available: %w", err)
 	}
 
 	// 检查主题是否已存在
-	metadata, err := k.admin.DescribeTopics([]string{topic})
+	metadata, err := admin.DescribeTopics([]string{topic})
 	if err != nil {
 		// 主题不存在，创建新主题
 		return k.createKafkaTopic(topic, options)
@@ -2932,6 +3179,12 @@ func (k *kafkaEventBus) ensureKafkaTopic(topic string, options TopicOptions) err
 
 // createKafkaTopic 创建新的Kafka主题
 func (k *kafkaEventBus) createKafkaTopic(topic string, options TopicOptions) error {
+	// ✅ 无锁读取 admin
+	admin, err := k.getAdmin()
+	if err != nil {
+		return fmt.Errorf("Kafka admin client not available: %w", err)
+	}
+
 	// 构建主题配置
 	topicDetail := &sarama.TopicDetail{
 		NumPartitions:     1, // 默认1个分区
@@ -2962,7 +3215,7 @@ func (k *kafkaEventBus) createKafkaTopic(topic string, options TopicOptions) err
 	}
 
 	// 创建主题
-	err := k.admin.CreateTopic(topic, topicDetail, false)
+	err = admin.CreateTopic(topic, topicDetail, false)
 	if err != nil {
 		return fmt.Errorf("failed to create Kafka topic %s: %w", topic, err)
 	}
@@ -2978,12 +3231,14 @@ func (k *kafkaEventBus) createKafkaTopic(topic string, options TopicOptions) err
 
 // ensureKafkaTopicIdempotent 幂等地确保Kafka主题存在（支持创建和更新）
 func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic string, options TopicOptions, allowUpdate bool) error {
-	if k.admin == nil {
-		return fmt.Errorf("Kafka admin client not available")
+	// ✅ 无锁读取 admin
+	admin, err := k.getAdmin()
+	if err != nil {
+		return fmt.Errorf("Kafka admin client not available: %w", err)
 	}
 
 	// 检查主题是否已存在
-	metadata, err := k.admin.DescribeTopics([]string{topic})
+	metadata, err := admin.DescribeTopics([]string{topic})
 
 	if err != nil || len(metadata) == 0 {
 		// 主题不存在，创建新主题
@@ -3011,7 +3266,7 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 		if len(configEntries) > 0 {
 			k.logger.Info("Updating Kafka topic configuration", zap.String("topic", topic))
 
-			err := k.admin.AlterConfig(sarama.TopicResource, topic, configEntries, false)
+			err := admin.AlterConfig(sarama.TopicResource, topic, configEntries, false)
 			if err != nil {
 				k.logger.Warn("Failed to update topic config, using existing config",
 					zap.String("topic", topic),
@@ -3026,12 +3281,14 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 
 // getActualTopicConfig 获取主题在Kafka中的实际配置
 func (k *kafkaEventBus) getActualTopicConfig(ctx context.Context, topic string) (TopicOptions, error) {
-	if k.admin == nil {
-		return TopicOptions{}, fmt.Errorf("Kafka admin client not available")
+	// ✅ 无锁读取 admin
+	admin, err := k.getAdmin()
+	if err != nil {
+		return TopicOptions{}, fmt.Errorf("Kafka admin client not available: %w", err)
 	}
 
 	// 获取主题配置
-	configs, err := k.admin.DescribeConfig(sarama.ConfigResource{
+	configs, err := admin.DescribeConfig(sarama.ConfigResource{
 		Type: sarama.TopicResource,
 		Name: topic,
 	})
@@ -3061,12 +3318,16 @@ func (k *kafkaEventBus) getActualTopicConfig(ctx context.Context, topic string) 
 		}
 	}
 
-	// 获取分区和副本信息
-	metadata, err := k.admin.DescribeTopics([]string{topic})
-	if err == nil && len(metadata) > 0 {
-		topicMeta := metadata[0]
-		if len(topicMeta.Partitions) > 0 {
-			actualConfig.Replicas = len(topicMeta.Partitions[0].Replicas)
+	// ✅ 无锁读取 admin
+	admin, adminErr := k.getAdmin()
+	if adminErr == nil {
+		// 获取分区和副本信息
+		metadata, err := admin.DescribeTopics([]string{topic})
+		if err == nil && len(metadata) > 0 {
+			topicMeta := metadata[0]
+			if len(topicMeta.Partitions) > 0 {
+				actualConfig.Replicas = len(topicMeta.Partitions[0].Replicas)
+			}
 		}
 	}
 
@@ -3091,15 +3352,17 @@ func (k *kafkaEventBus) GetPublishResultChannel() <-chan *PublishResult {
 
 // SetTopicConfigStrategy 设置主题配置策略
 func (k *kafkaEventBus) SetTopicConfigStrategy(strategy TopicConfigStrategy) {
-	k.topicConfigsMu.Lock()
-	defer k.topicConfigsMu.Unlock()
+	// ✅ 低频路径：保留锁
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	k.topicConfigStrategy = strategy
 	k.logger.Info("Topic config strategy updated", zap.String("strategy", string(strategy)))
 }
 
 // GetTopicConfigStrategy 获取当前主题配置策略
 func (k *kafkaEventBus) GetTopicConfigStrategy() TopicConfigStrategy {
-	k.topicConfigsMu.RLock()
-	defer k.topicConfigsMu.RUnlock()
+	// ✅ 低频路径：保留锁
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	return k.topicConfigStrategy
 }

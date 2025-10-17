@@ -13,6 +13,7 @@ import (
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 // WorkItemInterface 通用工作项接口
@@ -201,22 +202,31 @@ func (p *NATSGlobalWorkerPool) Close() {
 // 企业级增强版本，专注于JetStream持久化消息
 // 支持方案A（Envelope）消息包络
 // 🔥 优化架构：1个连接，1个JetStream Context，1个Consumer，多个Pull Subscription
+// 🔥 免锁优化版本 - 参考 Kafka EventBus 优化方案
 type natsEventBus struct {
-	conn               *nats.Conn
-	js                 nats.JetStreamContext
-	config             *NATSConfig // 使用内部配置结构，实现解耦
-	subscriptions      map[string]*nats.Subscription
-	logger             *zap.Logger
-	mu                 sync.RWMutex
-	closed             bool
+	// 🔥 P0修复：改为 atomic.Value（发布时无锁读取）
+	conn atomic.Value // stores *nats.Conn
+	js   atomic.Value // stores nats.JetStreamContext
+
+	config        *NATSConfig // 使用内部配置结构，实现解耦
+	subscriptions map[string]*nats.Subscription
+	logger        *zap.Logger
+
+	// ✅ 低频路径：保留 mu（用于 Subscribe、Close 等低频操作）
+	mu     sync.Mutex  // 🔥 改为 Mutex（不再需要读写锁）
+	closed atomic.Bool // 🔥 P0修复：改为 atomic.Bool，热路径无锁读取
+
 	reconnectCallbacks []func(ctx context.Context) error
 
 	// 🔥 统一Consumer管理 - 优化架构
-	unifiedConsumer    nats.ConsumerInfo         // 单一Consumer
-	topicHandlers      map[string]MessageHandler // topic到handler的映射
-	topicHandlersMu    sync.RWMutex              // topic handlers锁
-	subscribedTopics   []string                  // 当前订阅的topic列表
-	subscribedTopicsMu sync.RWMutex              // subscribed topics锁
+	unifiedConsumer nats.ConsumerInfo // 单一Consumer
+
+	// 🔥 P0修复：改为 sync.Map（消息路由时无锁查找）
+	topicHandlers sync.Map // key: string (topic), value: MessageHandler
+
+	// ✅ 低频路径：保留 slice + mu（订阅是低频操作）
+	subscribedTopics   []string
+	subscribedTopicsMu sync.Mutex // 🔥 改为 Mutex
 
 	// 企业级特性
 	publishedMessages atomic.Int64
@@ -256,15 +266,17 @@ type natsEventBus struct {
 	// 全局 Keyed-Worker Pool（所有 topic 共享，与 Kafka 保持一致）
 	globalKeyedPool *KeyedWorkerPool
 
-	// 主题配置管理
-	topicConfigs          map[string]TopicOptions
-	topicConfigsMu        sync.RWMutex
+	// 🔥 P1优化：主题配置管理改为 sync.Map（无锁读取）
+	topicConfigs          sync.Map                  // key: string (topic), value: TopicOptions
 	topicConfigStrategy   TopicConfigStrategy       // 配置策略
 	topicConfigOnMismatch TopicConfigMismatchAction // 配置不一致时的行为
+	topicConfigStrategyMu sync.RWMutex              // 🔥 P1优化：保护 topicConfigStrategy 和 topicConfigOnMismatch
 
-	// ✅ Stream预创建优化：本地缓存已创建的Stream，避免运行时RPC调用
-	createdStreams   map[string]bool // streamName -> true
-	createdStreamsMu sync.RWMutex
+	// 🔥 P0修复：改为 sync.Map（发布时无锁读取）
+	createdStreams sync.Map // key: string (streamName), value: bool
+
+	// 🔥 P1优化：单飞抑制（防止并发创建 Stream 风暴）
+	streamCreateGroup singleflight.Group
 
 	// 健康检查订阅监控器
 	healthCheckSubscriber *HealthCheckSubscriber
@@ -347,29 +359,34 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 
 	// 创建事件总线实例
 	bus := &natsEventBus{
-		conn:          nc,
-		js:            js,
 		config:        config,
 		subscriptions: make(map[string]*nats.Subscription),
 		// 临时开启开发日志便于定位问题（后续可改回 zap.NewNop()）
 		logger:             zap.NewExample(),
 		reconnectCallbacks: make([]func(ctx context.Context) error, 0),
-		topicConfigs:       make(map[string]TopicOptions),
+		// 🔥 P1优化：topicConfigs 改为 sync.Map，不需要初始化
+		// topicConfigs: sync.Map 零值可用
 		// 健康检查配置
 		healthCheckConfig: healthCheckConfig,
-		// 🔥 初始化统一Consumer管理字段
-		topicHandlers:        make(map[string]MessageHandler),
+		// 🔥 P0修复：topicHandlers 改为 sync.Map，不需要初始化
+		// topicHandlers: sync.Map 零值可用
 		subscribedTopics:     make([]string, 0),
 		subscriptionHandlers: make(map[string]MessageHandler),
 		// 🚀 初始化异步发布结果通道（缓冲区大小：100000）
 		publishResultChan: make(chan *PublishResult, 100000),
-		// ✅ Stream预创建优化：初始化本地缓存
-		createdStreams: make(map[string]bool),
+		// 🔥 P0修复：createdStreams 改为 sync.Map，不需要初始化
+		// createdStreams: sync.Map 零值可用
+		// 🔥 P1优化：streamCreateGroup 零值可用，不需要初始化
 		// ✅ 方案2：初始化 ACK 处理器
 		ackChan:        make(chan *ackTask, 100000), // ACK 任务通道（大缓冲区）
 		ackWorkerStop:  make(chan struct{}),
-		ackWorkerCount: runtime.NumCPU() * 2, // 默认：CPU核心数 * 2
+		ackWorkerCount: runtime.NumCPU() * 2, // 🔥 P1验证：默认 CPU核心数 * 2（已验证合理）
 	}
+
+	// 🔥 P0修复：使用 atomic.Value 存储连接对象
+	bus.conn.Store(nc)
+	bus.js.Store(js)
+	bus.closed.Store(false)
 
 	// 🔥 创建全局 Keyed-Worker Pool（所有 topic 共享，与 Kafka 保持一致）
 	// 使用较大的 worker 数量以支持多个 topic 的并发处理
@@ -409,7 +426,8 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 			nc.Close()
 			return nil, fmt.Errorf("failed to create JetStream context with error handler: %w", err)
 		}
-		bus.js = js
+		// 🔥 P0修复：使用 atomic.Value 存储
+		bus.js.Store(js)
 
 		logger.Info("NATS JetStream configured with global async publish handler",
 			zap.Int("maxPending", 100000))
@@ -443,10 +461,38 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 	return bus, nil
 }
 
+// 🔥 P0修复：Helper 方法 - 无锁读取 NATS Connection
+func (n *natsEventBus) getConn() (*nats.Conn, error) {
+	connAny := n.conn.Load()
+	if connAny == nil {
+		return nil, fmt.Errorf("nats connection not initialized")
+	}
+	conn, ok := connAny.(*nats.Conn)
+	if !ok {
+		return nil, fmt.Errorf("invalid nats connection type")
+	}
+	return conn, nil
+}
+
+// 🔥 P0修复：Helper 方法 - 无锁读取 JetStream Context
+func (n *natsEventBus) getJetStreamContext() (nats.JetStreamContext, error) {
+	jsAny := n.js.Load()
+	if jsAny == nil {
+		return nil, fmt.Errorf("jetstream context not initialized")
+	}
+	js, ok := jsAny.(nats.JetStreamContext)
+	if !ok {
+		return nil, fmt.Errorf("invalid jetstream context type")
+	}
+	return js, nil
+}
+
 // ensureStreamExists 确保配置的Stream存在
 func (n *natsEventBus) ensureStreamExists() error {
-	if n.js == nil {
-		return fmt.Errorf("JetStream not enabled")
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
+	if err != nil {
+		return err
 	}
 
 	streamName := n.config.JetStream.Stream.Name
@@ -454,16 +500,15 @@ func (n *natsEventBus) ensureStreamExists() error {
 		return fmt.Errorf("stream name not configured")
 	}
 
+	// 🔥 P0修复：使用 js 变量而不是 n.js
 	// 检查Stream是否已存在
-	_, err := n.js.StreamInfo(streamName)
+	_, err = js.StreamInfo(streamName)
 	if err == nil {
 		// Stream已存在
 		n.logger.Info("JetStream stream already exists", zap.String("stream", streamName))
 
-		// ✅ Stream预创建优化：Stream已存在，添加到本地缓存
-		n.createdStreamsMu.Lock()
-		n.createdStreams[streamName] = true
-		n.createdStreamsMu.Unlock()
+		// 🔥 P0修复：使用 sync.Map 存储
+		n.createdStreams.Store(streamName, true)
 
 		return nil
 	}
@@ -481,7 +526,7 @@ func (n *natsEventBus) ensureStreamExists() error {
 		Discard:   parseDiscardPolicy(n.config.JetStream.Stream.Discard),
 	}
 
-	_, err = n.js.AddStream(streamConfig)
+	_, err = js.AddStream(streamConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create stream %s: %w", streamName, err)
 	}
@@ -491,16 +536,20 @@ func (n *natsEventBus) ensureStreamExists() error {
 		zap.Strings("subjects", streamConfig.Subjects),
 		zap.String("storage", streamConfig.Storage.String()))
 
-	// ✅ Stream预创建优化：Stream创建成功，添加到本地缓存
-	n.createdStreamsMu.Lock()
-	n.createdStreams[streamName] = true
-	n.createdStreamsMu.Unlock()
+	// 🔥 P0修复：使用 sync.Map 存储
+	n.createdStreams.Store(streamName, true)
 
 	return nil
 }
 
 // 🔥 initUnifiedConsumer 初始化统一Consumer
 func (n *natsEventBus) initUnifiedConsumer() error {
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
+	if err != nil {
+		return err
+	}
+
 	// 构建统一Consumer配置
 	durableName := fmt.Sprintf("%s-unified", n.config.JetStream.Consumer.DurableName)
 
@@ -531,8 +580,9 @@ func (n *natsEventBus) initUnifiedConsumer() error {
 		// FilterSubject留空，允许多个topic订阅
 	}
 
+	// 🔥 P0修复：使用 js 变量
 	// 创建统一Consumer
-	consumer, err := n.js.AddConsumer(n.config.JetStream.Stream.Name, consumerConfig)
+	consumer, err := js.AddConsumer(n.config.JetStream.Stream.Name, consumerConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create unified consumer: %w", err)
 	}
@@ -923,12 +973,10 @@ func parseReplayPolicy(policy string) nats.ReplayPolicy {
 func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte) error {
 	start := time.Now()
 
-	n.mu.RLock()
-	if n.closed {
-		n.mu.RUnlock()
+	// 🔥 P0修复：无锁检查关闭状态
+	if n.closed.Load() {
 		return fmt.Errorf("eventbus is closed")
 	}
-	n.mu.RUnlock()
 
 	// 获取主题配置
 	topicConfig, _ := n.GetTopicConfig(topic)
@@ -938,18 +986,20 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 
 	var err error
 
-	if shouldUsePersistent && n.js != nil {
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, jsErr := n.getJetStreamContext()
+	jsAvailable := jsErr == nil
+
+	if shouldUsePersistent && jsAvailable {
 		// ✅ Stream预创建优化：根据策略决定是否检查Stream
 		// 策略说明：
 		// - StrategySkip: 跳过检查（性能最优，适用于预创建场景）
 		// - 其他策略: 检查Stream是否存在（兼容动态创建场景）
 		shouldCheckStream := n.topicConfigStrategy != StrategySkip
 
-		// ✅ 优化：检查本地缓存，避免重复RPC调用
+		// 🔥 P0修复：无锁检查本地缓存（使用 sync.Map）
 		streamName := n.getStreamNameForTopic(topic)
-		n.createdStreamsMu.RLock()
-		streamExists := n.createdStreams[streamName]
-		n.createdStreamsMu.RUnlock()
+		_, streamExists := n.createdStreams.Load(streamName)
 
 		// 只有在需要检查且缓存中不存在时，才调用ensureTopicInJetStream
 		if shouldCheckStream && !streamExists {
@@ -961,22 +1011,21 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 				// 降级到Core NATS
 				shouldUsePersistent = false
 			} else {
-				// ✅ 成功创建/验证Stream后，添加到本地缓存
-				n.createdStreamsMu.Lock()
-				n.createdStreams[streamName] = true
-				n.createdStreamsMu.Unlock()
+				// 🔥 P0修复：成功创建/验证Stream后，添加到本地缓存（使用 sync.Map）
+				n.createdStreams.Store(streamName, true)
 			}
 		}
 	}
 
-	if shouldUsePersistent && n.js != nil {
+	if shouldUsePersistent && jsAvailable {
 		// ✅ 优化 1: 使用JetStream异步发布（持久化）
 		// 注意：不要同时设置 Context 和 Timeout，否则 nats 会报错
 		// 这里不设置 AckWait，采用全局 PublishAsyncErrHandler 处理失败 ACK
 		// 需要自定义超时时，可改为同步 Publish 并传入 nats.Context(ctx) 或 nats.AckWait，但二者不可同时设置
 
+		// 🔥 P0修复：使用 js 变量
 		// ✅ 异步发布（不等待ACK，由统一错误处理器处理失败）
-		_, err = n.js.PublishAsync(topic, message)
+		_, err = js.PublishAsync(topic, message)
 		if err != nil {
 			n.errorCount.Add(1)
 			n.logger.Error("Failed to publish message to NATS JetStream",
@@ -989,8 +1038,14 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 		// ✅ 成功的ACK由NATS内部自动处理
 		// ✅ 错误的ACK由PublishAsyncErrHandler统一处理
 	} else {
+		// 🔥 P0修复：无锁读取 NATS Connection
+		conn, connErr := n.getConn()
+		if connErr != nil {
+			return fmt.Errorf("failed to get nats connection: %w", connErr)
+		}
+
 		// 使用Core NATS发布（非持久化）
-		err = n.conn.Publish(topic, message)
+		err = conn.Publish(topic, message)
 		if err != nil {
 			n.errorCount.Add(1)
 			n.logger.Error("Failed to publish message to NATS Core",
@@ -1022,7 +1077,9 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 			zap.Int("message_size", len(message)),
 			zap.Bool("persistent", n.config.JetStream.Enabled),
 			zap.String("mode", func() string {
-				if n.config.JetStream.Enabled && n.js != nil {
+				// 🔥 P0修复：检查 JetStream 是否可用
+				_, jsErr := n.getJetStreamContext()
+				if n.config.JetStream.Enabled && jsErr == nil {
 					return "JetStream"
 				}
 				return "Core"
@@ -1064,7 +1121,8 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if n.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if n.closed.Load() {
 		return fmt.Errorf("eventbus is closed")
 	}
 
@@ -1081,11 +1139,15 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 	// 根据配置选择订阅模式
 	var err error
 
+	// 🔥 P0修复：无锁读取 JetStream Context
+	_, jsErr := n.getJetStreamContext()
+	jsAvailable := jsErr == nil
+
 	n.logger.Error("🔥 SUBSCRIPTION MODE CHECK",
 		zap.Bool("jetStreamEnabled", n.config.JetStream.Enabled),
-		zap.Bool("jsNotNil", n.js != nil))
+		zap.Bool("jsAvailable", jsAvailable))
 
-	if n.config.JetStream.Enabled && n.js != nil {
+	if n.config.JetStream.Enabled && jsAvailable {
 		// 使用JetStream订阅（持久化）
 		n.logger.Error("🔥 USING JETSTREAM SUBSCRIPTION",
 			zap.String("topic", topic))
@@ -1100,7 +1162,13 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 			})
 		}
 
-		sub, err := n.conn.Subscribe(topic, msgHandler)
+		// 🔥 P0修复：无锁读取 NATS Connection
+		conn, connErr := n.getConn()
+		if connErr != nil {
+			return fmt.Errorf("failed to get nats connection: %w", connErr)
+		}
+
+		sub, err := conn.Subscribe(topic, msgHandler)
 		if err != nil {
 			return fmt.Errorf("failed to subscribe to topic %s with Core NATS: %w", topic, err)
 		}
@@ -1116,7 +1184,9 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 		zap.String("topic", topic),
 		zap.Bool("persistent", n.config.JetStream.Enabled),
 		zap.String("mode", func() string {
-			if n.config.JetStream.Enabled && n.js != nil {
+			// 🔥 P0修复：检查 JetStream 是否可用
+			_, jsErr := n.getJetStreamContext()
+			if n.config.JetStream.Enabled && jsErr == nil {
 				return "JetStream"
 			}
 			return "Core"
@@ -1127,10 +1197,8 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 
 // 🔥 subscribeJetStream 使用统一Consumer和Pull Subscription订阅
 func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, handler MessageHandler) error {
-	// 🔥 注册topic handler到统一路由表
-	n.topicHandlersMu.Lock()
-	n.topicHandlers[topic] = handler
-	n.topicHandlersMu.Unlock()
+	// 🔥 P0修复：使用 sync.Map 存储 handler
+	n.topicHandlers.Store(topic, handler)
 
 	// 🔥 添加到订阅topic列表
 	n.subscribedTopicsMu.Lock()
@@ -1155,12 +1223,18 @@ func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, han
 	topicSuffix = strings.ReplaceAll(topicSuffix, ">", "all")
 	durableName := fmt.Sprintf("%s_%s", baseDurableName, topicSuffix)
 
-	sub, err := n.js.PullSubscribe(topic, durableName)
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
 	if err != nil {
 		// 回滚更改
-		n.topicHandlersMu.Lock()
-		delete(n.topicHandlers, topic)
-		n.topicHandlersMu.Unlock()
+		n.topicHandlers.Delete(topic)
+		return fmt.Errorf("failed to get jetstream context: %w", err)
+	}
+
+	sub, err := js.PullSubscribe(topic, durableName)
+	if err != nil {
+		// 🔥 P0修复：回滚更改（使用 sync.Map）
+		n.topicHandlers.Delete(topic)
 
 		if needNewSubscription {
 			n.subscribedTopicsMu.Lock()
@@ -1229,10 +1303,8 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 				zap.Int("msgCount", len(msgs)))
 
 			for _, msg := range msgs {
-				// 🔥 从统一路由表获取handler
-				n.topicHandlersMu.RLock()
-				handler, exists := n.topicHandlers[topic]
-				n.topicHandlersMu.RUnlock()
+				// 🔥 P0修复：无锁读取 handler（使用 sync.Map）
+				handlerAny, exists := n.topicHandlers.Load(topic)
 
 				n.logger.Error("🔥 HANDLER LOOKUP",
 					zap.String("topic", topic),
@@ -1244,6 +1316,8 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 					msg.Ack() // 确认消息以避免重复投递
 					continue
 				}
+
+				handler := handlerAny.(MessageHandler)
 
 				n.logger.Error("🔥 CALLING handleMessage",
 					zap.String("topic", topic),
@@ -1377,32 +1451,40 @@ func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []b
 
 // healthCheck 内部健康检查（不对外暴露）
 func (n *natsEventBus) healthCheck(ctx context.Context) error {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-
-	if n.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if n.closed.Load() {
 		n.healthStatus.Store(false)
 		return fmt.Errorf("eventbus is closed")
 	}
 
+	// 🔥 P0修复：无锁读取 NATS Connection
+	conn, err := n.getConn()
+	if err != nil {
+		n.healthStatus.Store(false)
+		return fmt.Errorf("failed to get nats connection: %w", err)
+	}
+
 	// 检查NATS连接状态
-	if !n.conn.IsConnected() {
+	if !conn.IsConnected() {
 		n.healthStatus.Store(false)
 		return fmt.Errorf("NATS connection is not active")
 	}
 
 	// 检查JetStream连接状态（如果启用）
-	if n.config.JetStream.Enabled && n.js != nil {
-		// 尝试获取账户信息来验证JetStream连接
-		_, err := n.js.AccountInfo()
-		if err != nil {
-			n.healthStatus.Store(false)
-			return fmt.Errorf("JetStream connection is not active: %w", err)
+	if n.config.JetStream.Enabled {
+		js, jsErr := n.getJetStreamContext()
+		if jsErr == nil {
+			// 尝试获取账户信息来验证JetStream连接
+			_, err := js.AccountInfo()
+			if err != nil {
+				n.healthStatus.Store(false)
+				return fmt.Errorf("JetStream connection is not active: %w", err)
+			}
 		}
 	}
 
 	// 发送ping测试连接
-	if err := n.conn.Flush(); err != nil {
+	if err := conn.Flush(); err != nil {
 		n.healthStatus.Store(false)
 		return fmt.Errorf("NATS flush failed: %w", err)
 	}
@@ -1425,7 +1507,8 @@ func (n *natsEventBus) Close() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if n.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if n.closed.Load() {
 		return nil
 	}
 
@@ -1451,10 +1534,12 @@ func (n *natsEventBus) Close() error {
 		n.logger.Debug("Stopped global keyed worker pool")
 	}
 
-	// 🔥 清空统一Consumer管理的映射
-	n.topicHandlersMu.Lock()
-	n.topicHandlers = make(map[string]MessageHandler)
-	n.topicHandlersMu.Unlock()
+	// 🔥 P0修复：清空统一Consumer管理的映射（使用 sync.Map）
+	// sync.Map 没有 Clear 方法，需要逐个删除或重新创建
+	n.topicHandlers.Range(func(key, value interface{}) bool {
+		n.topicHandlers.Delete(key)
+		return true
+	})
 
 	n.subscribedTopicsMu.Lock()
 	n.subscribedTopics = make([]string, 0)
@@ -1471,23 +1556,26 @@ func (n *natsEventBus) Close() error {
 		n.logger.Info("ACK worker pool stopped")
 	}
 
-	// ✅ 重构：等待所有异步发布完成（优雅关闭）
-	if n.js != nil {
+	// 🔥 P0修复：等待所有异步发布完成（优雅关闭）
+	js, jsErr := n.getJetStreamContext()
+	if jsErr == nil {
 		n.logger.Info("Waiting for async publishes to complete...")
 		select {
-		case <-n.js.PublishAsyncComplete():
+		case <-js.PublishAsyncComplete():
 			n.logger.Info("All async publishes completed")
 		case <-time.After(30 * time.Second):
 			n.logger.Warn("Timeout waiting for async publishes to complete")
 		}
 	}
 
-	// 关闭NATS连接
-	if n.conn != nil {
-		n.conn.Close()
+	// 🔥 P0修复：关闭NATS连接
+	conn, connErr := n.getConn()
+	if connErr == nil {
+		conn.Close()
 	}
 
-	n.closed = true
+	// 🔥 P0修复：使用 atomic.Bool 设置关闭状态
+	n.closed.Store(true)
 	n.healthStatus.Store(false)
 
 	if len(errs) > 0 {
@@ -1504,7 +1592,8 @@ func (n *natsEventBus) RegisterReconnectCallback(callback ReconnectCallback) err
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if n.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if n.closed.Load() {
 		return fmt.Errorf("eventbus is closed")
 	}
 
@@ -1520,10 +1609,11 @@ func (n *natsEventBus) RegisterReconnectCallback(callback ReconnectCallback) err
 // 注意：这个函数在 NATS 重连回调中调用，没有父 context
 // 因此使用 Background context 是合理的
 func (n *natsEventBus) executeReconnectCallbacks() {
-	n.mu.RLock()
+	// 🔥 P0修复：改为 Mutex（因为需要读取 reconnectCallbacks）
+	n.mu.Lock()
 	callbacks := make([]func(ctx context.Context) error, len(n.reconnectCallbacks))
 	copy(callbacks, n.reconnectCallbacks)
-	n.mu.RUnlock()
+	n.mu.Unlock()
 
 	// 使用 Background context，因为这是在 NATS 重连回调中调用的
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1545,27 +1635,26 @@ func (n *natsEventBus) collectMetrics() {
 		case <-n.metricsCollector.C:
 			n.updateJetStreamMetrics()
 		case <-time.After(time.Minute):
-			// 防止协程泄漏，定期检查是否已关闭
-			n.mu.RLock()
-			if n.closed {
-				n.mu.RUnlock()
+			// 🔥 P0修复：无锁检查关闭状态（使用 atomic.Bool）
+			if n.closed.Load() {
 				return
 			}
-			n.mu.RUnlock()
 		}
 	}
 }
 
 // updateJetStreamMetrics 更新JetStream指标
 func (n *natsEventBus) updateJetStreamMetrics() {
-	if n.js == nil {
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
+	if err != nil {
 		return
 	}
 
 	// 获取流信息
 	streamName := n.config.JetStream.Stream.Name
 	if streamName != "" {
-		if streamInfo, err := n.js.StreamInfo(streamName); err == nil {
+		if streamInfo, err := js.StreamInfo(streamName); err == nil {
 			// 更新JetStream指标
 			if n.metrics != nil {
 				n.metrics.MessageBacklog = int64(streamInfo.State.Msgs)
@@ -1575,16 +1664,19 @@ func (n *natsEventBus) updateJetStreamMetrics() {
 	}
 
 	// 获取统一消费者信息
-	n.mu.RLock()
-	if n.unifiedConsumer.Name != "" {
-		if consumerInfo, err := n.js.ConsumerInfo(streamName, n.unifiedConsumer.Name); err == nil {
+	// 🔥 P0修复：改为 Mutex（需要读取 unifiedConsumer）
+	n.mu.Lock()
+	consumerName := n.unifiedConsumer.Name
+	n.mu.Unlock()
+
+	if consumerName != "" {
+		if consumerInfo, err := js.ConsumerInfo(streamName, consumerName); err == nil {
 			// 更新消费者指标
 			if n.metrics != nil {
 				n.metrics.MessagesConsumed += int64(consumerInfo.Delivered.Consumer)
 			}
 		}
 	}
-	n.mu.RUnlock()
 }
 
 // ========== 生命周期管理 ==========
@@ -1594,7 +1686,8 @@ func (n *natsEventBus) Start(ctx context.Context) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if n.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if n.closed.Load() {
 		return fmt.Errorf("nats eventbus is closed")
 	}
 
@@ -1860,16 +1953,18 @@ func (n *natsEventBus) StopHealthCheck() error {
 
 // GetHealthStatus 获取健康状态
 func (n *natsEventBus) GetHealthStatus() HealthCheckStatus {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	// 🔥 P0修复：无锁读取状态（使用 atomic 字段）
+	isClosed := n.closed.Load()
+	conn, connErr := n.getConn()
+	isConnected := connErr == nil && conn.IsConnected()
 
-	isHealthy := !n.closed && n.conn != nil && n.conn.IsConnected()
+	isHealthy := !isClosed && isConnected
 	return HealthCheckStatus{
 		IsHealthy:           isHealthy,
 		ConsecutiveFailures: 0,
 		LastSuccessTime:     time.Now(),
 		LastFailureTime:     time.Time{},
-		IsRunning:           !n.closed,
+		IsRunning:           !isClosed,
 		EventBusType:        "nats",
 		Source:              "nats-eventbus",
 	}
@@ -1934,8 +2029,9 @@ func (n *natsEventBus) StopHealthCheckSubscriber() error {
 
 // RegisterHealthCheckAlertCallback 注册健康检查告警回调
 func (n *natsEventBus) RegisterHealthCheckAlertCallback(callback HealthCheckAlertCallback) error {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	// 🔥 P0修复：改为 Mutex
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	if n.healthCheckSubscriber == nil {
 		return fmt.Errorf("health check subscriber not started")
@@ -1946,8 +2042,9 @@ func (n *natsEventBus) RegisterHealthCheckAlertCallback(callback HealthCheckAler
 
 // GetHealthCheckSubscriberStats 获取健康检查订阅监控统计信息
 func (n *natsEventBus) GetHealthCheckSubscriberStats() HealthCheckSubscriberStats {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	// 🔥 P0修复：改为 Mutex
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	if n.healthCheckSubscriber == nil {
 		return HealthCheckSubscriberStats{}
@@ -1958,12 +2055,13 @@ func (n *natsEventBus) GetHealthCheckSubscriberStats() HealthCheckSubscriberStat
 
 // GetConnectionState 获取连接状态
 func (n *natsEventBus) GetConnectionState() ConnectionState {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	// 🔥 P0修复：无锁读取状态
+	isClosed := n.closed.Load()
+	conn, connErr := n.getConn()
+	isConnected := connErr == nil && conn.IsConnected()
 
-	isConnected := !n.closed && n.conn != nil && n.conn.IsConnected()
 	return ConnectionState{
-		IsConnected:       isConnected,
+		IsConnected:       !isClosed && isConnected,
 		LastConnectedTime: time.Now(),
 		ReconnectCount:    0,
 		LastError:         "",
@@ -1972,9 +2070,7 @@ func (n *natsEventBus) GetConnectionState() ConnectionState {
 
 // GetMetrics 获取监控指标
 func (n *natsEventBus) GetMetrics() Metrics {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-
+	// 🔥 P0修复：无需锁（所有字段都是 atomic）
 	return Metrics{
 		MessagesPublished: n.publishedMessages.Load(),
 		MessagesConsumed:  n.consumedMessages.Load(),
@@ -1990,26 +2086,26 @@ func (n *natsEventBus) GetMetrics() Metrics {
 
 // CheckConnection 检查 NATS 连接状态
 func (n *natsEventBus) CheckConnection(ctx context.Context) error {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-
-	if n.closed {
+	// 🔥 P0修复：无锁检查关闭状态
+	if n.closed.Load() {
 		return fmt.Errorf("nats eventbus is closed")
 	}
 
-	if n.conn == nil {
-		return fmt.Errorf("nats connection is nil")
+	// 🔥 P0修复：无锁读取连接
+	conn, err := n.getConn()
+	if err != nil {
+		return fmt.Errorf("nats connection is nil: %w", err)
 	}
 
-	if !n.conn.IsConnected() {
+	if !conn.IsConnected() {
 		return fmt.Errorf("nats connection is not connected")
 	}
 
 	// 检查服务器信息
-	if !n.conn.IsReconnecting() && n.conn.ConnectedUrl() != "" {
+	if !conn.IsReconnecting() && conn.ConnectedUrl() != "" {
 		n.logger.Debug("NATS connection check passed",
-			zap.String("connectedUrl", n.conn.ConnectedUrl()),
-			zap.String("status", n.conn.Status().String()))
+			zap.String("connectedUrl", conn.ConnectedUrl()),
+			zap.String("status", conn.Status().String()))
 		return nil
 	}
 
@@ -2025,8 +2121,9 @@ func (n *natsEventBus) CheckMessageTransport(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// 如果连接支持订阅，进行端到端测试
-	if n.conn != nil && n.conn.IsConnected() {
+	// 🔥 P0修复：无锁读取连接
+	conn, connErr := n.getConn()
+	if connErr == nil && conn.IsConnected() {
 		return n.performNATSEndToEndTest(ctx, testSubject, testMessage)
 	}
 
@@ -2050,11 +2147,17 @@ func (n *natsEventBus) CheckMessageTransport(ctx context.Context) error {
 
 // performNATSEndToEndTest 执行 NATS 端到端测试
 func (n *natsEventBus) performNATSEndToEndTest(ctx context.Context, testSubject, testMessage string) error {
+	// 🔥 P0修复：无锁读取连接
+	conn, err := n.getConn()
+	if err != nil {
+		return fmt.Errorf("failed to get nats connection: %w", err)
+	}
+
 	// 创建接收通道
 	receiveChan := make(chan string, 1)
 
 	// 创建临时订阅来接收健康检查消息
-	sub, err := n.conn.Subscribe(testSubject, func(msg *nats.Msg) {
+	sub, err := conn.Subscribe(testSubject, func(msg *nats.Msg) {
 		receivedMsg := string(msg.Data)
 		if receivedMsg == testMessage {
 			select {
@@ -2108,11 +2211,13 @@ func (n *natsEventBus) performNATSEndToEndTest(ctx context.Context, testSubject,
 
 // GetEventBusMetrics 获取 NATS EventBus 性能指标
 func (n *natsEventBus) GetEventBusMetrics() EventBusHealthMetrics {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	// 🔥 P0修复：无锁读取状态
+	isClosed := n.closed.Load()
+	conn, connErr := n.getConn()
+	isConnected := connErr == nil && conn.IsConnected()
 
 	connectionStatus := "disconnected"
-	if !n.closed && n.conn != nil && n.conn.IsConnected() {
+	if !isClosed && isConnected {
 		connectionStatus = "connected"
 	}
 
@@ -2170,7 +2275,7 @@ func (n *natsEventBus) reconnect(ctx context.Context) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if n.closed {
+	if n.closed.Load() {
 		return fmt.Errorf("nats eventbus is closed")
 	}
 
@@ -2253,9 +2358,10 @@ func (n *natsEventBus) calculateBackoff(attempt int) time.Duration {
 
 // reinitializeConnectionInternal 重新初始化 NATS 连接（使用内部配置）
 func (n *natsEventBus) reinitializeConnectionInternal() error {
-	// 关闭现有连接
-	if n.conn != nil {
-		n.conn.Close()
+	// 🔥 P0修复：关闭现有连接
+	conn, connErr := n.getConn()
+	if connErr == nil {
+		conn.Close()
 	}
 
 	// 构建连接选项
@@ -2275,8 +2381,8 @@ func (n *natsEventBus) reinitializeConnectionInternal() error {
 		return fmt.Errorf("failed to reconnect to NATS: %w", err)
 	}
 
-	// 更新连接
-	n.conn = nc
+	// 🔥 P0修复：使用 atomic.Value 更新连接
+	n.conn.Store(nc)
 
 	// 重新创建JetStream上下文
 	js, err := nc.JetStream()
@@ -2284,7 +2390,8 @@ func (n *natsEventBus) reinitializeConnectionInternal() error {
 		nc.Close()
 		return fmt.Errorf("failed to create JetStream context: %w", err)
 	}
-	n.js = js
+	// 🔥 P0修复：使用 atomic.Value 更新 JetStream Context
+	n.js.Store(js)
 
 	// 重新初始化统一Consumer
 	if err := n.initUnifiedConsumer(); err != nil {
@@ -2401,11 +2508,13 @@ func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 		}
 	}
 
-	// 🔥 清空现有映射
+	// 🔥 P0修复：清空现有映射
 	n.subscriptions = make(map[string]*nats.Subscription)
-	n.topicHandlersMu.Lock()
-	n.topicHandlers = make(map[string]MessageHandler)
-	n.topicHandlersMu.Unlock()
+	// 清空 sync.Map（逐个删除）
+	n.topicHandlers.Range(func(key, value interface{}) bool {
+		n.topicHandlers.Delete(key)
+		return true
+	})
 	n.subscribedTopicsMu.Lock()
 	n.subscribedTopics = make([]string, 0)
 	n.subscribedTopicsMu.Unlock()
@@ -2452,10 +2561,10 @@ func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 //   - PublishEnvelope(): 支持 Outbox 模式，发送 ACK 结果到 publishResultChan
 //   - Publish(): 不支持 Outbox 模式，消息容许丢失
 func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelope *Envelope) error {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	if n.closed {
+	if n.closed.Load() {
 		return fmt.Errorf("nats eventbus is closed")
 	}
 
@@ -2471,10 +2580,11 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 		return fmt.Errorf("failed to serialize envelope: %w", err)
 	}
 
-	// 如果 JetStream 已启用，使用 JetStream 发布
-	if n.js != nil {
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, jsErr := n.getJetStreamContext()
+	if jsErr == nil {
 		// ✅ 方案2：异步发布，获取 Future
-		pubAckFuture, err := n.js.PublishAsync(topic, envelopeBytes)
+		pubAckFuture, err := js.PublishAsync(topic, envelopeBytes)
 		if err != nil {
 			n.errorCount.Add(1)
 			n.logger.Error("Failed to submit async publish for envelope message",
@@ -2516,8 +2626,12 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 		}
 	}
 
-	// 如果 JetStream 未启用，使用 NATS Core 发布
-	err = n.conn.Publish(topic, envelopeBytes)
+	// 🔥 P0修复：如果 JetStream 未启用，使用 NATS Core 发布
+	conn, connErr := n.getConn()
+	if connErr != nil {
+		return fmt.Errorf("failed to get nats connection: %w", connErr)
+	}
+	err = conn.Publish(topic, envelopeBytes)
 	if err != nil {
 		n.errorCount.Add(1)
 		n.logger.Error("Failed to publish envelope message",
@@ -2541,10 +2655,10 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 //
 // 性能：比 PublishEnvelope 慢，但提供即时反馈
 func (n *natsEventBus) PublishEnvelopeSync(ctx context.Context, topic string, envelope *Envelope) error {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	if n.closed {
+	if n.closed.Load() {
 		return fmt.Errorf("nats eventbus is closed")
 	}
 
@@ -2560,8 +2674,14 @@ func (n *natsEventBus) PublishEnvelopeSync(ctx context.Context, topic string, en
 		return fmt.Errorf("failed to serialize envelope: %w", err)
 	}
 
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, jsErr := n.getJetStreamContext()
+	if jsErr != nil {
+		return fmt.Errorf("failed to get jetstream context: %w", jsErr)
+	}
+
 	// ✅ 同步发布（等待ACK）
-	_, err = n.js.Publish(topic, envelopeBytes)
+	_, err = js.Publish(topic, envelopeBytes)
 	if err != nil {
 		n.errorCount.Add(1)
 		n.logger.Error("Sync publish failed for envelope message",
@@ -2594,15 +2714,21 @@ func (n *natsEventBus) PublishEnvelopeSync(ctx context.Context, topic string, en
 //
 // 参考：NATS bench 的批量 ACK 检查实现
 func (n *natsEventBus) PublishEnvelopeBatch(ctx context.Context, topic string, envelopes []*Envelope) error {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	if n.closed {
+	if n.closed.Load() {
 		return fmt.Errorf("nats eventbus is closed")
 	}
 
 	if len(envelopes) == 0 {
 		return nil
+	}
+
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, jsErr := n.getJetStreamContext()
+	if jsErr != nil {
+		return fmt.Errorf("failed to get jetstream context: %w", jsErr)
 	}
 
 	// ✅ 批量异步发布
@@ -2621,7 +2747,7 @@ func (n *natsEventBus) PublishEnvelopeBatch(ctx context.Context, topic string, e
 		}
 
 		// 异步发布
-		future, err := n.js.PublishAsync(topic, envelopeBytes)
+		future, err := js.PublishAsync(topic, envelopeBytes)
 		if err != nil {
 			n.errorCount.Add(1)
 			return fmt.Errorf("failed to submit async publish: %w", err)
@@ -2768,8 +2894,8 @@ func (n *natsEventBus) StopHealthCheckPublisher() error {
 
 // GetHealthCheckPublisherStatus 获取健康检查发布器状态
 func (n *natsEventBus) GetHealthCheckPublisherStatus() HealthCheckStatus {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	if n.healthChecker == nil {
 		return HealthCheckStatus{
@@ -2788,8 +2914,8 @@ func (n *natsEventBus) GetHealthCheckPublisherStatus() HealthCheckStatus {
 
 // RegisterHealthCheckPublisherCallback 注册健康检查发布器回调
 func (n *natsEventBus) RegisterHealthCheckPublisherCallback(callback HealthCheckCallback) error {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	if n.healthChecker == nil {
 		return fmt.Errorf("health check publisher not started")
@@ -2843,12 +2969,12 @@ func (n *natsEventBus) StopAllHealthCheck() error {
 func (n *natsEventBus) ConfigureTopic(ctx context.Context, topic string, options TopicOptions) error {
 	start := time.Now()
 
-	n.topicConfigsMu.Lock()
-	// 检查是否已有配置
-	_, exists := n.topicConfigs[topic]
-	// 缓存配置
-	n.topicConfigs[topic] = options
-	n.topicConfigsMu.Unlock()
+	// 🔥 P1优化：使用 sync.Map 无锁读写
+	_, exists := n.topicConfigs.LoadOrStore(topic, options)
+	if exists {
+		// 如果已存在，更新配置
+		n.topicConfigs.Store(topic, options)
+	}
 
 	// 根据策略决定是否需要同步到消息中间件
 	shouldCreate, shouldUpdate := shouldCreateOrUpdate(n.topicConfigStrategy, exists)
@@ -2857,8 +2983,12 @@ func (n *natsEventBus) ConfigureTopic(ctx context.Context, topic string, options
 	var err error
 	var mismatches []TopicConfigMismatch
 
+	// 🔥 P0修复：检查 JetStream 是否可用
+	_, jsErr := n.getJetStreamContext()
+	jsAvailable := jsErr == nil
+
 	// 如果是持久化模式且JetStream可用
-	if options.IsPersistent(n.config.JetStream.Enabled) && n.js != nil {
+	if options.IsPersistent(n.config.JetStream.Enabled) && jsAvailable {
 		switch {
 		case n.topicConfigStrategy == StrategySkip:
 			// 跳过模式：不检查
@@ -2916,12 +3046,11 @@ func (n *natsEventBus) ConfigureTopic(ctx context.Context, topic string, options
 		return fmt.Errorf("failed to configure topic %s: %w", topic, err)
 	}
 
-	// ✅ Stream预创建优化：成功创建/配置Stream后，添加到本地缓存
-	if options.IsPersistent(n.config.JetStream.Enabled) && n.js != nil && err == nil {
+	// 🔥 P0修复：Stream预创建优化：成功创建/配置Stream后，添加到本地缓存
+	if options.IsPersistent(n.config.JetStream.Enabled) && jsAvailable && err == nil {
 		streamName := n.getStreamNameForTopic(topic)
-		n.createdStreamsMu.Lock()
-		n.createdStreams[streamName] = true
-		n.createdStreamsMu.Unlock()
+		// 使用 sync.Map 存储
+		n.createdStreams.Store(streamName, true)
 	}
 
 	n.logger.Info("Topic configured successfully",
@@ -2952,11 +3081,9 @@ func (n *natsEventBus) SetTopicPersistence(ctx context.Context, topic string, pe
 
 // GetTopicConfig 获取主题的当前配置
 func (n *natsEventBus) GetTopicConfig(topic string) (TopicOptions, error) {
-	n.topicConfigsMu.RLock()
-	defer n.topicConfigsMu.RUnlock()
-
-	if config, exists := n.topicConfigs[topic]; exists {
-		return config, nil
+	// 🔥 P1优化：使用 sync.Map 无锁读取
+	if config, exists := n.topicConfigs.Load(topic); exists {
+		return config.(TopicOptions), nil
 	}
 
 	// 返回默认配置
@@ -2965,23 +3092,20 @@ func (n *natsEventBus) GetTopicConfig(topic string) (TopicOptions, error) {
 
 // ListConfiguredTopics 列出所有已配置的主题
 func (n *natsEventBus) ListConfiguredTopics() []string {
-	n.topicConfigsMu.RLock()
-	defer n.topicConfigsMu.RUnlock()
-
-	topics := make([]string, 0, len(n.topicConfigs))
-	for topic := range n.topicConfigs {
-		topics = append(topics, topic)
-	}
+	// 🔥 P1优化：使用 sync.Map 无锁遍历
+	topics := make([]string, 0)
+	n.topicConfigs.Range(func(key, value interface{}) bool {
+		topics = append(topics, key.(string))
+		return true // 继续遍历
+	})
 
 	return topics
 }
 
 // RemoveTopicConfig 移除主题配置（恢复为默认行为）
 func (n *natsEventBus) RemoveTopicConfig(topic string) error {
-	n.topicConfigsMu.Lock()
-	defer n.topicConfigsMu.Unlock()
-
-	delete(n.topicConfigs, topic)
+	// 🔥 P1优化：使用 sync.Map 无锁删除
+	n.topicConfigs.Delete(topic)
 
 	n.logger.Info("Topic configuration removed", zap.String("topic", topic))
 	return nil
@@ -2989,15 +3113,17 @@ func (n *natsEventBus) RemoveTopicConfig(topic string) error {
 
 // ensureTopicInJetStream 确保主题在JetStream中存在
 func (n *natsEventBus) ensureTopicInJetStream(topic string, options TopicOptions) error {
-	if n.js == nil {
-		return fmt.Errorf("JetStream not enabled")
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
+	if err != nil {
+		return fmt.Errorf("JetStream not enabled: %w", err)
 	}
 
 	// 获取或创建适合该主题的Stream名称
 	streamName := n.getStreamNameForTopic(topic)
 
 	// 尝试获取Stream信息
-	streamInfo, err := n.js.StreamInfo(streamName)
+	streamInfo, err := js.StreamInfo(streamName)
 	if err != nil {
 		// Stream不存在，创建新的
 		return n.createStreamForTopic(topic, options)
@@ -3026,6 +3152,12 @@ func (n *natsEventBus) getStreamNameForTopic(topic string) string {
 
 // createStreamForTopic 为主题创建新的Stream
 func (n *natsEventBus) createStreamForTopic(topic string, options TopicOptions) error {
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
+	if err != nil {
+		return fmt.Errorf("failed to get jetstream context: %w", err)
+	}
+
 	streamConfig := &nats.StreamConfig{
 		Name:      n.getStreamNameForTopic(topic),
 		Subjects:  []string{topic},
@@ -3048,7 +3180,7 @@ func (n *natsEventBus) createStreamForTopic(topic string, options TopicOptions) 
 		streamConfig.Replicas = options.Replicas
 	}
 
-	_, err := n.js.AddStream(streamConfig)
+	_, err = js.AddStream(streamConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create stream for topic %s: %w", topic, err)
 	}
@@ -3062,8 +3194,14 @@ func (n *natsEventBus) createStreamForTopic(topic string, options TopicOptions) 
 
 // addTopicToStream 将主题添加到现有Stream
 func (n *natsEventBus) addTopicToStream(streamName, topic string, options TopicOptions) error {
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
+	if err != nil {
+		return fmt.Errorf("failed to get jetstream context: %w", err)
+	}
+
 	// 获取现有Stream配置
-	streamInfo, err := n.js.StreamInfo(streamName)
+	streamInfo, err := js.StreamInfo(streamName)
 	if err != nil {
 		return fmt.Errorf("failed to get stream info: %w", err)
 	}
@@ -3073,7 +3211,7 @@ func (n *natsEventBus) addTopicToStream(streamName, topic string, options TopicO
 	streamInfo.Config.Subjects = newSubjects
 
 	// 更新Stream配置
-	_, err = n.js.UpdateStream(&streamInfo.Config)
+	_, err = js.UpdateStream(&streamInfo.Config)
 	if err != nil {
 		return fmt.Errorf("failed to update stream with new topic: %w", err)
 	}
@@ -3086,128 +3224,141 @@ func (n *natsEventBus) addTopicToStream(streamName, topic string, options TopicO
 }
 
 // ensureTopicInJetStreamIdempotent 幂等地确保主题在JetStream中存在（支持创建和更新）
+// 🔥 P1优化：使用单飞抑制防止并发创建 Stream 风暴
 func (n *natsEventBus) ensureTopicInJetStreamIdempotent(ctx context.Context, topic string, options TopicOptions, allowUpdate bool) error {
-	if n.js == nil {
-		return fmt.Errorf("JetStream not enabled")
-	}
-
 	streamName := n.getStreamNameForTopic(topic)
 
-	// 构建期望的Stream配置
-	expectedConfig := &nats.StreamConfig{
-		Name:      streamName,
-		Subjects:  []string{topic},
-		Storage:   nats.FileStorage,
-		Retention: nats.LimitsPolicy,
-		Replicas:  1,
-	}
-
-	// 应用选项
-	if options.RetentionTime > 0 {
-		expectedConfig.MaxAge = options.RetentionTime
-	}
-	if options.MaxSize > 0 {
-		expectedConfig.MaxBytes = options.MaxSize
-	}
-	if options.MaxMessages > 0 {
-		expectedConfig.MaxMsgs = options.MaxMessages
-	}
-	if options.Replicas > 0 {
-		expectedConfig.Replicas = options.Replicas
-	}
-
-	// 检查Stream是否存在
-	streamInfo, err := n.js.StreamInfo(streamName)
-
-	if err != nil {
-		if err == nats.ErrStreamNotFound {
-			// Stream不存在，创建新的
-			n.logger.Info("Creating new JetStream stream",
-				zap.String("stream", streamName),
-				zap.String("topic", topic))
-
-			_, err := n.js.AddStream(expectedConfig)
-			if err != nil {
-				return fmt.Errorf("failed to create stream: %w", err)
-			}
-
-			n.logger.Info("Created JetStream stream",
-				zap.String("stream", streamName),
-				zap.String("topic", topic))
-			return nil
-		}
-		return fmt.Errorf("failed to get stream info: %w", err)
-	}
-
-	// Stream已存在
-	// 检查主题是否已在Stream的subjects中
-	topicExists := false
-	for _, subject := range streamInfo.Config.Subjects {
-		if subject == topic || subject == topic+".*" {
-			topicExists = true
-			break
-		}
-	}
-
-	if !topicExists {
-		// 主题不在Stream中，添加主题
-		n.logger.Info("Adding topic to existing stream",
-			zap.String("stream", streamName),
-			zap.String("topic", topic))
-
-		streamInfo.Config.Subjects = append(streamInfo.Config.Subjects, topic)
-		_, err = n.js.UpdateStream(&streamInfo.Config)
+	// 🔥 P1优化：使用单飞抑制，确保同一个 stream 只创建一次
+	// 即使有 1000 个并发请求，也只会执行一次创建操作
+	_, err, _ := n.streamCreateGroup.Do(streamName, func() (interface{}, error) {
+		// 🔥 P0修复：无锁读取 JetStream Context
+		js, err := n.getJetStreamContext()
 		if err != nil {
-			return fmt.Errorf("failed to add topic to stream: %w", err)
-		}
-	}
-
-	// 如果允许更新，检查配置是否需要更新
-	if allowUpdate {
-		needsUpdate := false
-
-		// 比较配置
-		if expectedConfig.MaxAge != streamInfo.Config.MaxAge {
-			streamInfo.Config.MaxAge = expectedConfig.MaxAge
-			needsUpdate = true
-		}
-		if expectedConfig.MaxBytes != streamInfo.Config.MaxBytes {
-			streamInfo.Config.MaxBytes = expectedConfig.MaxBytes
-			needsUpdate = true
-		}
-		if expectedConfig.MaxMsgs != streamInfo.Config.MaxMsgs {
-			streamInfo.Config.MaxMsgs = expectedConfig.MaxMsgs
-			needsUpdate = true
+			return nil, fmt.Errorf("JetStream not enabled: %w", err)
 		}
 
-		if needsUpdate {
-			n.logger.Info("Updating stream configuration",
+		// 构建期望的Stream配置
+		expectedConfig := &nats.StreamConfig{
+			Name:      streamName,
+			Subjects:  []string{topic},
+			Storage:   nats.FileStorage,
+			Retention: nats.LimitsPolicy,
+			Replicas:  1,
+		}
+
+		// 应用选项
+		if options.RetentionTime > 0 {
+			expectedConfig.MaxAge = options.RetentionTime
+		}
+		if options.MaxSize > 0 {
+			expectedConfig.MaxBytes = options.MaxSize
+		}
+		if options.MaxMessages > 0 {
+			expectedConfig.MaxMsgs = options.MaxMessages
+		}
+		if options.Replicas > 0 {
+			expectedConfig.Replicas = options.Replicas
+		}
+
+		// 检查Stream是否存在
+		streamInfo, err := js.StreamInfo(streamName)
+
+		if err != nil {
+			if err == nats.ErrStreamNotFound {
+				// Stream不存在，创建新的
+				n.logger.Info("Creating new JetStream stream",
+					zap.String("stream", streamName),
+					zap.String("topic", topic))
+
+				_, err := js.AddStream(expectedConfig)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create stream: %w", err)
+				}
+
+				n.logger.Info("Created JetStream stream",
+					zap.String("stream", streamName),
+					zap.String("topic", topic))
+				return nil, nil
+			}
+			return nil, fmt.Errorf("failed to get stream info: %w", err)
+		}
+
+		// Stream已存在
+		// 检查主题是否已在Stream的subjects中
+		topicExists := false
+		for _, subject := range streamInfo.Config.Subjects {
+			if subject == topic || subject == topic+".*" {
+				topicExists = true
+				break
+			}
+		}
+
+		if !topicExists {
+			// 主题不在Stream中，添加主题
+			n.logger.Info("Adding topic to existing stream",
 				zap.String("stream", streamName),
 				zap.String("topic", topic))
 
-			_, err = n.js.UpdateStream(&streamInfo.Config)
+			streamInfo.Config.Subjects = append(streamInfo.Config.Subjects, topic)
+			// 🔥 P0修复：使用 js 变量
+			_, err = js.UpdateStream(&streamInfo.Config)
 			if err != nil {
-				n.logger.Warn("Failed to update stream config, using existing config",
-					zap.String("stream", streamName),
-					zap.Error(err))
-				// 不返回错误，使用现有配置
+				return nil, fmt.Errorf("failed to add topic to stream: %w", err)
 			}
 		}
-	}
 
-	return nil
+		// 如果允许更新，检查配置是否需要更新
+		if allowUpdate {
+			needsUpdate := false
+
+			// 比较配置
+			if expectedConfig.MaxAge != streamInfo.Config.MaxAge {
+				streamInfo.Config.MaxAge = expectedConfig.MaxAge
+				needsUpdate = true
+			}
+			if expectedConfig.MaxBytes != streamInfo.Config.MaxBytes {
+				streamInfo.Config.MaxBytes = expectedConfig.MaxBytes
+				needsUpdate = true
+			}
+			if expectedConfig.MaxMsgs != streamInfo.Config.MaxMsgs {
+				streamInfo.Config.MaxMsgs = expectedConfig.MaxMsgs
+				needsUpdate = true
+			}
+
+			if needsUpdate {
+				n.logger.Info("Updating stream configuration",
+					zap.String("stream", streamName),
+					zap.String("topic", topic))
+
+				// 🔥 P0修复：使用 js 变量
+				_, err = js.UpdateStream(&streamInfo.Config)
+				if err != nil {
+					n.logger.Warn("Failed to update stream config, using existing config",
+						zap.String("stream", streamName),
+						zap.Error(err))
+					// 不返回错误，使用现有配置
+				}
+			}
+		}
+
+		return nil, nil
+	})
+
+	return err
 }
 
 // getActualTopicConfig 获取主题在JetStream中的实际配置
 func (n *natsEventBus) getActualTopicConfig(ctx context.Context, topic string) (TopicOptions, error) {
-	if n.js == nil {
-		return TopicOptions{}, fmt.Errorf("JetStream not enabled")
+	// 🔥 P0修复：无锁读取 JetStream Context
+	js, err := n.getJetStreamContext()
+	if err != nil {
+		return TopicOptions{}, fmt.Errorf("JetStream not enabled: %w", err)
 	}
 
 	streamName := n.getStreamNameForTopic(topic)
 
 	// 获取Stream信息
-	streamInfo, err := n.js.StreamInfo(streamName)
+	streamInfo, err := js.StreamInfo(streamName)
 	if err != nil {
 		return TopicOptions{}, fmt.Errorf("failed to get stream info: %w", err)
 	}
@@ -3226,16 +3377,18 @@ func (n *natsEventBus) getActualTopicConfig(ctx context.Context, topic string) (
 
 // SetTopicConfigStrategy 设置主题配置策略
 func (n *natsEventBus) SetTopicConfigStrategy(strategy TopicConfigStrategy) {
-	n.topicConfigsMu.Lock()
-	defer n.topicConfigsMu.Unlock()
+	// 🔥 P1优化：使用 topicConfigStrategyMu 保护策略字段
+	n.topicConfigStrategyMu.Lock()
+	defer n.topicConfigStrategyMu.Unlock()
 	n.topicConfigStrategy = strategy
 	n.logger.Info("Topic config strategy updated", zap.String("strategy", string(strategy)))
 }
 
 // GetTopicConfigStrategy 获取当前主题配置策略
 func (n *natsEventBus) GetTopicConfigStrategy() TopicConfigStrategy {
-	n.topicConfigsMu.RLock()
-	defer n.topicConfigsMu.RUnlock()
+	// 🔥 P1优化：使用 topicConfigStrategyMu 保护策略字段
+	n.topicConfigStrategyMu.RLock()
+	defer n.topicConfigStrategyMu.RUnlock()
 	return n.topicConfigStrategy
 }
 

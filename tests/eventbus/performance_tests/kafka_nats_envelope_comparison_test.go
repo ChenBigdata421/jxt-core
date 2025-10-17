@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"runtime"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ import (
 // 6. Topic 数量为 5
 // 7. 输出报告包括性能指标、关键资源占用情况、连接数、消费者组个数对比
 // 8. Kafka 的 ClientID 和 topic 名称只使用 ASCII 字符
+// 9. 处理延迟测量：端到端延迟（从 Envelope.Timestamp 发送时间到接收时间）
 
 // OrderChecker 高性能顺序检查器（使用分片锁减少竞争）
 type OrderChecker struct {
@@ -101,16 +103,16 @@ type PerfMetrics struct {
 	// 性能指标
 	SendThroughput    float64 // 发送吞吐量 (msg/s)
 	ReceiveThroughput float64 // 接收吞吐量 (msg/s)
-	AvgSendLatency    float64 // 平均发送延迟 (ms)
-	AvgProcessLatency float64 // 平均处理延迟 (ms)
+	AvgSendLatency    float64 // 平均发送延迟 (ms) - PublishEnvelope 方法执行时间
+	AvgProcessLatency float64 // 平均处理延迟 (ms) - 端到端延迟（Envelope.Timestamp → 接收时间）
 
 	// 资源占用
 	InitialGoroutines int     // 初始协程数
-	PeakGoroutines    int     // 峰值协程数
+	PeakGoroutines    int32   // 峰值协程数 (使用 int32 以便原子操作)
 	FinalGoroutines   int     // 最终协程数
 	GoroutineLeak     int     // 协程泄漏数
 	InitialMemoryMB   float64 // 初始内存 (MB)
-	PeakMemoryMB      float64 // 峰值内存 (MB)
+	PeakMemoryMB      uint64  // 峰值内存 (MB) - 存储为 uint64 bits 以便原子操作
 	FinalMemoryMB     float64 // 最终内存 (MB)
 	MemoryDeltaMB     float64 // 内存增量 (MB)
 
@@ -648,7 +650,7 @@ func runPerformanceTestMultiTopic(t *testing.T, eb eventbus.EventBus, topics []s
 
 	// 创建统一的消息处理器
 	handler := func(ctx context.Context, envelope *eventbus.Envelope) error {
-		startTime := time.Now()
+		receiveTime := time.Now()
 
 		// 更新接收计数
 		atomic.AddInt64(&metrics.MessagesReceived, 1)
@@ -656,23 +658,39 @@ func runPerformanceTestMultiTopic(t *testing.T, eb eventbus.EventBus, topics []s
 		// 检查顺序性（线程安全，使用分片锁）
 		orderChecker.Check(envelope.AggregateID, envelope.EventVersion)
 
-		// 记录处理延迟
-		latency := time.Since(startTime).Microseconds()
-		atomic.AddInt64(&metrics.procLatencySum, latency)
-		atomic.AddInt64(&metrics.procLatencyCount, 1)
-
-		// 更新峰值协程数
-		currentGoroutines := runtime.NumGoroutine()
-		if currentGoroutines > metrics.PeakGoroutines {
-			metrics.PeakGoroutines = currentGoroutines
+		// 记录端到端处理延迟（从发送时间到接收时间）
+		if !envelope.Timestamp.IsZero() {
+			latency := receiveTime.Sub(envelope.Timestamp).Microseconds()
+			atomic.AddInt64(&metrics.procLatencySum, latency)
+			atomic.AddInt64(&metrics.procLatencyCount, 1)
 		}
 
-		// 更新峰值内存
+		// 更新峰值协程数（原子操作）
+		currentGoroutines := int32(runtime.NumGoroutine())
+		for {
+			oldPeak := atomic.LoadInt32(&metrics.PeakGoroutines)
+			if currentGoroutines <= oldPeak {
+				break
+			}
+			if atomic.CompareAndSwapInt32(&metrics.PeakGoroutines, oldPeak, currentGoroutines) {
+				break
+			}
+		}
+
+		// 更新峰值内存（原子操作）
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 		currentMemoryMB := float64(m.Alloc) / 1024 / 1024
-		if currentMemoryMB > metrics.PeakMemoryMB {
-			metrics.PeakMemoryMB = currentMemoryMB
+		currentMemoryBits := math.Float64bits(currentMemoryMB)
+		for {
+			oldPeakBits := atomic.LoadUint64(&metrics.PeakMemoryMB)
+			oldPeakMB := math.Float64frombits(oldPeakBits)
+			if currentMemoryMB <= oldPeakMB {
+				break
+			}
+			if atomic.CompareAndSwapUint64(&metrics.PeakMemoryMB, oldPeakBits, currentMemoryBits) {
+				break
+			}
 		}
 
 		return nil
@@ -798,16 +816,20 @@ func runPerformanceTestMultiTopic(t *testing.T, eb eventbus.EventBus, topics []s
 	// 计算性能指标
 	durationSeconds := metrics.Duration.Seconds()
 	if durationSeconds > 0 {
-		metrics.SendThroughput = float64(metrics.MessagesSent) / durationSeconds
-		metrics.ReceiveThroughput = float64(metrics.MessagesReceived) / durationSeconds
+		metrics.SendThroughput = float64(atomic.LoadInt64(&metrics.MessagesSent)) / durationSeconds
+		metrics.ReceiveThroughput = float64(atomic.LoadInt64(&metrics.MessagesReceived)) / durationSeconds
 	}
 
-	if metrics.sendLatencyCount > 0 {
-		metrics.AvgSendLatency = float64(metrics.sendLatencySum) / float64(metrics.sendLatencyCount) / 1000.0 // 转换为毫秒
+	sendLatencyCount := atomic.LoadInt64(&metrics.sendLatencyCount)
+	if sendLatencyCount > 0 {
+		sendLatencySum := atomic.LoadInt64(&metrics.sendLatencySum)
+		metrics.AvgSendLatency = float64(sendLatencySum) / float64(sendLatencyCount) / 1000.0 // 转换为毫秒
 	}
 
-	if metrics.procLatencyCount > 0 {
-		metrics.AvgProcessLatency = float64(metrics.procLatencySum) / float64(metrics.procLatencyCount) / 1000.0 // 转换为毫秒
+	procLatencyCount := atomic.LoadInt64(&metrics.procLatencyCount)
+	if procLatencyCount > 0 {
+		procLatencySum := atomic.LoadInt64(&metrics.procLatencySum)
+		metrics.AvgProcessLatency = float64(procLatencySum) / float64(procLatencyCount) / 1000.0 // 转换为毫秒
 	}
 
 	metrics.SuccessRate = float64(metrics.MessagesReceived) / float64(messageCount) * 100
@@ -838,7 +860,7 @@ func runPerformanceTest(t *testing.T, eb eventbus.EventBus, topic string, messag
 		defer wg.Done()
 
 		handler := func(ctx context.Context, envelope *eventbus.Envelope) error {
-			startTime := time.Now()
+			receiveTime := time.Now()
 
 			// 更新接收计数
 			atomic.AddInt64(&metrics.MessagesReceived, 1)
@@ -846,10 +868,12 @@ func runPerformanceTest(t *testing.T, eb eventbus.EventBus, topic string, messag
 			// 检查顺序性（线程安全，使用分片锁）
 			orderChecker.Check(envelope.AggregateID, envelope.EventVersion)
 
-			// 记录处理延迟
-			latency := time.Since(startTime).Microseconds()
-			atomic.AddInt64(&metrics.procLatencySum, latency)
-			atomic.AddInt64(&metrics.procLatencyCount, 1)
+			// 记录端到端处理延迟（从发送时间到接收时间）
+			if !envelope.Timestamp.IsZero() {
+				latency := receiveTime.Sub(envelope.Timestamp).Microseconds()
+				atomic.AddInt64(&metrics.procLatencySum, latency)
+				atomic.AddInt64(&metrics.procLatencyCount, 1)
+			}
 
 			return nil
 		}
@@ -971,44 +995,67 @@ func runPerformanceTest(t *testing.T, eb eventbus.EventBus, topic string, messag
 	time.Sleep(1 * time.Second)
 }
 
-// updatePeakResources 更新峰值资源占用
+// updatePeakResources 更新峰值资源占用（原子操作）
 func updatePeakResources(metrics *PerfMetrics) {
-	goroutines := runtime.NumGoroutine()
-	if goroutines > metrics.PeakGoroutines {
-		metrics.PeakGoroutines = goroutines
+	// 更新峰值协程数
+	currentGoroutines := int32(runtime.NumGoroutine())
+	for {
+		oldPeak := atomic.LoadInt32(&metrics.PeakGoroutines)
+		if currentGoroutines <= oldPeak {
+			break
+		}
+		if atomic.CompareAndSwapInt32(&metrics.PeakGoroutines, oldPeak, currentGoroutines) {
+			break
+		}
 	}
 
+	// 更新峰值内存
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	memoryMB := float64(m.Alloc) / 1024 / 1024
-	if memoryMB > metrics.PeakMemoryMB {
-		metrics.PeakMemoryMB = memoryMB
+	memoryBits := math.Float64bits(memoryMB)
+	for {
+		oldPeakBits := atomic.LoadUint64(&metrics.PeakMemoryMB)
+		oldPeakMB := math.Float64frombits(oldPeakBits)
+		if memoryMB <= oldPeakMB {
+			break
+		}
+		if atomic.CompareAndSwapUint64(&metrics.PeakMemoryMB, oldPeakBits, memoryBits) {
+			break
+		}
 	}
 }
 
 // calculateFinalMetrics 计算最终性能指标
 func calculateFinalMetrics(metrics *PerfMetrics) {
 	// 成功率
-	if metrics.MessagesSent > 0 {
-		metrics.SuccessRate = float64(metrics.MessagesReceived) / float64(metrics.MessagesSent) * 100
+	messagesSent := atomic.LoadInt64(&metrics.MessagesSent)
+	messagesReceived := atomic.LoadInt64(&metrics.MessagesReceived)
+	if messagesSent > 0 {
+		metrics.SuccessRate = float64(messagesReceived) / float64(messagesSent) * 100
 	}
 
 	// 吞吐量
 	if metrics.Duration.Seconds() > 0 {
-		metrics.SendThroughput = float64(metrics.MessagesSent) / metrics.Duration.Seconds()
-		metrics.ReceiveThroughput = float64(metrics.MessagesReceived) / metrics.Duration.Seconds()
+		metrics.SendThroughput = float64(messagesSent) / metrics.Duration.Seconds()
+		metrics.ReceiveThroughput = float64(messagesReceived) / metrics.Duration.Seconds()
 	}
 
 	// 平均延迟
-	if metrics.sendLatencyCount > 0 {
-		metrics.AvgSendLatency = float64(metrics.sendLatencySum) / float64(metrics.sendLatencyCount) / 1000.0 // ms
+	sendLatencyCount := atomic.LoadInt64(&metrics.sendLatencyCount)
+	if sendLatencyCount > 0 {
+		sendLatencySum := atomic.LoadInt64(&metrics.sendLatencySum)
+		metrics.AvgSendLatency = float64(sendLatencySum) / float64(sendLatencyCount) / 1000.0 // ms
 	}
-	if metrics.procLatencyCount > 0 {
-		metrics.AvgProcessLatency = float64(metrics.procLatencySum) / float64(metrics.procLatencyCount) / 1000.0 // ms
+	procLatencyCount := atomic.LoadInt64(&metrics.procLatencyCount)
+	if procLatencyCount > 0 {
+		procLatencySum := atomic.LoadInt64(&metrics.procLatencySum)
+		metrics.AvgProcessLatency = float64(procLatencySum) / float64(procLatencyCount) / 1000.0 // ms
 	}
 
 	// 资源增量
-	metrics.MemoryDeltaMB = metrics.PeakMemoryMB - metrics.InitialMemoryMB
+	peakMemoryMB := math.Float64frombits(atomic.LoadUint64(&metrics.PeakMemoryMB))
+	metrics.MemoryDeltaMB = peakMemoryMB - metrics.InitialMemoryMB
 }
 
 // compareRoundResults 对比单轮测试结果
@@ -1037,11 +1084,11 @@ func compareRoundResults(t *testing.T, pressure string, kafka, nats *PerfMetrics
 	// 资源占用对比
 	t.Logf("\n💾 资源占用:")
 	t.Logf("   %-20s | Kafka: %8d | NATS: %8d", "初始协程数", kafka.InitialGoroutines, nats.InitialGoroutines)
-	t.Logf("   %-20s | Kafka: %8d | NATS: %8d", "峰值协程数", kafka.PeakGoroutines, nats.PeakGoroutines)
+	t.Logf("   %-20s | Kafka: %8d | NATS: %8d", "峰值协程数", atomic.LoadInt32(&kafka.PeakGoroutines), atomic.LoadInt32(&nats.PeakGoroutines))
 	t.Logf("   %-20s | Kafka: %8d | NATS: %8d", "最终协程数", kafka.FinalGoroutines, nats.FinalGoroutines)
 	t.Logf("   %-20s | Kafka: %8d | NATS: %8d", "协程泄漏", kafka.GoroutineLeak, nats.GoroutineLeak)
 	t.Logf("   %-20s | Kafka: %10.2f MB | NATS: %10.2f MB", "初始内存", kafka.InitialMemoryMB, nats.InitialMemoryMB)
-	t.Logf("   %-20s | Kafka: %10.2f MB | NATS: %10.2f MB", "峰值内存", kafka.PeakMemoryMB, nats.PeakMemoryMB)
+	t.Logf("   %-20s | Kafka: %10.2f MB | NATS: %10.2f MB", "峰值内存", math.Float64frombits(atomic.LoadUint64(&kafka.PeakMemoryMB)), math.Float64frombits(atomic.LoadUint64(&nats.PeakMemoryMB)))
 	t.Logf("   %-20s | Kafka: %10.2f MB | NATS: %10.2f MB", "最终内存", kafka.FinalMemoryMB, nats.FinalMemoryMB)
 	t.Logf("   %-20s | Kafka: %10.2f MB | NATS: %10.2f MB", "内存增量", kafka.MemoryDeltaMB, nats.MemoryDeltaMB)
 
