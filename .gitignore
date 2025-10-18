@@ -19,3 +19,14 @@
 
 /plugins/logger/zap/testdata/*
 *.sum
+
+# documentation files (local only, do not commit)
+docs/README.md
+docs/archive/
+ARCHITECTURE_*.md
+CONFIG_*.md
+LOGGER_*.md
+PHASE*.md
+DEPENDENCY_*.md
+UPDATE_NOTES.md
+CLAUDE.md
