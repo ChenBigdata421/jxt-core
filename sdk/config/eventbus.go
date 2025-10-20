@@ -170,13 +170,14 @@ type ErrorHandlingConfig struct {
 
 // ProducerConfig 生产者配置 - 用户配置层（简化）
 // 只包含用户需要关心的核心配置字段
+// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
 type ProducerConfig struct {
 	RequiredAcks   int           `mapstructure:"requiredAcks"`   // 消息确认级别 (0=不确认, 1=leader确认, -1=所有副本确认)
-	Compression    string        `mapstructure:"compression"`    // 压缩算法 (none, gzip, snappy, lz4, zstd)
 	FlushFrequency time.Duration `mapstructure:"flushFrequency"` // 刷新频率
 	FlushMessages  int           `mapstructure:"flushMessages"`  // 批量消息数
 	Timeout        time.Duration `mapstructure:"timeout"`        // 发送超时时间
 	// 移除了程序员应该控制的字段: FlushBytes, RetryMax, BatchSize, BufferSize, Idempotent, MaxMessageBytes, PartitionerType
+	// 移除了 Compression 字段：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
 }
 
 // ConsumerConfig 消费者配置 - 用户配置层（简化）
@@ -433,9 +434,8 @@ func (c *EventBusConfig) setKafkaDefaults() {
 	if c.Kafka.Producer.RequiredAcks == 0 {
 		c.Kafka.Producer.RequiredAcks = 1 // Leader确认
 	}
-	if c.Kafka.Producer.Compression == "" {
-		c.Kafka.Producer.Compression = "snappy"
-	}
+	// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
+	// 不再设置 Producer.Compression 默认值
 	if c.Kafka.Producer.FlushFrequency == 0 {
 		c.Kafka.Producer.FlushFrequency = 500 * time.Millisecond
 	}
@@ -737,12 +737,8 @@ func (c *EventBusConfig) validateKafkaConfig() error {
 		return fmt.Errorf("kafka producer required acks must be -1, 0, or 1")
 	}
 
-	if c.Kafka.Producer.Compression != "" {
-		validCompressions := map[string]bool{"none": true, "gzip": true, "snappy": true, "lz4": true, "zstd": true}
-		if !validCompressions[c.Kafka.Producer.Compression] {
-			return fmt.Errorf("unsupported kafka compression: %s (supported: none, gzip, snappy, lz4, zstd)", c.Kafka.Producer.Compression)
-		}
-	}
+	// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
+	// 不再验证 Producer.Compression 字段
 
 	if c.Kafka.Producer.FlushFrequency < 0 {
 		return fmt.Errorf("kafka producer flush frequency must be non-negative")

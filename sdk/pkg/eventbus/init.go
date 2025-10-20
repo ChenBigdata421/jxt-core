@@ -26,9 +26,8 @@ func setDefaults(cfg *EventBusConfig) {
 		if cfg.Kafka.Producer.RequiredAcks == 0 {
 			cfg.Kafka.Producer.RequiredAcks = 1
 		}
-		if cfg.Kafka.Producer.Compression == "" {
-			cfg.Kafka.Producer.Compression = "snappy"
-		}
+		// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
+		// 不再设置 Producer.Compression 默认值
 		if cfg.Kafka.Producer.FlushFrequency == 0 {
 			cfg.Kafka.Producer.FlushFrequency = 500 * time.Millisecond
 		}

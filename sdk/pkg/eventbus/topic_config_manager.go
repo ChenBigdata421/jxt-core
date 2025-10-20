@@ -238,6 +238,37 @@ func compareTopicOptions(topic string, expected, actual TopicOptions) []TopicCon
 		})
 	}
 
+	// 比较分区数（Kafka特有）
+	if expected.Partitions > 0 && actual.Partitions > 0 && expected.Partitions != actual.Partitions {
+		// 分区数只能增加，不能减少
+		canIncrease := expected.Partitions > actual.Partitions
+		mismatches = append(mismatches, TopicConfigMismatch{
+			Topic:         topic,
+			Field:         "Partitions",
+			ExpectedValue: expected.Partitions,
+			ActualValue:   actual.Partitions,
+			CanAutoFix:    canIncrease,
+			Recommendation: func() string {
+				if canIncrease {
+					return "Partitions can be increased. Set strategy to 'create_or_update' to auto-fix."
+				}
+				return "Partitions cannot be decreased. Consider creating a new topic or accepting current partition count."
+			}(),
+		})
+	}
+
+	// 比较副本因子（Kafka特有）
+	if expected.ReplicationFactor > 0 && actual.ReplicationFactor > 0 && expected.ReplicationFactor != actual.ReplicationFactor {
+		mismatches = append(mismatches, TopicConfigMismatch{
+			Topic:          topic,
+			Field:          "ReplicationFactor",
+			ExpectedValue:  expected.ReplicationFactor,
+			ActualValue:    actual.ReplicationFactor,
+			CanAutoFix:     false,
+			Recommendation: "Replication factor cannot be changed after creation. Consider creating a new topic.",
+		})
+	}
+
 	return mismatches
 }
 
@@ -279,4 +310,3 @@ func formatSyncResult(result *TopicConfigSyncResult) {
 			"count", len(result.Mismatches))
 	}
 }
-

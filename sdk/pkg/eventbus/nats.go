@@ -385,7 +385,10 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 
 	// 🔥 P0修复：使用 atomic.Value 存储连接对象
 	bus.conn.Store(nc)
-	bus.js.Store(js)
+	// 🔥 P0修复：只在 JetStream 启用时才存储 js，避免存储 nil 导致 panic
+	if js != nil {
+		bus.js.Store(js)
+	}
 	bus.closed.Store(false)
 
 	// 🔥 创建全局 Keyed-Worker Pool（所有 topic 共享，与 Kafka 保持一致）
@@ -1985,8 +1988,12 @@ func (n *natsEventBus) StartHealthCheckSubscriber(ctx context.Context) error {
 		return nil // 已经启动
 	}
 
-	// 创建健康检查订阅监控器
-	config := GetDefaultHealthCheckConfig()
+	// 🔧 修复：使用保存的健康检查配置（如果未配置，则使用默认配置）
+	// 与 StartHealthCheckPublisher 保持一致
+	config := n.healthCheckConfig
+	if !config.Enabled {
+		config = GetDefaultHealthCheckConfig()
+	}
 	n.healthCheckSubscriber = NewHealthCheckSubscriber(config, n, "nats-eventbus", "nats")
 
 	// 🔧 修复死锁：在调用 Start 之前释放锁
@@ -2968,6 +2975,11 @@ func (n *natsEventBus) StopAllHealthCheck() error {
 // ConfigureTopic 配置主题的持久化策略和其他选项（幂等操作）
 func (n *natsEventBus) ConfigureTopic(ctx context.Context, topic string, options TopicOptions) error {
 	start := time.Now()
+
+	// 验证主题名称
+	if err := ValidateTopicName(topic); err != nil {
+		return err
+	}
 
 	// 🔥 P1优化：使用 sync.Map 无锁读写
 	_, exists := n.topicConfigs.LoadOrStore(topic, options)

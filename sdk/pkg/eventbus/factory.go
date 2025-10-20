@@ -178,8 +178,8 @@ func GetDefaultConfig(eventBusType string) *EventBusConfig {
 			Brokers:             []string{"localhost:9092"},
 			HealthCheckInterval: DefaultKafkaHealthCheckInterval,
 			Producer: ProducerConfig{
-				RequiredAcks:   DefaultKafkaProducerRequiredAcks,
-				Compression:    "snappy",
+				RequiredAcks: DefaultKafkaProducerRequiredAcks,
+				// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
 				FlushFrequency: DefaultKafkaProducerFlushFrequency,
 				FlushMessages:  DefaultKafkaProducerFlushMessages,
 				RetryMax:       DefaultKafkaProducerRetryMax,

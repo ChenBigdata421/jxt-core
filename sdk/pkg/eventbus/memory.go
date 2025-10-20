@@ -63,6 +63,8 @@ func NewMemoryEventBus() EventBus {
 		},
 		// 🚀 初始化异步发布结果通道（缓冲区大小：10000）
 		publishResultChan: make(chan *PublishResult, 10000),
+		// 🔧 初始化主题配置映射
+		topicConfigs: make(map[string]TopicOptions),
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Envelope 统一消息包络结构（方案A）
@@ -31,6 +33,31 @@ func NewEnvelope(eventID, aggregateID, eventType string, eventVersion int64, pay
 		Timestamp:    time.Now(),
 		Payload:      RawMessage(payload),
 	}
+}
+
+// NewEnvelopeWithAutoID 创建新的消息包络（自动生成 EventID）
+// 用于测试和不需要自定义 EventID 的场景
+// EventID 使用 UUID v7（时间排序的 UUID，适合作为主键和事件溯源）
+func NewEnvelopeWithAutoID(aggregateID, eventType string, eventVersion int64, payload []byte) *Envelope {
+	// 使用 UUID v7（RFC 9562）：基于时间戳的 UUID，具有以下优势：
+	// 1. 时间排序：按创建时间自然排序，适合事件溯源
+	// 2. 数据库友好：作为主键时索引性能更好（相比 UUID v4）
+	// 3. 分布式友好：包含时间戳和随机性，避免冲突
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		// NewV7 理论上不会失败（除非系统时钟异常），但为了健壮性，回退到 UUID v4
+		eventID = uuid.New()
+	}
+
+	env := &Envelope{
+		EventID:      eventID.String(),
+		AggregateID:  aggregateID,
+		EventType:    eventType,
+		EventVersion: eventVersion,
+		Timestamp:    time.Now(),
+		Payload:      RawMessage(payload),
+	}
+	return env
 }
 
 // Validate 校验包络字段

@@ -20,4 +20,17 @@
 /plugins/logger/zap/testdata/*
 go.sum
 
+# 测试覆盖率文件
+*.out
+coverage*.out
+full_coverage.out
+
+# 测试日志
 *.log
+
+# 临时测试目录
+fixed_test/
+test_results_final/
+
+# Python 临时脚本
+merge_tests.py

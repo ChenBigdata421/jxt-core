@@ -17,6 +17,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **缓存系统** - 支持 Memory、Redis 多种缓存后端
 - [x] **消息队列** - 支持 Memory、Redis、NSQ 多种队列实现
 - [x] **分布式锁** - 基于 Redis 的分布式锁实现
+- [x] **Outbox 模式** - 保证业务操作与事件发布的原子性和最终一致性 ⭐ **新增**
 
 ### 🔧 服务治理
 - [x] **服务发现** - 基于 ETCD 的服务注册与发现
@@ -149,6 +150,13 @@ jxt-core/
 
 ## 文档
 
+### 核心文档
+- [文档中心](docs/README.md) - 完整的文档索引
+- [EventBus 文档](sdk/pkg/eventbus/README.md) - 事件总线使用指南
+- [Outbox 模式快速开始](docs/outbox-pattern-quick-start.md) ⭐ - 5 分钟快速上手
+- [Outbox 模式完整设计](docs/outbox-pattern-design.md) - 完整的架构设计和使用指南
+
+### 其他文档
 - [快速开始指南](docs/quickstart.md)
 - [配置文档](docs/config.md)
 - [API 文档](docs/api.md)

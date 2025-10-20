@@ -422,14 +422,12 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	// 优化1：AsyncProducer配置（Confluent官方推荐）
 	saramaConfig.Producer.RequiredAcks = sarama.RequiredAcks(cfg.Producer.RequiredAcks)
 
-	// 优化2：LZ4压缩（Confluent官方首选）
-	if cfg.Producer.Compression == "" || cfg.Producer.Compression == "none" {
-		saramaConfig.Producer.Compression = sarama.CompressionLZ4 // Confluent推荐：性能最佳
-	} else {
-		saramaConfig.Producer.Compression = getCompressionCodec(cfg.Producer.Compression)
-	}
+	// 🔥 重构：移除 Producer 级别的压缩配置，改为 topic 级别配置
+	// 压缩配置现在通过 TopicBuilder 在 topic 级别设置
+	// 参考：createKafkaTopic() 函数中的 compression.type 配置
+	saramaConfig.Producer.Compression = sarama.CompressionNone // 默认不压缩，由 topic 配置决定
 
-	// 优化3：批处理配置（Confluent官方推荐值）
+	// 优化2：批处理配置（Confluent官方推荐值）
 	if cfg.Producer.FlushFrequency > 0 {
 		saramaConfig.Producer.Flush.Frequency = cfg.Producer.FlushFrequency
 	} else {
@@ -633,7 +631,7 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		"brokers", cfg.Brokers,
 		"clientId", cfg.ClientID,
 		"healthCheckInterval", cfg.HealthCheckInterval,
-		"compression", cfg.Producer.Compression,
+		"compressionMode", "topic-level", // 🔥 重构：压缩配置改为 topic 级别
 		"flushFrequency", saramaConfig.Producer.Flush.Frequency,
 		"flushMessages", saramaConfig.Producer.Flush.Messages,
 		"flushBytes", saramaConfig.Producer.Flush.Bytes)
@@ -2660,8 +2658,12 @@ func (k *kafkaEventBus) StartHealthCheckSubscriber(ctx context.Context) error {
 		return nil // 已经启动
 	}
 
-	// 创建健康检查订阅监控器
-	config := GetDefaultHealthCheckConfig()
+	// 🔧 修复：使用保存的健康检查配置（如果未配置，则使用默认配置）
+	// 与 StartHealthCheckPublisher 保持一致
+	config := k.healthCheckConfig
+	if !config.Enabled {
+		config = GetDefaultHealthCheckConfig()
+	}
 	k.healthCheckSubscriber = NewHealthCheckSubscriber(config, k, "kafka-eventbus", "kafka")
 
 	// 🔧 修复死锁：在调用 Start 之前释放锁
@@ -3022,6 +3024,11 @@ func (k *kafkaEventBus) StopAllHealthCheck() error {
 func (k *kafkaEventBus) ConfigureTopic(ctx context.Context, topic string, options TopicOptions) error {
 	start := time.Now()
 
+	// 验证主题名称
+	if err := ValidateTopicName(topic); err != nil {
+		return err
+	}
+
 	// ✅ 低频路径：保留锁，保持代码清晰
 	k.mu.Lock()
 	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
@@ -3185,10 +3192,24 @@ func (k *kafkaEventBus) createKafkaTopic(topic string, options TopicOptions) err
 		return fmt.Errorf("Kafka admin client not available: %w", err)
 	}
 
+	// 🔥 性能优化：支持多分区配置
+	numPartitions := int32(1) // 默认1个分区
+	if options.Partitions > 0 {
+		numPartitions = int32(options.Partitions)
+	}
+
+	// 🔥 高可用优化：支持副本因子配置
+	replicationFactor := int16(1) // 默认1个副本
+	if options.ReplicationFactor > 0 {
+		replicationFactor = int16(options.ReplicationFactor)
+	} else if options.Replicas > 0 {
+		replicationFactor = int16(options.Replicas)
+	}
+
 	// 构建主题配置
 	topicDetail := &sarama.TopicDetail{
-		NumPartitions:     1, // 默认1个分区
-		ReplicationFactor: int16(options.Replicas),
+		NumPartitions:     numPartitions,
+		ReplicationFactor: replicationFactor,
 		ConfigEntries:     make(map[string]*string),
 	}
 
@@ -3214,6 +3235,15 @@ func (k *kafkaEventBus) createKafkaTopic(topic string, options TopicOptions) err
 		topicDetail.ConfigEntries["cleanup.policy"] = &cleanupPolicy
 	}
 
+	// 🔥 新增：应用 topic 级别的压缩配置
+	if options.Compression != "" && options.Compression != "none" {
+		compressionType := options.Compression
+		topicDetail.ConfigEntries["compression.type"] = &compressionType
+		k.logger.Debug("Applying topic-level compression",
+			zap.String("topic", topic),
+			zap.String("compression", compressionType))
+	}
+
 	// 创建主题
 	err = admin.CreateTopic(topic, topicDetail, false)
 	if err != nil {
@@ -3224,7 +3254,8 @@ func (k *kafkaEventBus) createKafkaTopic(topic string, options TopicOptions) err
 		zap.String("topic", topic),
 		zap.Int("partitions", int(topicDetail.NumPartitions)),
 		zap.Int("replicas", int(topicDetail.ReplicationFactor)),
-		zap.Bool("persistent", options.IsPersistent(true)))
+		zap.Bool("persistent", options.IsPersistent(true)),
+		zap.String("compression", options.Compression))
 
 	return nil
 }
@@ -3263,8 +3294,16 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 			configEntries["retention.bytes"] = &retentionBytes
 		}
 
+		// 🔥 新增：更新压缩配置
+		if options.Compression != "" && options.Compression != "none" {
+			compressionType := options.Compression
+			configEntries["compression.type"] = &compressionType
+		}
+
 		if len(configEntries) > 0 {
-			k.logger.Info("Updating Kafka topic configuration", zap.String("topic", topic))
+			k.logger.Info("Updating Kafka topic configuration",
+				zap.String("topic", topic),
+				zap.String("compression", options.Compression))
 
 			err := admin.AlterConfig(sarama.TopicResource, topic, configEntries, false)
 			if err != nil {

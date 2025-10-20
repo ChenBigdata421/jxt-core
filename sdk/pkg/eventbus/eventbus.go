@@ -1006,6 +1006,11 @@ func (m *eventBusManager) SubscribeEnvelope(ctx context.Context, topic string, h
 // ConfigureTopic 配置主题的持久化策略和其他选项
 // 注意：Memory EventBus不支持真正的持久化，此方法主要用于接口兼容性
 func (m *eventBusManager) ConfigureTopic(ctx context.Context, topic string, options TopicOptions) error {
+	// 验证主题名称
+	if err := ValidateTopicName(topic); err != nil {
+		return err
+	}
+
 	m.topicConfigsMu.Lock()
 	defer m.topicConfigsMu.Unlock()
 
@@ -1120,7 +1125,6 @@ func convertUserConfigToInternalKafkaConfig(userConfig *config.KafkaConfig) *Kaf
 		Producer: ProducerConfig{
 			// 用户配置字段 (直接映射，但需要确保与幂等性兼容)
 			RequiredAcks:   -1, // 强制设置为WaitForAll，幂等性生产者要求
-			Compression:    userConfig.Producer.Compression,
 			FlushFrequency: userConfig.Producer.FlushFrequency,
 			FlushMessages:  userConfig.Producer.FlushMessages,
 			Timeout:        userConfig.Producer.Timeout,
@@ -1135,9 +1139,9 @@ func convertUserConfigToInternalKafkaConfig(userConfig *config.KafkaConfig) *Kaf
 			PartitionerType: "hash",           // 哈希分区器，确保相同key的消息到同一分区
 
 			// 高级技术字段 (程序员专用优化)
-			LingerMs:         5 * time.Millisecond, // 5ms延迟发送，提高批处理效率
-			CompressionLevel: 6,                    // 压缩级别6，平衡压缩率和CPU使用
-			MaxInFlight:      1,                    // 幂等性生产者要求MaxInFlight=1
+			LingerMs:    5 * time.Millisecond, // 5ms延迟发送，提高批处理效率
+			MaxInFlight: 1,                    // 幂等性生产者要求MaxInFlight=1
+			// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
 		},
 
 		// 消费者配置转换

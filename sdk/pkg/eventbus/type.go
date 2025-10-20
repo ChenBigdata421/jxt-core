@@ -2,6 +2,8 @@ package eventbus
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/config"
@@ -222,6 +224,39 @@ type TopicOptions struct {
 	MaxMessages int64 `json:"maxMessages,omitempty"`
 	// Replicas 副本数量（仅分布式存储有效，如Kafka）
 	Replicas int `json:"replicas,omitempty"`
+	// Partitions 分区数量（仅Kafka有效）
+	// 性能优化：多分区可以提升并行消费能力和吞吐量
+	// 推荐值：
+	//   - 低流量主题（<100 msg/s）：1-3 个分区
+	//   - 中流量主题（100-1000 msg/s）：3-10 个分区
+	//   - 高流量主题（>1000 msg/s）：10-30 个分区
+	// 注意：分区数一旦设置，只能增加不能减少
+	Partitions int `json:"partitions,omitempty"`
+	// ReplicationFactor 副本因子（仅Kafka有效，与Replicas同义）
+	// 推荐值：生产环境至少3个副本
+	ReplicationFactor int `json:"replicationFactor,omitempty"`
+	// Compression 压缩算法（仅Kafka有效）
+	// 支持的值：
+	//   - "none" 或 "" - 不压缩（默认）
+	//   - "gzip" - GZIP压缩（高压缩率，高CPU开销）
+	//   - "snappy" - Snappy压缩（平衡性能，推荐）
+	//   - "lz4" - LZ4压缩（最快速度，低压缩率）
+	//   - "zstd" - Zstandard压缩（最佳平衡，Kafka 2.1+）
+	// 推荐值：
+	//   - 生产环境：snappy（平衡性能和压缩率）
+	//   - 高吞吐量：lz4（最快速度）
+	//   - 存储优先：gzip 或 zstd（最高压缩率）
+	Compression string `json:"compression,omitempty"`
+	// CompressionLevel 压缩级别（仅Kafka有效，部分压缩算法支持）
+	// 范围：1-9（不同算法有不同的有效范围）
+	//   - gzip: 1-9（1=最快，9=最高压缩率，默认6）
+	//   - zstd: 1-22（1=最快，22=最高压缩率，默认3）
+	//   - snappy/lz4: 忽略此参数（固定压缩级别）
+	// 推荐值：
+	//   - 平衡场景：6（gzip）或 3（zstd）
+	//   - 性能优先：1-3
+	//   - 压缩率优先：7-9
+	CompressionLevel int `json:"compressionLevel,omitempty"`
 	// Description 主题描述（可选）
 	Description string `json:"description,omitempty"`
 }
@@ -229,11 +264,66 @@ type TopicOptions struct {
 // DefaultTopicOptions 返回默认的主题配置
 func DefaultTopicOptions() TopicOptions {
 	return TopicOptions{
-		PersistenceMode: TopicAuto,
-		RetentionTime:   24 * time.Hour,    // 默认保留24小时
-		MaxSize:         100 * 1024 * 1024, // 默认100MB
-		MaxMessages:     10000,             // 默认1万条消息
-		Replicas:        1,                 // 默认单副本
+		PersistenceMode:   TopicAuto,
+		RetentionTime:     24 * time.Hour,    // 默认保留24小时
+		MaxSize:           100 * 1024 * 1024, // 默认100MB
+		MaxMessages:       10000,             // 默认1万条消息
+		Replicas:          1,                 // 默认单副本
+		Partitions:        1,                 // 默认单分区
+		ReplicationFactor: 1,                 // 默认单副本因子
+		Compression:       "",                // 默认不压缩
+		CompressionLevel:  0,                 // 默认压缩级别
+	}
+}
+
+// HighThroughputTopicOptions 返回高吞吐量主题配置
+// 适用于高流量场景（>1000 msg/s）
+func HighThroughputTopicOptions() TopicOptions {
+	return TopicOptions{
+		PersistenceMode:   TopicPersistent,
+		RetentionTime:     7 * 24 * time.Hour, // 保留7天
+		MaxSize:           1024 * 1024 * 1024, // 1GB
+		MaxMessages:       1000000,            // 100万条消息
+		Replicas:          3,                  // 3副本（高可用）
+		Partitions:        10,                 // 10分区（高并发）
+		ReplicationFactor: 3,                  // 3副本因子
+		Compression:       "snappy",           // Snappy压缩（平衡性能和压缩率）
+		CompressionLevel:  6,                  // 压缩级别6（平衡）
+		Description:       "High throughput topic with 10 partitions and snappy compression",
+	}
+}
+
+// MediumThroughputTopicOptions 返回中等吞吐量主题配置
+// 适用于中流量场景（100-1000 msg/s）
+func MediumThroughputTopicOptions() TopicOptions {
+	return TopicOptions{
+		PersistenceMode:   TopicPersistent,
+		RetentionTime:     3 * 24 * time.Hour, // 保留3天
+		MaxSize:           500 * 1024 * 1024,  // 500MB
+		MaxMessages:       100000,             // 10万条消息
+		Replicas:          3,                  // 3副本（高可用）
+		Partitions:        5,                  // 5分区（中等并发）
+		ReplicationFactor: 3,                  // 3副本因子
+		Compression:       "snappy",           // Snappy压缩（平衡性能和压缩率）
+		CompressionLevel:  6,                  // 压缩级别6（平衡）
+		Description:       "Medium throughput topic with 5 partitions and snappy compression",
+	}
+}
+
+// LowThroughputTopicOptions 返回低吞吐量主题配置
+// 适用于低流量场景（<100 msg/s）
+func LowThroughputTopicOptions() TopicOptions {
+	return TopicOptions{
+		PersistenceMode:   TopicPersistent,
+		RetentionTime:     24 * time.Hour,    // 保留1天
+		MaxSize:           100 * 1024 * 1024, // 100MB
+		MaxMessages:       10000,             // 1万条消息
+		Replicas:          3,                 // 3副本（高可用）
+		Partitions:        3,                 // 3分区（低并发）
+		ReplicationFactor: 3,                 // 3副本因子
+		Compression:       "snappy",          // Snappy压缩（平衡性能和压缩率）
+		CompressionLevel:  6,                 // 压缩级别6（平衡）
+		Description:       "Low throughput topic with 3 partitions and snappy compression",
 	}
 }
 
@@ -400,10 +490,10 @@ type KafkaConfig struct {
 
 // ProducerConfig 生产者配置 - 程序员配置层（完整）
 // 包含所有技术细节和程序员控制的字段
+// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
 type ProducerConfig struct {
 	// 用户配置字段 (从用户配置转换而来)
 	RequiredAcks   int           `mapstructure:"requiredAcks"`   // 消息确认级别
-	Compression    string        `mapstructure:"compression"`    // 压缩算法
 	FlushFrequency time.Duration `mapstructure:"flushFrequency"` // 刷新频率
 	FlushMessages  int           `mapstructure:"flushMessages"`  // 批量消息数
 	Timeout        time.Duration `mapstructure:"timeout"`        // 发送超时时间
@@ -418,9 +508,8 @@ type ProducerConfig struct {
 	PartitionerType string `mapstructure:"partitionerType"` // 分区器类型 (默认: "hash")
 
 	// 高级技术字段 (程序员专用)
-	LingerMs         time.Duration `mapstructure:"lingerMs"`         // 延迟发送时间 (默认: 5ms)
-	CompressionLevel int           `mapstructure:"compressionLevel"` // 压缩级别 (默认: 6)
-	MaxInFlight      int           `mapstructure:"maxInFlight"`      // 最大飞行请求数 (默认: 5)
+	LingerMs    time.Duration `mapstructure:"lingerMs"`    // 延迟发送时间 (默认: 5ms)
+	MaxInFlight int           `mapstructure:"maxInFlight"` // 最大飞行请求数 (默认: 5)
 }
 
 // ConsumerConfig 消费者配置 - 程序员配置层（完整）
@@ -809,4 +898,81 @@ type EventBusHealthChecker interface {
 	RegisterBusinessHealthCheck(checker BusinessHealthChecker)
 	// 获取健康状态（聚合状态）
 	GetHealthStatus() HealthCheckStatus
+}
+
+// ==========================================================================
+// 主题名称验证
+// ==========================================================================
+
+// TopicNameValidationError 主题名称验证错误
+type TopicNameValidationError struct {
+	Topic  string
+	Reason string
+}
+
+func (e *TopicNameValidationError) Error() string {
+	return fmt.Sprintf("invalid topic name '%s': %s", e.Topic, e.Reason)
+}
+
+// ValidateTopicName 验证主题名称是否符合规范
+// Kafka 要求：
+// - 主题名称必须只使用 ASCII 字符（a-z, A-Z, 0-9, -, _, .）
+// - 不允许使用中文、日文、韩文等 Unicode 字符
+// - 不允许使用空格
+// - 长度限制：1-255 字符
+//
+// 违反此规则会导致消息无法接收（0% 成功率）
+func ValidateTopicName(topic string) error {
+	// 检查长度
+	if len(topic) == 0 {
+		return &TopicNameValidationError{
+			Topic:  topic,
+			Reason: "topic name cannot be empty",
+		}
+	}
+
+	if len(topic) > 255 {
+		return &TopicNameValidationError{
+			Topic:  topic,
+			Reason: fmt.Sprintf("topic name too long (%d characters, maximum 255)", len(topic)),
+		}
+	}
+
+	// 检查空格
+	if strings.Contains(topic, " ") {
+		return &TopicNameValidationError{
+			Topic:  topic,
+			Reason: "topic name cannot contain spaces",
+		}
+	}
+
+	// 检查是否只包含 ASCII 字符
+	// Kafka 要求：只能使用 ASCII 字符（0-127）
+	// 禁止使用中文、日文、韩文等 Unicode 字符
+	for i, r := range topic {
+		if r > 127 {
+			return &TopicNameValidationError{
+				Topic: topic,
+				Reason: fmt.Sprintf("topic name contains non-ASCII character '%c' at position %d. "+
+					"Kafka requires ASCII characters only (a-z, A-Z, 0-9, -, _, .). "+
+					"Chinese, Japanese, Korean and other Unicode characters are not allowed",
+					r, i),
+			}
+		}
+
+		// 检查是否为控制字符
+		if r < 32 && r != '\t' {
+			return &TopicNameValidationError{
+				Topic:  topic,
+				Reason: fmt.Sprintf("topic name contains control character at position %d", i),
+			}
+		}
+	}
+
+	return nil
+}
+
+// IsValidTopicName 检查主题名称是否有效（简化版）
+func IsValidTopicName(topic string) bool {
+	return ValidateTopicName(topic) == nil
 }
