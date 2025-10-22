@@ -29,15 +29,17 @@ func TestNATSGoroutineLeakDetection(t *testing.T) {
 
 	printGoroutineStacks(t, "initial", initialGoroutines)
 
+	// 使用唯一的 Stream 名称避免冲突
+	timestamp := time.Now().UnixNano()
 	config := &eventbus.NATSConfig{
 		URLs:     []string{"nats://localhost:4223"},
-		ClientID: fmt.Sprintf("nats-leak-test-%d", time.Now().Unix()),
+		ClientID: fmt.Sprintf("nats-leak-test-%d", timestamp),
 		JetStream: eventbus.JetStreamConfig{
 			Enabled: true,
 			Stream: eventbus.StreamConfig{
-				Name:     fmt.Sprintf("LEAK_TEST_%d", time.Now().Unix()),
-				Subjects: []string{"leak.test.>"},
-				Storage:  "file",
+				Name:     fmt.Sprintf("LEAK_TEST_%d", timestamp),
+				Subjects: []string{fmt.Sprintf("leak.test.%d.>", timestamp)},
+				Storage:  "memory",
 			},
 		},
 	}
@@ -50,15 +52,15 @@ func TestNATSGoroutineLeakDetection(t *testing.T) {
 	t.Logf("After create goroutine count: %d (delta: %d)", afterCreateGoroutines, afterCreateGoroutines-initialGoroutines)
 
 	ctx := context.Background()
+	topic := fmt.Sprintf("leak.test.%d.topic1", timestamp)
 	for i := 0; i < 10; i++ {
-		envelope := &eventbus.Envelope{
-			AggregateID:  fmt.Sprintf("test-agg-%d", i),
-			EventType:    "TestEvent",
-			EventVersion: int64(i + 1),
-			Timestamp:    time.Now(),
-			Payload:      []byte(fmt.Sprintf(`{"test": %d}`, i)),
-		}
-		err := bus.PublishEnvelope(ctx, "leak.test.topic1", envelope)
+		envelope := eventbus.NewEnvelopeWithAutoID(
+			fmt.Sprintf("test-agg-%d", i),
+			"TestEvent",
+			int64(i+1),
+			[]byte(fmt.Sprintf(`{"test": %d}`, i)),
+		)
+		err := bus.PublishEnvelope(ctx, topic, envelope)
 		require.NoError(t, err)
 	}
 

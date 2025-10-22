@@ -9,12 +9,19 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // TestNATSOrderViolationAnalysis 分析 NATS 顺序违反的详细原因
 func TestNATSOrderViolationAnalysis(t *testing.T) {
 	t.Log("🔍 ===== NATS 顺序违反详细分析测试 =====")
+
+	// 初始化 logger
+	zapLogger, _ := zap.NewDevelopment()
+	logger.Logger = zapLogger
+	logger.DefaultLogger = zapLogger.Sugar()
 
 	// 创建 NATS EventBus
 	timestamp := time.Now().Unix()
@@ -196,13 +203,12 @@ func TestNATSOrderViolationAnalysis(t *testing.T) {
 
 			// 串行发送该聚合ID的所有消息到同一个 topic
 			for version := int64(1); version <= int64(messagesPerAggregate); version++ {
-				envelope := &eventbus.Envelope{
-					AggregateID:  aggregateID,
-					EventType:    "TestEvent",
-					EventVersion: version,
-					Timestamp:    time.Now(),
-					Payload:      []byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
-				}
+				envelope := eventbus.NewEnvelopeWithAutoID(
+					aggregateID,
+					"TestEvent",
+					version,
+					[]byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
+				)
 
 				err := eb.PublishEnvelope(ctx, topic, envelope)
 				if err != nil {

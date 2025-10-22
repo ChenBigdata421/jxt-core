@@ -349,6 +349,11 @@ type EventBusConfig struct {
 	Metrics    MetricsConfig    `mapstructure:"metrics"`
 	Tracing    TracingConfig    `mapstructure:"tracing"`
 	Enterprise EnterpriseConfig `mapstructure:"enterprise"` // 企业特性配置
+
+	// MetricsCollector 指标收集器（可选）
+	// 用于集成 Prometheus、StatsD 等监控系统
+	// 如果不设置，将使用 NoOpMetricsCollector（不收集指标）
+	MetricsCollector MetricsCollector `mapstructure:"-"` // 不从配置文件加载
 }
 
 // EnterpriseConfig 企业特性配置

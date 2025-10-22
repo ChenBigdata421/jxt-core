@@ -1,0 +1,775 @@
+package outbox
+
+import (
+	"encoding/json"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+func TestNewOutboxEvent(t *testing.T) {
+	payload := map[string]interface{}{
+		"name": "test",
+		"age":  30,
+	}
+
+	event, err := NewOutboxEvent(
+		"tenant-1",
+		"aggregate-1",
+		"User",
+		"UserCreated",
+		payload,
+	)
+
+	if err != nil {
+		t.Fatalf("NewOutboxEvent failed: %v", err)
+	}
+
+	if event.TenantID != "tenant-1" {
+		t.Errorf("Expected TenantID to be 'tenant-1', got '%s'", event.TenantID)
+	}
+
+	if event.AggregateID != "aggregate-1" {
+		t.Errorf("Expected AggregateID to be 'aggregate-1', got '%s'", event.AggregateID)
+	}
+
+	if event.AggregateType != "User" {
+		t.Errorf("Expected AggregateType to be 'User', got '%s'", event.AggregateType)
+	}
+
+	if event.EventType != "UserCreated" {
+		t.Errorf("Expected EventType to be 'UserCreated', got '%s'", event.EventType)
+	}
+
+	if event.Status != EventStatusPending {
+		t.Errorf("Expected Status to be 'pending', got '%s'", event.Status)
+	}
+
+	if event.RetryCount != 0 {
+		t.Errorf("Expected RetryCount to be 0, got %d", event.RetryCount)
+	}
+
+	if event.MaxRetries != 3 {
+		t.Errorf("Expected MaxRetries to be 3, got %d", event.MaxRetries)
+	}
+
+	// 验证 Payload
+	var decodedPayload map[string]interface{}
+	if err := json.Unmarshal(event.Payload, &decodedPayload); err != nil {
+		t.Fatalf("Failed to unmarshal payload: %v", err)
+	}
+
+	if decodedPayload["name"] != "test" {
+		t.Errorf("Expected payload name to be 'test', got '%v'", decodedPayload["name"])
+	}
+}
+
+func TestOutboxEvent_CanRetry(t *testing.T) {
+	event := &OutboxEvent{
+		RetryCount: 0,
+		MaxRetries: 3,
+	}
+
+	if !event.CanRetry() {
+		t.Error("Expected CanRetry to be true")
+	}
+
+	event.RetryCount = 3
+	if event.CanRetry() {
+		t.Error("Expected CanRetry to be false")
+	}
+
+	event.RetryCount = 4
+	if event.CanRetry() {
+		t.Error("Expected CanRetry to be false")
+	}
+}
+
+func TestOutboxEvent_MarkAsPublished(t *testing.T) {
+	event := &OutboxEvent{
+		Status: EventStatusPending,
+	}
+
+	event.MarkAsPublished()
+
+	if event.Status != EventStatusPublished {
+		t.Errorf("Expected Status to be 'published', got '%s'", event.Status)
+	}
+
+	if event.PublishedAt == nil {
+		t.Error("Expected PublishedAt to be set")
+	}
+}
+
+func TestOutboxEvent_MarkAsFailed(t *testing.T) {
+	event := &OutboxEvent{
+		Status:     EventStatusPending,
+		RetryCount: 0,
+	}
+
+	err := &testError{msg: "test error"}
+	event.MarkAsFailed(err)
+
+	if event.Status != EventStatusFailed {
+		t.Errorf("Expected Status to be 'failed', got '%s'", event.Status)
+	}
+
+	if event.RetryCount != 1 {
+		t.Errorf("Expected RetryCount to be 1, got %d", event.RetryCount)
+	}
+
+	if event.LastError != "test error" {
+		t.Errorf("Expected LastError to be 'test error', got '%s'", event.LastError)
+	}
+}
+
+func TestOutboxEvent_ResetForRetry(t *testing.T) {
+	event := &OutboxEvent{
+		Status: EventStatusFailed,
+	}
+
+	event.ResetForRetry()
+
+	if event.Status != EventStatusPending {
+		t.Errorf("Expected Status to be 'pending', got '%s'", event.Status)
+	}
+}
+
+func TestOutboxEvent_IsExpired(t *testing.T) {
+	event := &OutboxEvent{
+		CreatedAt: time.Now().Add(-2 * time.Hour),
+	}
+
+	if !event.IsExpired(1 * time.Hour) {
+		t.Error("Expected IsExpired to be true")
+	}
+
+	if event.IsExpired(3 * time.Hour) {
+		t.Error("Expected IsExpired to be false")
+	}
+}
+
+func TestOutboxEvent_ShouldPublishNow(t *testing.T) {
+	// 没有设置 ScheduledAt
+	event := &OutboxEvent{}
+	if !event.ShouldPublishNow() {
+		t.Error("Expected ShouldPublishNow to be true")
+	}
+
+	// ScheduledAt 在未来
+	future := time.Now().Add(1 * time.Hour)
+	event.ScheduledAt = &future
+	if event.ShouldPublishNow() {
+		t.Error("Expected ShouldPublishNow to be false")
+	}
+
+	// ScheduledAt 在过去
+	past := time.Now().Add(-1 * time.Hour)
+	event.ScheduledAt = &past
+	if !event.ShouldPublishNow() {
+		t.Error("Expected ShouldPublishNow to be true")
+	}
+}
+
+func TestOutboxEvent_GetPayloadAs(t *testing.T) {
+	type TestPayload struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	payload := TestPayload{
+		Name: "test",
+		Age:  30,
+	}
+
+	event, err := NewOutboxEvent(
+		"tenant-1",
+		"aggregate-1",
+		"User",
+		"UserCreated",
+		payload,
+	)
+
+	if err != nil {
+		t.Fatalf("NewOutboxEvent failed: %v", err)
+	}
+
+	var decoded TestPayload
+	if err := event.GetPayloadAs(&decoded); err != nil {
+		t.Fatalf("GetPayloadAs failed: %v", err)
+	}
+
+	if decoded.Name != "test" {
+		t.Errorf("Expected Name to be 'test', got '%s'", decoded.Name)
+	}
+
+	if decoded.Age != 30 {
+		t.Errorf("Expected Age to be 30, got %d", decoded.Age)
+	}
+}
+
+func TestOutboxEvent_SetPayload(t *testing.T) {
+	event := &OutboxEvent{}
+
+	payload := map[string]interface{}{
+		"name": "test",
+	}
+
+	if err := event.SetPayload(payload); err != nil {
+		t.Fatalf("SetPayload failed: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := event.GetPayloadAs(&decoded); err != nil {
+		t.Fatalf("GetPayloadAs failed: %v", err)
+	}
+
+	if decoded["name"] != "test" {
+		t.Errorf("Expected name to be 'test', got '%v'", decoded["name"])
+	}
+}
+
+func TestOutboxEvent_Clone(t *testing.T) {
+	now := time.Now()
+	event := &OutboxEvent{
+		ID:            "test-id",
+		TenantID:      "tenant-1",
+		AggregateID:   "aggregate-1",
+		AggregateType: "User",
+		EventType:     "UserCreated",
+		Payload:       json.RawMessage(`{"name":"test"}`),
+		Status:        EventStatusPending,
+		RetryCount:    0,
+		MaxRetries:    3,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		PublishedAt:   &now,
+	}
+
+	clone := event.Clone()
+
+	if clone.ID != event.ID {
+		t.Error("Clone ID mismatch")
+	}
+
+	if clone.TenantID != event.TenantID {
+		t.Error("Clone TenantID mismatch")
+	}
+
+	// 修改 clone 不应该影响原始事件
+	clone.Status = EventStatusPublished
+	if event.Status == EventStatusPublished {
+		t.Error("Modifying clone affected original event")
+	}
+
+	// 修改 Payload 不应该影响原始事件
+	clone.Payload[0] = 'X'
+	if event.Payload[0] == 'X' {
+		t.Error("Modifying clone Payload affected original event")
+	}
+}
+
+// testError 测试用错误类型
+type testError struct {
+	msg string
+}
+
+func (e *testError) Error() string {
+	return e.msg
+}
+
+// TestOutboxEvent_IncrementRetry 测试增加重试次数
+func TestOutboxEvent_IncrementRetry(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+	event.MaxRetries = 3
+
+	// 第一次重试
+	event.IncrementRetry("error 1")
+	if event.RetryCount != 1 {
+		t.Errorf("Expected RetryCount to be 1, got %d", event.RetryCount)
+	}
+	if event.Status != EventStatusFailed {
+		t.Errorf("Expected Status to be 'failed', got '%s'", event.Status)
+	}
+	if event.LastError != "error 1" {
+		t.Errorf("Expected LastError to be 'error 1', got '%s'", event.LastError)
+	}
+	if event.LastRetryAt == nil {
+		t.Error("Expected LastRetryAt to be set")
+	}
+
+	// 第二次重试
+	event.IncrementRetry("error 2")
+	if event.RetryCount != 2 {
+		t.Errorf("Expected RetryCount to be 2, got %d", event.RetryCount)
+	}
+	if event.Status != EventStatusFailed {
+		t.Errorf("Expected Status to be 'failed', got '%s'", event.Status)
+	}
+
+	// 第三次重试（达到最大重试次数）
+	event.IncrementRetry("error 3")
+	if event.RetryCount != 3 {
+		t.Errorf("Expected RetryCount to be 3, got %d", event.RetryCount)
+	}
+	if event.Status != EventStatusMaxRetry {
+		t.Errorf("Expected Status to be 'max_retry', got '%s'", event.Status)
+	}
+}
+
+// TestOutboxEvent_MarkAsMaxRetry 测试标记为超过最大重试次数
+func TestOutboxEvent_MarkAsMaxRetry(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	event.MarkAsMaxRetry("too many retries")
+
+	if event.Status != EventStatusMaxRetry {
+		t.Errorf("Expected Status to be 'max_retry', got '%s'", event.Status)
+	}
+	if event.LastError != "too many retries" {
+		t.Errorf("Expected LastError to be 'too many retries', got '%s'", event.LastError)
+	}
+}
+
+// TestOutboxEvent_IsPublished 测试判断是否已发布
+func TestOutboxEvent_IsPublished(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	if event.IsPublished() {
+		t.Error("Expected IsPublished to be false for pending event")
+	}
+
+	event.MarkAsPublished()
+
+	if !event.IsPublished() {
+		t.Error("Expected IsPublished to be true for published event")
+	}
+}
+
+// TestOutboxEvent_IsMaxRetry 测试判断是否超过最大重试次数
+func TestOutboxEvent_IsMaxRetry(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	if event.IsMaxRetry() {
+		t.Error("Expected IsMaxRetry to be false for pending event")
+	}
+
+	event.MarkAsMaxRetry("too many retries")
+
+	if !event.IsMaxRetry() {
+		t.Error("Expected IsMaxRetry to be true for max_retry event")
+	}
+}
+
+// TestOutboxEvent_Version 测试事件版本
+func TestOutboxEvent_Version(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	if event.Version != 1 {
+		t.Errorf("Expected Version to be 1, got %d", event.Version)
+	}
+}
+
+// TestOutboxEvent_LastRetryAt 测试最后重试时间
+func TestOutboxEvent_LastRetryAt(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	if event.LastRetryAt != nil {
+		t.Error("Expected LastRetryAt to be nil for new event")
+	}
+
+	event.IncrementRetry("error")
+
+	if event.LastRetryAt == nil {
+		t.Error("Expected LastRetryAt to be set after retry")
+	}
+
+	// 验证时间是最近的
+	if time.Since(*event.LastRetryAt) > time.Second {
+		t.Error("Expected LastRetryAt to be recent")
+	}
+}
+
+// TestOutboxEvent_Clone_WithNewFields 测试克隆包含新字段
+func TestOutboxEvent_Clone_WithNewFields(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+	event.IncrementRetry("error")
+	event.Version = 2
+
+	clone := event.Clone()
+
+	// 验证 LastRetryAt 被正确克隆
+	if clone.LastRetryAt == nil {
+		t.Error("Expected clone to have LastRetryAt")
+	}
+	if clone.LastRetryAt == event.LastRetryAt {
+		t.Error("Expected clone LastRetryAt to be a different pointer")
+	}
+	if !clone.LastRetryAt.Equal(*event.LastRetryAt) {
+		t.Error("Expected clone LastRetryAt to have same value")
+	}
+
+	// 验证 Version 被正确克隆
+	if clone.Version != event.Version {
+		t.Errorf("Expected clone Version to be %d, got %d", event.Version, clone.Version)
+	}
+
+	// 修改克隆不应该影响原始事件
+	clone.Version = 3
+	if event.Version == 3 {
+		t.Error("Modifying clone Version affected original event")
+	}
+}
+
+// TestOutboxEvent_WithTraceID 测试设置链路追踪ID
+func TestOutboxEvent_WithTraceID(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	// 初始状态
+	if event.TraceID != "" {
+		t.Error("Expected TraceID to be empty for new event")
+	}
+
+	// 设置 TraceID
+	result := event.WithTraceID("trace-123")
+
+	// 验证返回值是同一个对象（支持链式调用）
+	if result != event {
+		t.Error("Expected WithTraceID to return the same event instance")
+	}
+
+	// 验证 TraceID 被设置
+	if event.TraceID != "trace-123" {
+		t.Errorf("Expected TraceID to be 'trace-123', got '%s'", event.TraceID)
+	}
+}
+
+// TestOutboxEvent_WithCorrelationID 测试设置关联ID
+func TestOutboxEvent_WithCorrelationID(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	// 初始状态
+	if event.CorrelationID != "" {
+		t.Error("Expected CorrelationID to be empty for new event")
+	}
+
+	// 设置 CorrelationID
+	result := event.WithCorrelationID("corr-456")
+
+	// 验证返回值是同一个对象（支持链式调用）
+	if result != event {
+		t.Error("Expected WithCorrelationID to return the same event instance")
+	}
+
+	// 验证 CorrelationID 被设置
+	if event.CorrelationID != "corr-456" {
+		t.Errorf("Expected CorrelationID to be 'corr-456', got '%s'", event.CorrelationID)
+	}
+}
+
+// TestOutboxEvent_ChainedSetters 测试链式调用
+func TestOutboxEvent_ChainedSetters(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+
+	// 链式调用
+	event.WithTraceID("trace-123").WithCorrelationID("corr-456")
+
+	// 验证两个字段都被设置
+	if event.TraceID != "trace-123" {
+		t.Errorf("Expected TraceID to be 'trace-123', got '%s'", event.TraceID)
+	}
+	if event.CorrelationID != "corr-456" {
+		t.Errorf("Expected CorrelationID to be 'corr-456', got '%s'", event.CorrelationID)
+	}
+}
+
+// TestOutboxEvent_ToEnvelope 测试转换为 Envelope
+func TestOutboxEvent_ToEnvelope(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+	event.WithTraceID("trace-123").WithCorrelationID("corr-456")
+	event.Version = 2
+
+	// 转换为 Envelope（返回 map）
+	envelopeMap := event.ToEnvelope().(map[string]interface{})
+
+	// 验证字段映射
+	if envelopeMap["event_id"] != event.ID {
+		t.Errorf("Expected event_id to be %s, got %v", event.ID, envelopeMap["event_id"])
+	}
+	if envelopeMap["aggregate_id"] != event.AggregateID {
+		t.Errorf("Expected aggregate_id to be %s, got %v", event.AggregateID, envelopeMap["aggregate_id"])
+	}
+	if envelopeMap["event_type"] != event.EventType {
+		t.Errorf("Expected event_type to be %s, got %v", event.EventType, envelopeMap["event_type"])
+	}
+	if envelopeMap["event_version"] != event.Version {
+		t.Errorf("Expected event_version to be %d, got %v", event.Version, envelopeMap["event_version"])
+	}
+	if envelopeMap["trace_id"] != "trace-123" {
+		t.Errorf("Expected trace_id to be 'trace-123', got %v", envelopeMap["trace_id"])
+	}
+	if envelopeMap["correlation_id"] != "corr-456" {
+		t.Errorf("Expected correlation_id to be 'corr-456', got %v", envelopeMap["correlation_id"])
+	}
+}
+
+// TestOutboxEvent_Clone_WithTraceFields 测试克隆包含追踪字段
+func TestOutboxEvent_Clone_WithTraceFields(t *testing.T) {
+	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", map[string]string{"name": "test"})
+	event.WithTraceID("trace-123").WithCorrelationID("corr-456")
+
+	clone := event.Clone()
+
+	// 验证 TraceID 被正确克隆
+	if clone.TraceID != event.TraceID {
+		t.Errorf("Expected clone TraceID to be %s, got %s", event.TraceID, clone.TraceID)
+	}
+
+	// 验证 CorrelationID 被正确克隆
+	if clone.CorrelationID != event.CorrelationID {
+		t.Errorf("Expected clone CorrelationID to be %s, got %s", event.CorrelationID, clone.CorrelationID)
+	}
+
+	// 修改克隆不应该影响原始事件
+	clone.TraceID = "trace-999"
+	clone.CorrelationID = "corr-999"
+
+	if event.TraceID == "trace-999" {
+		t.Error("Modifying clone TraceID affected original event")
+	}
+	if event.CorrelationID == "corr-999" {
+		t.Error("Modifying clone CorrelationID affected original event")
+	}
+}
+
+// TestGenerateID 测试 ID 生成
+func TestGenerateID(t *testing.T) {
+	// 测试生成的 ID 是否为有效的 UUID
+	id := generateID()
+
+	// 验证是否为有效的 UUID 格式
+	parsedUUID, err := uuid.Parse(id)
+	if err != nil {
+		t.Fatalf("Generated ID is not a valid UUID: %s, error: %v", id, err)
+	}
+
+	// 验证 UUID 版本（应该是 v7 或 v4）
+	version := parsedUUID.Version()
+	if version != 7 && version != 4 {
+		t.Errorf("Expected UUID version 7 or 4, got version %d", version)
+	}
+
+	// 在正常情况下应该是 v7
+	if version == 7 {
+		t.Logf("✓ Generated UUIDv7: %s", id)
+	} else {
+		t.Logf("⚠ Fallback to UUIDv4: %s", id)
+	}
+}
+
+// TestGenerateID_Uniqueness 测试 ID 唯一性
+func TestGenerateID_Uniqueness(t *testing.T) {
+	const count = 10000
+	ids := make(map[string]bool, count)
+
+	for i := 0; i < count; i++ {
+		id := generateID()
+		if ids[id] {
+			t.Fatalf("Duplicate ID generated: %s", id)
+		}
+		ids[id] = true
+	}
+
+	t.Logf("✓ Generated %d unique IDs", count)
+}
+
+// TestGenerateID_Concurrent 测试并发生成 ID 的唯一性
+func TestGenerateID_Concurrent(t *testing.T) {
+	const goroutines = 100
+	const idsPerGoroutine = 100
+
+	var mu sync.Mutex
+	ids := make(map[string]bool, goroutines*idsPerGoroutine)
+	var wg sync.WaitGroup
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < idsPerGoroutine; j++ {
+				id := generateID()
+				mu.Lock()
+				if ids[id] {
+					t.Errorf("Duplicate ID generated in concurrent test: %s", id)
+				}
+				ids[id] = true
+				mu.Unlock()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	expectedCount := goroutines * idsPerGoroutine
+	if len(ids) != expectedCount {
+		t.Errorf("Expected %d unique IDs, got %d", expectedCount, len(ids))
+	}
+
+	t.Logf("✓ Generated %d unique IDs concurrently", len(ids))
+}
+
+// TestGenerateID_TimeOrdering 测试 UUIDv7 的时间排序特性
+func TestGenerateID_TimeOrdering(t *testing.T) {
+	const count = 100
+	ids := make([]string, count)
+
+	// 生成一系列 ID
+	for i := 0; i < count; i++ {
+		ids[i] = generateID()
+		// 稍微延迟以确保时间戳不同
+		time.Sleep(time.Microsecond)
+	}
+
+	// 验证 ID 是否按时间排序（对于 UUIDv7）
+	for i := 1; i < count; i++ {
+		prev := ids[i-1]
+		curr := ids[i]
+
+		prevUUID, _ := uuid.Parse(prev)
+		currUUID, _ := uuid.Parse(curr)
+
+		// 如果是 UUIDv7，应该是递增的
+		if prevUUID.Version() == 7 && currUUID.Version() == 7 {
+			if prev >= curr {
+				t.Errorf("UUIDv7 not in time order: %s >= %s", prev, curr)
+			}
+		}
+	}
+
+	t.Logf("✓ Generated %d time-ordered UUIDs", count)
+}
+
+// TestNewOutboxEvent_IDGeneration 测试 NewOutboxEvent 生成的 ID
+func TestNewOutboxEvent_IDGeneration(t *testing.T) {
+	event, err := NewOutboxEvent(
+		"tenant-1",
+		"aggregate-1",
+		"User",
+		"UserCreated",
+		map[string]string{"name": "test"},
+	)
+
+	if err != nil {
+		t.Fatalf("NewOutboxEvent failed: %v", err)
+	}
+
+	// 验证 ID 是否为有效的 UUID
+	parsedUUID, err := uuid.Parse(event.ID)
+	if err != nil {
+		t.Fatalf("Event ID is not a valid UUID: %s, error: %v", event.ID, err)
+	}
+
+	// 验证 UUID 版本
+	version := parsedUUID.Version()
+	if version != 7 && version != 4 {
+		t.Errorf("Expected UUID version 7 or 4, got version %d", version)
+	}
+
+	t.Logf("✓ Event ID: %s (version %d)", event.ID, version)
+}
+
+// TestIdempotencyKey 测试幂等性键生成
+func TestIdempotencyKey(t *testing.T) {
+	event, err := NewOutboxEvent(
+		"tenant-1",
+		"aggregate-123",
+		"Archive",
+		"ArchiveCreated",
+		map[string]string{"name": "test"},
+	)
+
+	if err != nil {
+		t.Fatalf("NewOutboxEvent failed: %v", err)
+	}
+
+	// 验证幂等性键不为空
+	if event.IdempotencyKey == "" {
+		t.Error("IdempotencyKey should not be empty")
+	}
+
+	// 验证幂等性键格式
+	expected := "tenant-1:Archive:aggregate-123:ArchiveCreated:" + event.ID
+	if event.IdempotencyKey != expected {
+		t.Errorf("Expected IdempotencyKey to be '%s', got '%s'", expected, event.IdempotencyKey)
+	}
+
+	t.Logf("✓ IdempotencyKey: %s", event.IdempotencyKey)
+}
+
+// TestWithIdempotencyKey 测试自定义幂等性键
+func TestWithIdempotencyKey(t *testing.T) {
+	event, _ := NewOutboxEvent(
+		"tenant-1",
+		"aggregate-123",
+		"Archive",
+		"ArchiveCreated",
+		map[string]string{"name": "test"},
+	)
+
+	customKey := "custom-idempotency-key-123"
+	event.WithIdempotencyKey(customKey)
+
+	if event.IdempotencyKey != customKey {
+		t.Errorf("Expected IdempotencyKey to be '%s', got '%s'", customKey, event.IdempotencyKey)
+	}
+
+	t.Logf("✓ Custom IdempotencyKey: %s", event.IdempotencyKey)
+}
+
+// TestGetIdempotencyKey 测试获取幂等性键
+func TestGetIdempotencyKey(t *testing.T) {
+	event, _ := NewOutboxEvent(
+		"tenant-1",
+		"aggregate-123",
+		"Archive",
+		"ArchiveCreated",
+		map[string]string{"name": "test"},
+	)
+
+	key := event.GetIdempotencyKey()
+	if key == "" {
+		t.Error("GetIdempotencyKey should not return empty string")
+	}
+
+	if key != event.IdempotencyKey {
+		t.Errorf("GetIdempotencyKey returned '%s', expected '%s'", key, event.IdempotencyKey)
+	}
+
+	t.Logf("✓ GetIdempotencyKey: %s", key)
+}
+
+// TestIdempotencyKey_Uniqueness 测试不同事件的幂等性键唯一性
+func TestIdempotencyKey_Uniqueness(t *testing.T) {
+	const count = 100
+	keys := make(map[string]bool, count)
+
+	for i := 0; i < count; i++ {
+		event, _ := NewOutboxEvent(
+			"tenant-1",
+			"aggregate-123",
+			"Archive",
+			"ArchiveCreated",
+			map[string]string{"name": "test"},
+		)
+
+		key := event.GetIdempotencyKey()
+		if keys[key] {
+			t.Fatalf("Duplicate IdempotencyKey generated: %s", key)
+		}
+		keys[key] = true
+	}
+
+	t.Logf("✓ Generated %d unique IdempotencyKeys", count)
+}

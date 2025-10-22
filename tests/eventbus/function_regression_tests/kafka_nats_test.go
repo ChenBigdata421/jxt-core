@@ -70,7 +70,8 @@ func TestNATSBasicPublishSubscribe(t *testing.T) {
 	defer helper.CloseEventBus(bus)
 
 	ctx := context.Background()
-	topic := fmt.Sprintf("test.nats.basic.%d", helper.GetTimestamp())
+	// 🔧 修复：topic 必须匹配 Stream subjects 模式 (clientID.>)
+	topic := fmt.Sprintf("%s.test", clientID)
 
 	// 订阅消息
 	var received int64
@@ -151,7 +152,8 @@ func TestNATSMultipleMessages(t *testing.T) {
 	defer helper.CloseEventBus(bus)
 
 	ctx := context.Background()
-	topic := fmt.Sprintf("test.nats.multiple.%d", helper.GetTimestamp())
+	// 🔧 修复：topic 必须匹配 Stream subjects 模式 (clientID.>)
+	topic := fmt.Sprintf("%s.test", clientID)
 
 	messageCount := 10
 	var receivedCount int64
@@ -236,7 +238,8 @@ func TestNATSPublishWithOptions(t *testing.T) {
 	defer helper.CloseEventBus(bus)
 
 	ctx := context.Background()
-	topic := fmt.Sprintf("test.nats.options.%d", helper.GetTimestamp())
+	// 🔧 修复：topic 必须匹配 Stream subjects 模式 (clientID.>)
+	topic := fmt.Sprintf("%s.test", clientID)
 
 	var received int64
 	err := bus.Subscribe(ctx, topic, func(ctx context.Context, message []byte) error {

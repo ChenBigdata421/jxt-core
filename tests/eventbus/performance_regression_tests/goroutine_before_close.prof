@@ -1,0 +1,2037 @@
+goroutine 251 [running]:
+runtime/pprof.writeGoroutineStacks({0x104dd80, 0xc00009a270})
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/pprof/pprof.go:764 +0x6a
+runtime/pprof.writeGoroutine({0x104dd80?, 0xc00009a270?}, 0x54e345?)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/pprof/pprof.go:753 +0x25
+runtime/pprof.(*Profile).WriteTo(0xefcb39?, {0x104dd80?, 0xc00009a270?}, 0x0?)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/pprof/pprof.go:377 +0x14b
+github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_regression_tests.TestKafkaGoroutineLeakWithPprof(0xc000822380)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/eventbus/performance_regression_tests/goroutine_leak_analysis_test.go:301 +0x353
+testing.tRunner(0xc000822380, 0xf45998)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 1
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1851 +0x413
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc000234e00, {0xf13364?, 0xc00040fb30?}, 0xf45998)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1859 +0x431
+testing.runTests.func1(0xc000234e00)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2279 +0x37
+testing.tRunner(0xc000234e00, 0xc00040fc70)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792 +0xf4
+testing.runTests(0xc000011200, {0x16c1740, 0x12, 0x12}, {0x18?, 0xc00040fcf8?, 0x16cd060?})
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2277 +0x4b4
+testing.(*M).Run(0xc000452000)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2142 +0x64a
+main.main()
+	_testmain.go:79 +0x9b
+
+goroutine 54 [chan receive]:
+github.com/rcrowley/go-metrics.(*meterArbiter).tick(...)
+	/home/jiyuanjie/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:239
+created by github.com/rcrowley/go-metrics.NewMeter in goroutine 51
+	/home/jiyuanjie/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:46 +0xbf
+
+goroutine 528 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f8f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 524 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f730)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 525 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f7a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 526 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f810)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 527 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f880)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 530 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f9d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 467 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6c00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 529 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f960)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 534 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fb90)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 532 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fab0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 436 [chan receive]:
+github.com/IBM/sarama.(*asyncProducer).retryHandler(0xc0004a4080)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/async_producer.go:1245 +0x2b9
+github.com/IBM/sarama.withRecover(0xc00003d340?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.newAsyncProducer in goroutine 251
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/async_producer.go:150 +0x376
+
+goroutine 253 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255570)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 435 [chan receive]:
+github.com/IBM/sarama.(*asyncProducer).dispatcher(0xc0004a4080)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/async_producer.go:407 +0xe5
+github.com/IBM/sarama.withRecover(0xc00003d340?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.newAsyncProducer in goroutine 251
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/async_producer.go:149 +0x2fb
+
+goroutine 438 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b65c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 458 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6a60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 440 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6640)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 441 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b66a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 439 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6600)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 447 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6880)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 448 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b68a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 463 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6b40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 442 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b66c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 443 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b67c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 444 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6820)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 445 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6840)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 446 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6860)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 450 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b68e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 451 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6900)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 452 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6940)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 453 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6960)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 449 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b68c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 455 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b69c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 454 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b69a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 456 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6a00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 457 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6a20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 460 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6ac0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 459 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6a80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 461 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6ae0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 462 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6b20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 531 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fa40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 464 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6b80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 533 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fb20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 466 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6be0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 465 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6ba0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 468 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6c40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 469 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6c60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 472 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6d20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 471 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6ce0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 23 [chan receive]:
+github.com/IBM/sarama.(*Broker).responseReceiver(0xc000374408)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:1190 +0x6d
+github.com/IBM/sarama.withRecover(0xc0001bbf10?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.(*Broker).Open.func1 in goroutine 401
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:265 +0x1239
+
+goroutine 470 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6ca0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 473 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6d60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 474 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6d80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 714 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026afc0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 642 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001bad90)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 252 [IO wait]:
+internal/poll.runtime_pollWait(0x77c36c679fc8, 0x72)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0xc0001e4a00?, 0xc000394000?, 0x0)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc0001e4a00, {0xc000394000, 0x1000, 0x1000})
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/internal/poll/fd_unix.go:165 +0x27a
+net.(*netFD).Read(0xc0001e4a00, {0xc000394000?, 0x77c36c679fc8?, 0x6fc23aa66?})
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/net/fd_posix.go:55 +0x25
+net.(*conn).Read(0xc00009a1e0, {0xc000394000?, 0x4c19e0?, 0xc0001e4a00?})
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/net/net.go:194 +0x45
+bufio.(*Reader).Read(0xc000172600, {0xc0002ace00, 0x8, 0x16cd060?})
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/bufio/bufio.go:245 +0x197
+github.com/IBM/sarama.(*bufConn).Read(0x4182bf?, {0xc0002ace00?, 0xe639e0?, 0xc00009a101?})
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:113 +0x1c
+io.ReadAtLeast({0x77c36c64c890, 0xc000000168}, {0xc0002ace00, 0x8, 0x8}, 0x8)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/io/io.go:335 +0x91
+io.ReadFull(...)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/io/io.go:354
+github.com/IBM/sarama.(*Broker).readFull(0xc000432808, {0xc0002ace00, 0x8, 0x8})
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:959 +0xb3
+github.com/IBM/sarama.(*Broker).responseReceiver(0xc000432808)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:1202 +0x137
+github.com/IBM/sarama.withRecover(0xc000254af0?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.(*Broker).Open.func1 in goroutine 437
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:265 +0x1239
+
+goroutine 254 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a1c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 255 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a230)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 256 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a2a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 257 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a310)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 691 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a3f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 692 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a460)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 693 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a540)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 694 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a5b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 690 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a380)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 696 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a690)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 697 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a770)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 695 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a620)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 698 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a7e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 699 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a850)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 484 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6f60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 485 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6fa0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 486 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).dispatcher(0xc00026e150)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:111 +0x105
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:97 +0x1fd
+
+goroutine 487 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e230)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 488 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e310)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 489 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e380)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 490 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e3f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 523 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f6c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 494 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e620)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 480 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6ea0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 479 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6e80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 481 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6ee0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 491 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e460)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 493 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e5b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 492 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e540)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 475 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6dc0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 476 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6de0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 478 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6e40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 477 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6e20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 483 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6f40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 482 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*Worker).start(0xc0000b6f00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:157 +0x176
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*GlobalWorkerPool).start in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:92 +0x71
+
+goroutine 495 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e690)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 497 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e770)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 498 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e850)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 499 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e8c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 500 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e930)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 496 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e700)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 502 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ea10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 503 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ea80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 504 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026eaf0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 505 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ebd0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 501 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026e9a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 507 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ecb0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 508 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ed20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 506 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ec40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 510 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ee00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 509 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ed90)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 512 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ef50)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 511 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ee70)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 513 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026efc0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 514 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f030)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 515 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f0a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 516 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f1f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 517 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f260)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 518 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f2d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 519 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f420)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 521 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f500)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 522 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f650)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 700 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a8c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 701 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a930)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 702 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026a9a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 703 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026aa10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 704 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026aaf0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 705 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ab60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 520 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026f490)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 707 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ac40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 708 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ad20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 709 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ad90)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 710 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ae00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 706 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026abd0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 711 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ae70)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 713 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026af50)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 712 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026aee0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 535 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fc00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 536 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fc70)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 537 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fce0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 538 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fd50)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 539 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fdc0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 540 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fe30)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 541 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026fea0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 542 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ff10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 543 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448000)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 544 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004480e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 545 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448150)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 546 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448230)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 547 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004482a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 548 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448310)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 549 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448380)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 550 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004483f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 551 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448460)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 552 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004484d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 553 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004485b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 554 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448620)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 555 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448690)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 556 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448700)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 557 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448770)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 558 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448850)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 559 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004488c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 560 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448930)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 561 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004489a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 562 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448a10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 563 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448a80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 564 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448af0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 565 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448b60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 566 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448bd0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 567 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000448f50)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 568 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004490a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 569 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449110)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 570 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449180)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 571 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004491f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 572 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449260)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 573 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004492d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 574 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449340)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 575 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004493b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 576 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449420)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 577 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449490)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 578 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449500)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 579 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449570)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 580 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004495e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 581 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449650)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 582 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004496c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 583 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449730)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 584 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004497a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 585 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449810)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 586 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449880)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 587 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004498f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 588 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449960)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 589 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0004499d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 590 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449a40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 591 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449ab0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 592 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449b20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 593 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449b90)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 594 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449c00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 595 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449c70)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 596 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449ce0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 597 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449d50)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 598 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449dc0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 599 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449e30)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 600 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449ea0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 601 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000449f10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 602 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba0e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 603 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba150)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 604 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba1c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 605 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba230)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 606 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba2a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 607 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba310)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 608 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba380)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 609 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba3f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 610 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba460)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 611 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba4d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 612 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba540)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 613 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba5b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 614 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba620)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 615 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba690)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 616 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba700)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 617 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba770)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 618 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba7e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 619 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba850)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 620 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba8c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 621 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba930)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 622 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001ba9a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 623 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001baa10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 624 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001baa80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 625 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001baaf0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 626 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001bab60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 627 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001babd0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 628 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001bac40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 629 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001bacb0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 630 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0001bad20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 643 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254000)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 644 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254070)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 645 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254150)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 646 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002541c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 647 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254230)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 648 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002542a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 649 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254380)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 650 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002543f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 651 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254460)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 652 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002544d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 653 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254540)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 654 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002545b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 655 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254690)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 656 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254700)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 657 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254770)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 658 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002547e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 659 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254850)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 660 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002548c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 661 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254930)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 662 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002549a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 663 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254a10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 664 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254a80)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 665 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254af0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 666 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254b60)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 667 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254bd0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 668 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254cb0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 669 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254d20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 670 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254d90)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 671 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254e00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 672 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254e70)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 673 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254ee0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 674 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000254fc0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 675 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255030)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 676 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002550a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 677 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255110)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 678 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255180)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 679 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002551f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 680 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255260)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 681 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002552d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 682 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255340)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 683 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002553b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 684 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255420)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 685 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255490)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 686 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255500)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 715 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b0a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 716 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b110)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 717 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b180)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 718 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b1f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 719 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b2d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 720 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b340)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 721 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b3b0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 722 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b420)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 723 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b490)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 724 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b500)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 725 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b570)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 726 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b5e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 727 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b650)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 728 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b6c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 729 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b730)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 730 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b7a0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 731 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b810)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 732 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b880)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 733 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b8f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 734 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026b9d0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 735 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026ba40)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 736 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bab0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 737 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bb20)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 738 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bc00)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 739 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bc70)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 740 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bce0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 741 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bd50)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 742 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026be30)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 743 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bea0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 744 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc00026bf10)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 745 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002555e0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 746 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255650)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 747 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002556c0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 748 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255730)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 749 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255810)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 750 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc0002558f0)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 751 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*KeyedWorkerPool).runWorker(0xc000689da0, 0xc000255960)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:86 +0xeb
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKeyedWorkerPool in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/keyed_worker_pool.go:77 +0x10b
+
+goroutine 752 [chan receive]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*kafkaEventBus).handleAsyncProducerSuccess(0xc000392e08)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:652 +0x12d
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKafkaEventBus in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:627 +0x123b
+
+goroutine 753 [chan receive]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*kafkaEventBus).handleAsyncProducerErrors(0xc000392e08)
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:715 +0x1a5
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.NewKafkaEventBus in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:628 +0x127d
+
+goroutine 754 [select]:
+github.com/IBM/sarama.(*consumerGroup).Consume(0xc000128000, {0x10562d0, 0xc000034460}, {0xc000266110, 0x1, 0x1}, {0x10545c0, 0xc00009a1f8})
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:217 +0x25d
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*kafkaEventBus).startPreSubscriptionConsumer.func1()
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:1423 +0x791
+created by github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*kafkaEventBus).startPreSubscriptionConsumer in goroutine 251
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:1375 +0x213
+
+goroutine 756 [chan receive]:
+github.com/IBM/sarama.newConsumerGroupSession.func1({0xc0002ac4c0, 0x10}, 0x0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:851 +0x87
+created by github.com/IBM/sarama.newConsumerGroupSession in goroutine 754
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:850 +0x5f5
+
+goroutine 688 [sync.Mutex.Lock]:
+internal/sync.runtime_SemacquireMutex(0x0?, 0x0?, 0xc000432808?)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/sema.go:95 +0x25
+internal/sync.(*Mutex).lockSlow(0xc000432858)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/internal/sync/mutex.go:149 +0x15d
+internal/sync.(*Mutex).Lock(...)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/internal/sync/mutex.go:70
+sync.(*Mutex).Lock(...)
+	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/sync/mutex.go:46
+github.com/IBM/sarama.(*offsetManager).flushToBroker(0xc0000580c0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/offset_manager.go:262 +0x55
+github.com/IBM/sarama.(*offsetManager).Commit(0xc0000580c0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/offset_manager.go:249 +0x18
+github.com/IBM/sarama.(*offsetManager).mainLoop(0xc0000580c0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/offset_manager.go:241 +0x90
+github.com/IBM/sarama.withRecover(0x0?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.newOffsetManagerFromClient in goroutine 754
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/offset_manager.go:81 +0x265
+
+goroutine 689 [select]:
+github.com/IBM/sarama.(*consumerGroupSession).heartbeatLoop(0xc00019c120)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:1073 +0x3c7
+created by github.com/IBM/sarama.newConsumerGroupSession in goroutine 754
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:838 +0x2db
+
+goroutine 757 [select]:
+github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus.(*preSubscriptionConsumerHandler).ConsumeClaim(0xc00009a1f8, {0x105bec0, 0xc00019c120}, {0x1057a60, 0xc000275290})
+	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/sdk/pkg/eventbus/kafka.go:1101 +0xf3
+github.com/IBM/sarama.(*consumerGroupSession).consume(0xc00019c120, {0xc0002ac4c0, 0x10}, 0x0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:966 +0x219
+github.com/IBM/sarama.newConsumerGroupSession.func2({0xc0002ac4c0, 0x10}, 0x0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:891 +0x13a
+created by github.com/IBM/sarama.newConsumerGroupSession in goroutine 754
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:868 +0x4b6
+
+goroutine 759 [chan receive]:
+github.com/IBM/sarama.(*partitionConsumer).dispatcher(0xc0002030e0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:444 +0x34
+github.com/IBM/sarama.withRecover(0x0?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.(*consumer).ConsumePartition in goroutine 757
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:188 +0x296
+
+goroutine 760 [chan receive]:
+github.com/IBM/sarama.(*partitionConsumer).responseFeeder(0xc0002030e0)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:574 +0x85
+github.com/IBM/sarama.withRecover(0xc00019c120?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.(*consumer).ConsumePartition in goroutine 757
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:189 +0x316
+
+goroutine 761 [select]:
+github.com/IBM/sarama.(*brokerConsumer).subscriptionManager(0xc000442400)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:892 +0xfb
+github.com/IBM/sarama.withRecover(0x0?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.(*consumer).newBrokerConsumer in goroutine 757
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:873 +0x149
+
+goroutine 762 [select]:
+github.com/IBM/sarama.handleResponsePromise({0x105b050, 0xc000264940}, {0x105cb78, 0xc000264980}, 0xc000264980?, {0x105be68, 0xc00049ec30})
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:1092 +0xca
+github.com/IBM/sarama.(*Broker).sendAndReceive(0xc000432808, {0x105b050, 0xc000264940}, {0x105cb78, 0xc000264980})
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:1081 +0x107
+github.com/IBM/sarama.(*Broker).Fetch(0xc000432808, 0xc000264940)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/broker.go:517 +0x8e
+github.com/IBM/sarama.(*brokerConsumer).fetchNewMessages(0xc000442400)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:1135 +0x6e9
+github.com/IBM/sarama.(*brokerConsumer).subscriptionConsumer(0xc000442400)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:935 +0xc5
+github.com/IBM/sarama.withRecover(0x0?)
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/utils.go:50 +0x33
+created by github.com/IBM/sarama.(*consumer).newBrokerConsumer in goroutine 757
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer.go:874 +0x1c5
+
+goroutine 763 [chan receive]:
+github.com/IBM/sarama.newConsumerGroupClaim.func1()
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:1146 +0x94
+created by github.com/IBM/sarama.newConsumerGroupClaim in goroutine 757
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:1145 +0x185
+
+goroutine 764 [chan receive]:
+github.com/IBM/sarama.(*consumerGroupSession).consume.func1()
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:951 +0x96
+created by github.com/IBM/sarama.(*consumerGroupSession).consume in goroutine 757
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:950 +0x19c
+
+goroutine 765 [select]:
+github.com/IBM/sarama.(*consumerGroupSession).consume.func2()
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:958 +0x72
+created by github.com/IBM/sarama.(*consumerGroupSession).consume in goroutine 757
+	/home/jiyuanjie/go/pkg/mod/github.com/!i!b!m/sarama@v1.46.0/consumer_group.go:957 +0x1f0

@@ -776,18 +776,24 @@ func TestNATSHealthCheckPublisherSubscriberIntegration(t *testing.T) {
 
 	ctx := context.Background()
 
+	// 🔧 修复：使用共享的 clientID 前缀，确保 A 端和 B 端使用相同的 Stream
+	sharedClientID := fmt.Sprintf("nats-health-integration-%d", helper.GetTimestamp())
+
+	// 🔧 修复：健康检查 topic 必须匹配 Stream subjects 模式 (clientID.>)
+	healthCheckTopic := fmt.Sprintf("%s.health-check", sharedClientID)
+
 	// 创建自定义健康检查配置：每 10 秒发送一次
 	customHealthCheckConfig := config.HealthCheckConfig{
 		Enabled: true,
 		Publisher: config.HealthCheckPublisherConfig{
-			Topic:            eventbus.DefaultHealthCheckTopic,
+			Topic:            healthCheckTopic, // 🔧 修复：使用匹配 Stream 的 topic
 			Interval:         10 * time.Second, // 设置为 10 秒
 			Timeout:          10 * time.Second,
 			FailureThreshold: 3,
 			MessageTTL:       5 * time.Minute,
 		},
 		Subscriber: config.HealthCheckSubscriberConfig{
-			Topic:             eventbus.DefaultHealthCheckTopic,
+			Topic:             healthCheckTopic, // 🔧 修复：使用匹配 Stream 的 topic
 			MonitorInterval:   30 * time.Second,
 			WarningThreshold:  3,
 			ErrorThreshold:    5,
@@ -795,13 +801,13 @@ func TestNATSHealthCheckPublisherSubscriberIntegration(t *testing.T) {
 		},
 	}
 
-	// 创建 A 端 EventBus（发布端）- 使用自定义配置
-	clientIDA := fmt.Sprintf("nats-health-integration-a-%d", helper.GetTimestamp())
+	// 创建 A 端 EventBus（发布端）- 使用共享的 clientID
+	clientIDA := sharedClientID
 	busA := helper.CreateNATSEventBusWithHealthCheck(clientIDA, customHealthCheckConfig)
 	defer helper.CloseEventBus(busA)
 
-	// 创建 B 端 EventBus（订阅端）- 使用自定义配置
-	clientIDB := fmt.Sprintf("nats-health-integration-b-%d", helper.GetTimestamp())
+	// 创建 B 端 EventBus（订阅端）- 使用共享的 clientID
+	clientIDB := sharedClientID
 	busB := helper.CreateNATSEventBusWithHealthCheck(clientIDB, customHealthCheckConfig)
 	defer helper.CloseEventBus(busB)
 

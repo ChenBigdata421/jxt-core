@@ -42,6 +42,9 @@ type eventBusManager struct {
 
 	// 异步发布结果通道（用于Outbox模式）
 	publishResultChan chan *PublishResult
+
+	// 指标收集器（用于 Prometheus 等监控系统）
+	metricsCollector MetricsCollector
 }
 
 // NewEventBus 创建新的事件总线实例
@@ -67,6 +70,13 @@ func NewEventBus(config *EventBusConfig) (EventBus, error) {
 			Details: make(map[string]interface{}),
 		},
 		topicConfigs: make(map[string]TopicOptions),
+	}
+
+	// 初始化指标收集器
+	if config.MetricsCollector != nil {
+		manager.metricsCollector = config.MetricsCollector
+	} else {
+		manager.metricsCollector = &NoOpMetricsCollector{}
 	}
 
 	// 根据配置类型创建具体实现
@@ -98,8 +108,17 @@ func (m *eventBusManager) Publish(ctx context.Context, topic string, message []b
 	// 更新指标
 	start := time.Now()
 	err := m.publisher.Publish(ctx, topic, message)
+	duration := time.Since(start)
 
-	m.updateMetrics(err == nil, true, time.Since(start))
+	m.updateMetrics(err == nil, true, duration)
+
+	// 记录到外部指标收集器（Prometheus 等）
+	if m.metricsCollector != nil {
+		m.metricsCollector.RecordPublish(topic, err == nil, duration)
+		if err != nil {
+			m.metricsCollector.RecordError("publish", topic)
+		}
+	}
 
 	if err != nil {
 		logger.Error("Failed to publish message", "topic", topic, "error", err)
@@ -127,7 +146,17 @@ func (m *eventBusManager) Subscribe(ctx context.Context, topic string, handler M
 	wrappedHandler := func(ctx context.Context, message []byte) error {
 		start := time.Now()
 		err := handler(ctx, message)
-		m.updateMetrics(err == nil, false, time.Since(start))
+		duration := time.Since(start)
+
+		m.updateMetrics(err == nil, false, duration)
+
+		// 记录到外部指标收集器（Prometheus 等）
+		if m.metricsCollector != nil {
+			m.metricsCollector.RecordConsume(topic, err == nil, duration)
+			if err != nil {
+				m.metricsCollector.RecordError("consume", topic)
+			}
+		}
 
 		if err != nil {
 			logger.Error("Message handler failed", "topic", topic, "error", err)

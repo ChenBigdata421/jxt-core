@@ -5354,6 +5354,205 @@ EventBus内置了指标收集功能，支持以下指标：
 - `HealthCheckStatus`: 健康检查状态
 - `MessageBacklog`: 消息积压数量（NATS）
 
+#### 8.1 Prometheus 监控集成
+
+EventBus 支持集成 Prometheus 进行生产级监控，提供丰富的指标导出能力。
+
+##### 设计原则
+
+- ✅ **依赖倒置原则（DIP）**：EventBus 依赖 MetricsCollector 接口而非具体实现
+- ✅ **零依赖**：核心代码不依赖外部监控库（Prometheus 库仅在示例代码中使用）
+- ✅ **可扩展性**：支持多种监控系统实现（Prometheus、StatsD、DataDog 等）
+- ✅ **向后兼容**：不设置 MetricsCollector 时使用 NoOpMetricsCollector，不影响现有功能
+
+##### 快速开始
+
+```go
+package main
+
+import (
+    "context"
+    "net/http"
+
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+func main() {
+    // 1. 创建 Prometheus 指标收集器
+    metricsCollector := eventbus.NewPrometheusMetricsCollector("my_service")
+
+    // 2. 配置 EventBus
+    config := eventbus.GetDefaultConfig("memory")
+    config.MetricsCollector = metricsCollector
+
+    // 3. 创建 EventBus
+    bus, err := eventbus.NewEventBus(config)
+    if err != nil {
+        panic(err)
+    }
+    defer bus.Close()
+
+    // 4. 启动 Prometheus HTTP 服务器
+    go func() {
+        http.Handle("/metrics", promhttp.Handler())
+        http.ListenAndServe(":9090", nil)
+    }()
+
+    // 5. 使用 EventBus（所有指标自动记录）
+    ctx := context.Background()
+    bus.Publish(ctx, "user_events", []byte(`{"event": "user_created"}`))
+}
+```
+
+##### Prometheus 指标列表
+
+**发布指标：**
+- `{namespace}_eventbus_publish_total{topic}` - 发布消息总数
+- `{namespace}_eventbus_publish_success_total{topic}` - 发布成功总数
+- `{namespace}_eventbus_publish_failed_total{topic}` - 发布失败总数
+- `{namespace}_eventbus_publish_latency_seconds{topic}` - 发布延迟（直方图）
+
+**消费指标：**
+- `{namespace}_eventbus_consume_total{topic}` - 消费消息总数
+- `{namespace}_eventbus_consume_success_total{topic}` - 消费成功总数
+- `{namespace}_eventbus_consume_failed_total{topic}` - 消费失败总数
+- `{namespace}_eventbus_consume_latency_seconds{topic}` - 消费延迟（直方图）
+
+**连接指标：**
+- `{namespace}_eventbus_connected` - 连接状态（1=已连接，0=未连接）
+- `{namespace}_eventbus_reconnect_total` - 重连尝试总数
+- `{namespace}_eventbus_reconnect_success_total` - 重连成功总数
+- `{namespace}_eventbus_reconnect_failed_total` - 重连失败总数
+- `{namespace}_eventbus_reconnect_latency_seconds` - 重连延迟（直方图）
+
+**积压指标：**
+- `{namespace}_eventbus_backlog{topic}` - 消息积压数量
+- `{namespace}_eventbus_backlog_state{topic}` - 积压状态（0=normal, 1=warning, 2=critical）
+
+**健康检查指标：**
+- `{namespace}_eventbus_health_check_total` - 健康检查总数
+- `{namespace}_eventbus_health_check_healthy_total` - 健康检查成功总数
+- `{namespace}_eventbus_health_check_unhealthy_total` - 健康检查失败总数
+- `{namespace}_eventbus_health_check_latency_seconds` - 健康检查延迟（直方图）
+
+**错误指标：**
+- `{namespace}_eventbus_errors_total{error_type}` - 错误总数（按类型）
+- `{namespace}_eventbus_errors_by_topic_total{topic}` - 错误总数（按主题）
+
+##### Grafana 仪表板示例
+
+**发布性能面板：**
+```promql
+# 发布速率
+rate(my_service_eventbus_publish_total[5m])
+
+# 发布成功率
+rate(my_service_eventbus_publish_success_total[5m]) / rate(my_service_eventbus_publish_total[5m])
+
+# P95 发布延迟
+histogram_quantile(0.95, rate(my_service_eventbus_publish_latency_seconds_bucket[5m]))
+```
+
+**消费性能面板：**
+```promql
+# 消费速率
+rate(my_service_eventbus_consume_total[5m])
+
+# 消费成功率
+rate(my_service_eventbus_consume_success_total[5m]) / rate(my_service_eventbus_consume_total[5m])
+
+# P99 消费延迟
+histogram_quantile(0.99, rate(my_service_eventbus_consume_latency_seconds_bucket[5m]))
+```
+
+**连接健康面板：**
+```promql
+# 连接状态
+my_service_eventbus_connected
+
+# 重连成功率
+rate(my_service_eventbus_reconnect_success_total[5m]) / rate(my_service_eventbus_reconnect_total[5m])
+```
+
+##### 使用内存指标收集器（测试/调试）
+
+```go
+// 创建内存指标收集器
+metricsCollector := eventbus.NewInMemoryMetricsCollector()
+
+// 配置 EventBus
+config := eventbus.GetDefaultConfig("memory")
+config.MetricsCollector = metricsCollector
+
+bus, _ := eventbus.NewEventBus(config)
+
+// 使用 EventBus
+bus.Publish(ctx, "test", []byte("message"))
+
+// 查看指标
+metrics := metricsCollector.GetMetrics()
+fmt.Printf("发布总数: %v\n", metrics["publish_total"])
+fmt.Printf("发布成功: %v\n", metrics["publish_success"])
+```
+
+##### 不使用监控（默认行为）
+
+```go
+// 不设置 MetricsCollector，自动使用 NoOpMetricsCollector
+config := eventbus.GetDefaultConfig("memory")
+bus, _ := eventbus.NewEventBus(config)
+
+// 正常使用，无性能开销
+bus.Publish(ctx, "test", []byte("message"))
+```
+
+##### Kafka EventBus 集成示例
+
+```go
+// 创建 Prometheus 指标收集器
+metricsCollector := eventbus.NewPrometheusMetricsCollector("order_service")
+
+// 配置 Kafka EventBus
+config := eventbus.GetDefaultConfig("kafka")
+config.Kafka.Brokers = []string{"localhost:9092"}
+config.Kafka.Consumer.GroupID = "order-consumer-group"
+config.MetricsCollector = metricsCollector
+
+// 创建 EventBus
+bus, err := eventbus.NewEventBus(config)
+if err != nil {
+    log.Fatal(err)
+}
+defer bus.Close()
+
+// 启动 Prometheus HTTP 服务器
+go func() {
+    http.Handle("/metrics", promhttp.Handler())
+    log.Println("Prometheus metrics available at http://localhost:9090/metrics")
+    http.ListenAndServe(":9090", nil)
+}()
+
+// 使用 EventBus
+ctx := context.Background()
+topic := "order_events"
+
+// 订阅
+bus.Subscribe(ctx, topic, func(ctx context.Context, message []byte) error {
+    // 处理消息
+    return nil
+})
+
+// 发布
+bus.Publish(ctx, topic, []byte(`{"order_id": "123", "status": "created"}`))
+```
+
+##### 完整示例
+
+完整的 Prometheus 集成示例请参考：
+- `jxt-core/sdk/pkg/eventbus/examples/prometheus_metrics_example.go`
+- `jxt-core/sdk/pkg/eventbus/PROMETHEUS_METRICS_INTEGRATION.md`
+
 ## 九、Topic常量
 
 EventBus只定义技术基础设施相关的Topic常量：

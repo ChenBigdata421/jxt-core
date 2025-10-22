@@ -45,13 +45,12 @@ func TestNATSPublishEnvelopeProfiler(t *testing.T) {
 	// 预热（避免首次调用的初始化开销）
 	t.Log("🔥 预热阶段...")
 	for i := 0; i < 100; i++ {
-		envelope := &eventbus.Envelope{
-			AggregateID:  fmt.Sprintf("warmup-%d", i),
-			EventType:    "WarmupEvent",
-			EventVersion: 1,
-			Timestamp:    time.Now(),
-			Payload:      []byte("warmup"),
-		}
+		envelope := eventbus.NewEnvelopeWithAutoID(
+			fmt.Sprintf("warmup-%d", i),
+			"WarmupEvent",
+			1,
+			[]byte("warmup"),
+		)
 		_ = bus.PublishEnvelope(ctx, topic, envelope)
 	}
 	time.Sleep(1 * time.Second)
@@ -72,13 +71,12 @@ func TestNATSPublishEnvelopeProfiler(t *testing.T) {
 	timings := make([]Timing, messageCount)
 
 	for i := 0; i < messageCount; i++ {
-		envelope := &eventbus.Envelope{
-			AggregateID:  fmt.Sprintf("agg-%d", i%100),
-			EventType:    "TestEvent",
-			EventVersion: int64(i/100 + 1),
-			Timestamp:    time.Now(),
-			Payload:      []byte(fmt.Sprintf("message %d", i)),
-		}
+		envelope := eventbus.NewEnvelopeWithAutoID(
+			fmt.Sprintf("agg-%d", i%100),
+			"TestEvent",
+			int64(i/100+1),
+			[]byte(fmt.Sprintf("message %d", i)),
+		)
 
 		// 总时间
 		totalStart := time.Now()
@@ -280,13 +278,12 @@ func TestKafkaPublishEnvelopeProfiler(t *testing.T) {
 	// 预热
 	t.Log("🔥 预热阶段...")
 	for i := 0; i < 100; i++ {
-		envelope := &eventbus.Envelope{
-			AggregateID:  fmt.Sprintf("warmup-%d", i),
-			EventType:    "WarmupEvent",
-			EventVersion: 1,
-			Timestamp:    time.Now(),
-			Payload:      []byte("warmup"),
-		}
+		envelope := eventbus.NewEnvelopeWithAutoID(
+			fmt.Sprintf("warmup-%d", i),
+			"WarmupEvent",
+			1,
+			[]byte("warmup"),
+		)
 		_ = bus.PublishEnvelope(ctx, topic, envelope)
 	}
 	time.Sleep(1 * time.Second)
@@ -297,13 +294,12 @@ func TestKafkaPublishEnvelopeProfiler(t *testing.T) {
 	publishDurations := make([]time.Duration, messageCount)
 
 	for i := 0; i < messageCount; i++ {
-		envelope := &eventbus.Envelope{
-			AggregateID:  fmt.Sprintf("agg-%d", i%100),
-			EventType:    "TestEvent",
-			EventVersion: int64(i/100 + 1),
-			Timestamp:    time.Now(),
-			Payload:      []byte(fmt.Sprintf("message %d", i)),
-		}
+		envelope := eventbus.NewEnvelopeWithAutoID(
+			fmt.Sprintf("agg-%d", i%100),
+			"TestEvent",
+			int64(i/100+1),
+			[]byte(fmt.Sprintf("message %d", i)),
+		)
 
 		publishStart := time.Now()
 		err = bus.PublishEnvelope(ctx, topic, envelope)

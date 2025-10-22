@@ -128,13 +128,12 @@ func TestNATSSingleTopicOrder(t *testing.T) {
 		aggregateID := aggregateIDs[aggIndex]
 
 		for version := int64(1); version <= int64(messagesPerAggregate); version++ {
-			envelope := &eventbus.Envelope{
-				AggregateID:  aggregateID,
-				EventType:    "TestEvent",
-				EventVersion: version,
-				Timestamp:    time.Now(),
-				Payload:      []byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
-			}
+			envelope := eventbus.NewEnvelopeWithAutoID(
+				aggregateID,
+				"TestEvent",
+				version,
+				[]byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
+			)
 
 			err := eb.PublishEnvelope(ctx, topic, envelope)
 			require.NoError(t, err, "Failed to publish message")

@@ -77,7 +77,7 @@ func TestNATSOrderTiming(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// 测试参数 - 使用少量消息便于观察
-	aggregateCount := 3      // 3 个聚合
+	aggregateCount := 3        // 3 个聚合
 	messagesPerAggregate := 10 // 每个聚合 10 条消息
 	totalMessages := aggregateCount * messagesPerAggregate
 	topicCount := 5
@@ -119,7 +119,7 @@ func TestNATSOrderTiming(t *testing.T) {
 
 	handler := func(ctx context.Context, env *eventbus.Envelope) error {
 		seq := atomic.AddInt64(&receivedCount, 1)
-		
+
 		receivedMu.Lock()
 		receivedMessages = append(receivedMessages, ReceivedMessage{
 			AggregateID:  env.AggregateID,
@@ -157,20 +157,19 @@ func TestNATSOrderTiming(t *testing.T) {
 		go func(aggregateIndex int) {
 			defer sendWg.Done()
 			aggregateID := aggregateIDs[aggregateIndex]
-			
+
 			// 选择 topic（同一个聚合ID始终使用同一个 topic）
 			topicIndex := aggregateIndex % topicCount
 			topic := topics[topicIndex]
 
 			// 串行发送该聚合ID的所有消息到同一个 topic
 			for version := int64(1); version <= int64(messagesPerAggregate); version++ {
-				envelope := &eventbus.Envelope{
-					AggregateID:  aggregateID,
-					EventType:    "TestEvent",
-					EventVersion: version,
-					Timestamp:    time.Now(),
-					Payload:      []byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
-				}
+				envelope := eventbus.NewEnvelopeWithAutoID(
+					aggregateID,
+					"TestEvent",
+					version,
+					[]byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
+				)
 
 				sentAt := time.Now()
 				err := eb.PublishEnvelope(ctx, topic, envelope)
@@ -210,7 +209,7 @@ func TestNATSOrderTiming(t *testing.T) {
 	// 为每个聚合ID分析时序
 	for _, aggID := range aggregateIDs {
 		t.Logf("\n📊 聚合 %s 的时序分析:", aggID)
-		
+
 		// 获取发送记录
 		sentMu.Lock()
 		var aggSent []SentMessage
@@ -270,4 +269,3 @@ func TestNATSOrderTiming(t *testing.T) {
 
 	t.Log(strings.Repeat("=", 80))
 }
-
