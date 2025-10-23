@@ -337,7 +337,9 @@ func NewSchedulerMetrics() *SchedulerMetrics {
 	m.LastPollTime.Store(time.Time{})
 	m.LastCleanupTime.Store(time.Time{})
 	m.LastRetryTime.Store(time.Time{})
-	m.LastError.Store(error(nil))
+	// 注意：不能存储 error(nil)，因为 atomic.Value 不允许存储 typed nil
+	// 如果需要存储错误，应该存储具体的错误值或者不初始化（保持零值）
+	// m.LastError 保持零值，使用时需要通过 Load() 检查是否为 nil
 	return m
 }
 
