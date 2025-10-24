@@ -19,6 +19,7 @@ type Envelope struct {
 	Timestamp     time.Time  `json:"timestamp"`                // 时间戳
 	TraceID       string     `json:"trace_id,omitempty"`       // 链路追踪ID（可选）
 	CorrelationID string     `json:"correlation_id,omitempty"` // 关联ID（可选）
+	TenantID      string     `json:"tenant_id,omitempty"`      // 租户ID（多租户支持，用于Outbox ACK路由）
 	Payload       RawMessage `json:"payload"`                  // 业务负载
 }
 

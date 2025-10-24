@@ -986,3 +986,25 @@ func (m *MockEventBusForAdapter) GetTopicConfigStrategy() eventbus.TopicConfigSt
 func (m *MockEventBusForAdapter) SubscribeEnvelope(ctx context.Context, topic string, handler eventbus.EnvelopeHandler) error {
 	return nil
 }
+
+// ========== 多租户 ACK 支持 ==========
+
+// RegisterTenant 注册租户（Mock 实现）
+func (m *MockEventBusForAdapter) RegisterTenant(tenantID string, bufferSize int) error {
+	return nil
+}
+
+// UnregisterTenant 注销租户（Mock 实现）
+func (m *MockEventBusForAdapter) UnregisterTenant(tenantID string) error {
+	return nil
+}
+
+// GetTenantPublishResultChannel 获取租户专属的 ACK Channel（Mock 实现）
+func (m *MockEventBusForAdapter) GetTenantPublishResultChannel(tenantID string) <-chan *eventbus.PublishResult {
+	return m.resultChan
+}
+
+// GetRegisteredTenants 获取已注册的租户列表（Mock 实现）
+func (m *MockEventBusForAdapter) GetRegisteredTenants() []string {
+	return []string{}
+}

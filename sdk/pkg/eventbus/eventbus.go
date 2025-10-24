@@ -43,6 +43,10 @@ type eventBusManager struct {
 	// 异步发布结果通道（用于Outbox模式）
 	publishResultChan chan *PublishResult
 
+	// 多租户 ACK 通道支持
+	tenantPublishResultChans map[string]chan *PublishResult // key: tenantID, value: ACK channel
+	tenantChannelsMu         sync.RWMutex                   // 保护 tenantPublishResultChans 的读写锁
+
 	// 指标收集器（用于 Prometheus 等监控系统）
 	metricsCollector MetricsCollector
 }
@@ -1328,4 +1332,99 @@ func convertJetStreamConfig(userJetStream JetStreamConfig) JetStreamConfig {
 // 用于Outbox Processor监听发布结果并更新Outbox状态
 func (m *eventBusManager) GetPublishResultChannel() <-chan *PublishResult {
 	return m.publishResultChan
+}
+
+// ==========================================================================
+// 多租户 ACK 支持（Memory EventBus）
+// ==========================================================================
+
+// RegisterTenant 注册租户（创建租户专属的 ACK Channel）
+func (m *eventBusManager) RegisterTenant(tenantID string, bufferSize int) error {
+	if tenantID == "" {
+		return fmt.Errorf("tenantID cannot be empty")
+	}
+
+	if bufferSize <= 0 {
+		bufferSize = 10000 // Memory EventBus 默认缓冲区较小（测试用）
+	}
+
+	m.tenantChannelsMu.Lock()
+	defer m.tenantChannelsMu.Unlock()
+
+	// 延迟初始化 map
+	if m.tenantPublishResultChans == nil {
+		m.tenantPublishResultChans = make(map[string]chan *PublishResult)
+	}
+
+	// 检查租户是否已注册
+	if _, exists := m.tenantPublishResultChans[tenantID]; exists {
+		return fmt.Errorf("tenant %s already registered", tenantID)
+	}
+
+	// 创建租户专属 ACK Channel
+	m.tenantPublishResultChans[tenantID] = make(chan *PublishResult, bufferSize)
+
+	logger.Info("Memory EventBus: Tenant ACK channel registered",
+		"tenantID", tenantID,
+		"bufferSize", bufferSize)
+
+	return nil
+}
+
+// UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
+func (m *eventBusManager) UnregisterTenant(tenantID string) error {
+	if tenantID == "" {
+		return fmt.Errorf("tenantID cannot be empty")
+	}
+
+	m.tenantChannelsMu.Lock()
+	defer m.tenantChannelsMu.Unlock()
+
+	// 检查租户是否已注册
+	ch, exists := m.tenantPublishResultChans[tenantID]
+	if !exists {
+		return fmt.Errorf("tenant %s not registered", tenantID)
+	}
+
+	// 关闭并删除租户 Channel
+	close(ch)
+	delete(m.tenantPublishResultChans, tenantID)
+
+	logger.Info("Memory EventBus: Tenant ACK channel unregistered",
+		"tenantID", tenantID)
+
+	return nil
+}
+
+// GetTenantPublishResultChannel 获取租户专属的异步发布结果通道
+func (m *eventBusManager) GetTenantPublishResultChannel(tenantID string) <-chan *PublishResult {
+	if tenantID == "" {
+		// 返回全局通道（向后兼容）
+		return m.publishResultChan
+	}
+
+	m.tenantChannelsMu.RLock()
+	defer m.tenantChannelsMu.RUnlock()
+
+	if ch, exists := m.tenantPublishResultChans[tenantID]; exists {
+		return ch
+	}
+
+	// 租户未注册，返回 nil
+	logger.Warn("Memory EventBus: Tenant not registered, returning nil channel",
+		"tenantID", tenantID)
+	return nil
+}
+
+// GetRegisteredTenants 获取所有已注册的租户ID列表
+func (m *eventBusManager) GetRegisteredTenants() []string {
+	m.tenantChannelsMu.RLock()
+	defer m.tenantChannelsMu.RUnlock()
+
+	tenants := make([]string, 0, len(m.tenantPublishResultChans))
+	for tenantID := range m.tenantPublishResultChans {
+		tenants = append(tenants, tenantID)
+	}
+
+	return tenants
 }

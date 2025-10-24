@@ -39,6 +39,8 @@ type PublishResult struct {
 	AggregateID string
 	// EventType 事件类型（可选，来自Envelope）
 	EventType string
+	// TenantID 租户ID（多租户支持，用于Outbox ACK路由）
+	TenantID string
 }
 
 // EventBus 统一事件总线接口（合并基础功能和企业特性）
@@ -177,11 +179,35 @@ type EventBus interface {
 	SubscribeEnvelope(ctx context.Context, topic string, handler EnvelopeHandler) error
 
 	// ========== 异步发布结果处理（用于Outbox模式） ==========
-	// GetPublishResultChannel 获取异步发布结果通道
+	// GetPublishResultChannel 获取全局异步发布结果通道（单租户模式）
 	// ⚠️ 仅 PublishEnvelope() 发送 ACK 结果到此通道
 	// ⚠️ Publish() 不发送 ACK 结果（不支持 Outbox 模式）
+	// ⚠️ 多租户场景推荐使用 GetTenantPublishResultChannel()
 	// 用于 Outbox Processor 监听发布结果并更新 Outbox 状态
 	GetPublishResultChannel() <-chan *PublishResult
+
+	// ========== 多租户 ACK 支持 ==========
+	// RegisterTenant 注册租户（创建租户专属的 ACK Channel）
+	// tenantID: 租户ID，不能为空
+	// bufferSize: ACK Channel 缓冲区大小，0 表示使用默认值（100000）
+	// 返回：成功返回 nil，失败返回错误（如租户已注册）
+	RegisterTenant(tenantID string, bufferSize int) error
+
+	// UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
+	// tenantID: 租户ID
+	// 返回：成功返回 nil，失败返回错误（如租户未注册）
+	// ⚠️ 注销后，该租户的 ACK 结果将被丢弃
+	UnregisterTenant(tenantID string) error
+
+	// GetTenantPublishResultChannel 获取租户专属的异步发布结果通道（多租户模式）
+	// tenantID: 租户ID，如果为空字符串则返回全局通道
+	// 返回：租户专属的 ACK 通道，如果租户未注册则返回 nil
+	// ⚠️ 使用前必须先调用 RegisterTenant() 注册租户
+	GetTenantPublishResultChannel(tenantID string) <-chan *PublishResult
+
+	// GetRegisteredTenants 获取所有已注册的租户ID列表
+	// 返回：租户ID列表
+	GetRegisteredTenants() []string
 }
 
 // Publisher 发布器接口

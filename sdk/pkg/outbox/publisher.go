@@ -623,7 +623,7 @@ func (p *OutboxPublisher) GetMetrics() *PublisherMetrics {
 	}
 }
 
-// StartACKListener 启动 ACK 监听器
+// StartACKListener 启动 ACK 监听器（使用全局 ACK Channel）
 // 监听 EventBus 的异步发布结果，并更新 Outbox 事件状态
 //
 // 参数：
@@ -634,7 +634,25 @@ func (p *OutboxPublisher) GetMetrics() *PublisherMetrics {
 //   - 此方法应该在应用启动时调用一次
 //   - 监听器会在后台运行，直到 ctx 被取消或调用 StopACKListener()
 //   - 重复调用此方法是安全的（会忽略后续调用）
+//   - 多租户场景推荐使用 StartACKListenerWithChannel()
 func (p *OutboxPublisher) StartACKListener(ctx context.Context) {
+	// 使用全局 ACK Channel
+	resultChan := p.eventPublisher.GetPublishResultChannel()
+	p.StartACKListenerWithChannel(ctx, resultChan)
+}
+
+// StartACKListenerWithChannel 启动 ACK 监听器（使用自定义 ACK Channel）
+// 监听指定的 ACK Channel，并更新 Outbox 事件状态
+//
+// 参数：
+//
+//	ctx: 上下文（用于控制监听器生命周期）
+//	resultChan: 自定义的 ACK 结果通道（如租户专属通道）
+//
+// 注意：
+//   - 此方法用于多租户场景，每个租户使用独立的 ACK Channel
+//   - 重复调用此方法是安全的（会忽略后续调用）
+func (p *OutboxPublisher) StartACKListenerWithChannel(ctx context.Context, resultChan <-chan *PublishResult) {
 	p.ackListenerMu.Lock()
 	defer p.ackListenerMu.Unlock()
 
@@ -647,8 +665,8 @@ func (p *OutboxPublisher) StartACKListener(ctx context.Context) {
 	p.ackListenerCtx, p.ackListenerCancel = context.WithCancel(ctx)
 	p.ackListenerStarted = true
 
-	// 启动 ACK 监听器 goroutine
-	go p.ackListenerLoop()
+	// 启动 ACK 监听器 goroutine（使用自定义 Channel）
+	go p.ackListenerLoopWithChannel(resultChan)
 }
 
 // StopACKListener 停止 ACK 监听器
@@ -668,12 +686,17 @@ func (p *OutboxPublisher) StopACKListener() {
 	p.ackListenerStarted = false
 }
 
-// ackListenerLoop ACK 监听器循环
+// ackListenerLoop ACK 监听器循环（使用全局 ACK Channel）
 // 监听 EventBus 的异步发布结果，并更新 Outbox 事件状态
 func (p *OutboxPublisher) ackListenerLoop() {
 	// 获取发布结果通道
 	resultChan := p.eventPublisher.GetPublishResultChannel()
+	p.ackListenerLoopWithChannel(resultChan)
+}
 
+// ackListenerLoopWithChannel ACK 监听器循环（使用自定义 ACK Channel）
+// 监听指定的 ACK Channel，并更新 Outbox 事件状态
+func (p *OutboxPublisher) ackListenerLoopWithChannel(resultChan <-chan *PublishResult) {
 	for {
 		select {
 		case result := <-resultChan:
@@ -743,6 +766,7 @@ func (p *OutboxPublisher) toEnvelope(event *OutboxEvent) *Envelope {
 		Timestamp:     event.CreatedAt,
 		TraceID:       event.TraceID,
 		CorrelationID: event.CorrelationID,
+		TenantID:      event.TenantID, // ← 租户ID（多租户支持，用于Outbox ACK路由）
 	}
 }
 

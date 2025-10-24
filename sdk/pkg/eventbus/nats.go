@@ -293,6 +293,10 @@ type natsEventBus struct {
 	// 是否启用发布结果通道（性能优化：默认禁用）
 	enablePublishResult bool
 
+	// 多租户 ACK 通道支持
+	tenantPublishResultChans map[string]chan *PublishResult // key: tenantID, value: ACK channel
+	tenantChannelsMu         sync.RWMutex                   // 保护 tenantPublishResultChans 的读写锁
+
 	// ✅ 方案2：共享 ACK 处理器（避免 per-message goroutine）
 	ackChan        chan *ackTask  // ACK 任务通道
 	ackWorkerWg    sync.WaitGroup // ACK worker 等待组
@@ -307,6 +311,7 @@ type ackTask struct {
 	topic       string
 	aggregateID string
 	eventType   string
+	tenantID    string // 租户ID（多租户支持，用于Outbox ACK路由）
 }
 
 // NewNATSEventBus 创建NATS JetStream事件总线
@@ -2612,6 +2617,7 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 			topic:       topic,
 			aggregateID: envelope.AggregateID,
 			eventType:   envelope.EventType,
+			tenantID:    envelope.TenantID, // ← 租户ID（多租户支持，用于Outbox ACK路由）
 		}
 
 		select {
@@ -3436,6 +3442,13 @@ func (n *natsEventBus) ackWorker(workerID int) {
 
 // processACKTask 处理单个 ACK 任务
 func (n *natsEventBus) processACKTask(task *ackTask) {
+	// 🔥 P0修复：添加超时处理，避免 Worker 永久阻塞
+	// 默认超时时间为 30 秒，可通过配置调整
+	timeout := 30 * time.Second
+	if n.config.JetStream.PublishTimeout > 0 {
+		timeout = n.config.JetStream.PublishTimeout
+	}
+
 	select {
 	case <-task.future.Ok():
 		// ✅ 发布成功
@@ -3450,17 +3463,11 @@ func (n *natsEventBus) processACKTask(task *ackTask) {
 			Timestamp:   time.Now(),
 			AggregateID: task.aggregateID,
 			EventType:   task.eventType,
+			TenantID:    task.tenantID, // ← 租户ID（多租户支持，用于Outbox ACK路由）
 		}
 
-		select {
-		case n.publishResultChan <- result:
-			// 成功发送结果
-		default:
-			// 通道满，记录警告
-			n.logger.Warn("Publish result channel full, dropping success result",
-				zap.String("eventID", task.eventID),
-				zap.String("topic", task.topic))
-		}
+		// ✅ 发送到租户专属通道或全局通道
+		n.sendResultToChannel(result)
 
 	case err := <-task.future.Err():
 		// ❌ 发布失败
@@ -3481,17 +3488,172 @@ func (n *natsEventBus) processACKTask(task *ackTask) {
 			Timestamp:   time.Now(),
 			AggregateID: task.aggregateID,
 			EventType:   task.eventType,
+			TenantID:    task.tenantID, // ← 租户ID（多租户支持，用于Outbox ACK路由）
 		}
 
-		select {
-		case n.publishResultChan <- result:
-			// 成功发送结果
-		default:
-			// 通道满，记录警告
-			n.logger.Warn("Publish result channel full, dropping error result",
-				zap.String("eventID", task.eventID),
-				zap.String("topic", task.topic),
-				zap.Error(err))
+		// ✅ 发送到租户专属通道或全局通道
+		n.sendResultToChannel(result)
+
+	case <-time.After(timeout):
+		// ⏰ 超时：NATS JetStream ACK 响应超时
+		n.errorCount.Add(1)
+		n.logger.Error("Async publish ACK timeout",
+			zap.String("eventID", task.eventID),
+			zap.String("topic", task.topic),
+			zap.String("aggregateID", task.aggregateID),
+			zap.String("eventType", task.eventType),
+			zap.Duration("timeout", timeout))
+
+		// 发送超时结果到通道（用于Outbox Processor）
+		result := &PublishResult{
+			EventID:     task.eventID,
+			Topic:       task.topic,
+			Success:     false,
+			Error:       fmt.Errorf("ACK timeout after %v", timeout),
+			Timestamp:   time.Now(),
+			AggregateID: task.aggregateID,
+			EventType:   task.eventType,
+			TenantID:    task.tenantID, // ← 租户ID（多租户支持，用于Outbox ACK路由）
+		}
+
+		// ✅ 发送到租户专属通道或全局通道
+		n.sendResultToChannel(result)
+	}
+}
+
+// ==========================================================================
+// 多租户 ACK 支持
+// ==========================================================================
+
+// sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
+func (n *natsEventBus) sendResultToChannel(result *PublishResult) {
+	// 优先发送到租户专属通道
+	if result.TenantID != "" {
+		n.tenantChannelsMu.RLock()
+		tenantChan, exists := n.tenantPublishResultChans[result.TenantID]
+		n.tenantChannelsMu.RUnlock()
+
+		if exists {
+			select {
+			case tenantChan <- result:
+				// 成功发送到租户通道
+				return
+			default:
+				// 租户通道满，记录警告
+				n.logger.Warn("Tenant ACK channel full, falling back to global channel",
+					zap.String("tenantID", result.TenantID),
+					zap.String("eventID", result.EventID),
+					zap.String("topic", result.Topic))
+			}
+		} else {
+			// 租户未注册，记录警告
+			n.logger.Warn("Tenant not registered, falling back to global channel",
+				zap.String("tenantID", result.TenantID),
+				zap.String("eventID", result.EventID))
 		}
 	}
+
+	// 降级：发送到全局通道（向后兼容）
+	select {
+	case n.publishResultChan <- result:
+		// 成功发送到全局通道
+	default:
+		// 全局通道也满，记录错误
+		n.logger.Error("Both tenant and global ACK channels full, dropping result",
+			zap.String("tenantID", result.TenantID),
+			zap.String("eventID", result.EventID),
+			zap.String("topic", result.Topic),
+			zap.Bool("success", result.Success))
+	}
+}
+
+// RegisterTenant 注册租户（创建租户专属的 ACK Channel）
+func (n *natsEventBus) RegisterTenant(tenantID string, bufferSize int) error {
+	if tenantID == "" {
+		return fmt.Errorf("tenantID cannot be empty")
+	}
+
+	if bufferSize <= 0 {
+		bufferSize = 100000 // 默认缓冲区大小
+	}
+
+	n.tenantChannelsMu.Lock()
+	defer n.tenantChannelsMu.Unlock()
+
+	// 延迟初始化 map
+	if n.tenantPublishResultChans == nil {
+		n.tenantPublishResultChans = make(map[string]chan *PublishResult)
+	}
+
+	// 检查租户是否已注册
+	if _, exists := n.tenantPublishResultChans[tenantID]; exists {
+		return fmt.Errorf("tenant %s already registered", tenantID)
+	}
+
+	// 创建租户专属 ACK Channel
+	n.tenantPublishResultChans[tenantID] = make(chan *PublishResult, bufferSize)
+
+	n.logger.Info("Tenant ACK channel registered",
+		zap.String("tenantID", tenantID),
+		zap.Int("bufferSize", bufferSize))
+
+	return nil
+}
+
+// UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
+func (n *natsEventBus) UnregisterTenant(tenantID string) error {
+	if tenantID == "" {
+		return fmt.Errorf("tenantID cannot be empty")
+	}
+
+	n.tenantChannelsMu.Lock()
+	defer n.tenantChannelsMu.Unlock()
+
+	// 检查租户是否已注册
+	ch, exists := n.tenantPublishResultChans[tenantID]
+	if !exists {
+		return fmt.Errorf("tenant %s not registered", tenantID)
+	}
+
+	// 关闭并删除租户 Channel
+	close(ch)
+	delete(n.tenantPublishResultChans, tenantID)
+
+	n.logger.Info("Tenant ACK channel unregistered",
+		zap.String("tenantID", tenantID))
+
+	return nil
+}
+
+// GetTenantPublishResultChannel 获取租户专属的异步发布结果通道
+func (n *natsEventBus) GetTenantPublishResultChannel(tenantID string) <-chan *PublishResult {
+	if tenantID == "" {
+		// 返回全局通道（向后兼容）
+		return n.publishResultChan
+	}
+
+	n.tenantChannelsMu.RLock()
+	defer n.tenantChannelsMu.RUnlock()
+
+	if ch, exists := n.tenantPublishResultChans[tenantID]; exists {
+		return ch
+	}
+
+	// 租户未注册，返回 nil
+	n.logger.Warn("Tenant not registered, returning nil channel",
+		zap.String("tenantID", tenantID))
+	return nil
+}
+
+// GetRegisteredTenants 获取所有已注册的租户ID列表
+func (n *natsEventBus) GetRegisteredTenants() []string {
+	n.tenantChannelsMu.RLock()
+	defer n.tenantChannelsMu.RUnlock()
+
+	tenants := make([]string, 0, len(n.tenantPublishResultChans))
+	for tenantID := range n.tenantPublishResultChans {
+		tenants = append(tenants, tenantID)
+	}
+
+	return tenants
 }

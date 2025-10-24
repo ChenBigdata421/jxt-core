@@ -115,6 +115,82 @@ func (a *EventBusAdapter) GetPublishResultChannel() <-chan *outbox.PublishResult
 	return a.outboxResultChan
 }
 
+// ========== 多租户 ACK 支持 ==========
+
+// RegisterTenant 注册租户（创建租户专属的 ACK Channel）
+// 委托给底层 EventBus 实现
+func (a *EventBusAdapter) RegisterTenant(tenantID string, bufferSize int) error {
+	return a.eventBus.RegisterTenant(tenantID, bufferSize)
+}
+
+// UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
+// 委托给底层 EventBus 实现
+func (a *EventBusAdapter) UnregisterTenant(tenantID string) error {
+	return a.eventBus.UnregisterTenant(tenantID)
+}
+
+// GetTenantPublishResultChannel 获取租户专属的异步发布结果通道（多租户模式）
+// 返回一个转换后的 Outbox PublishResult 通道
+//
+// 注意：此方法返回的是 EventBus 的租户通道，需要调用者自行转换类型
+// 推荐使用 CreateTenantResultChannel() 方法，它会自动创建转换通道
+func (a *EventBusAdapter) GetTenantPublishResultChannel(tenantID string) <-chan *outbox.PublishResult {
+	// 获取 EventBus 的租户专属通道
+	eventBusResultChan := a.eventBus.GetTenantPublishResultChannel(tenantID)
+	if eventBusResultChan == nil {
+		return nil
+	}
+
+	// 创建 Outbox 结果通道
+	outboxResultChan := make(chan *outbox.PublishResult, 1000)
+
+	// 启动转换 goroutine
+	go a.tenantResultConversionLoop(eventBusResultChan, outboxResultChan)
+
+	return outboxResultChan
+}
+
+// GetRegisteredTenants 获取所有已注册的租户ID列表
+// 委托给底层 EventBus 实现
+func (a *EventBusAdapter) GetRegisteredTenants() []string {
+	return a.eventBus.GetRegisteredTenants()
+}
+
+// tenantResultConversionLoop 租户 ACK 结果转换循环
+// 从 EventBus 的租户专属 PublishResultChannel 读取结果，转换后发送到 Outbox 的 PublishResultChannel
+func (a *EventBusAdapter) tenantResultConversionLoop(eventBusResultChan <-chan *eventbus.PublishResult, outboxResultChan chan<- *outbox.PublishResult) {
+	defer close(outboxResultChan)
+
+	for {
+		select {
+		case eventBusResult, ok := <-eventBusResultChan:
+			if !ok {
+				// EventBus 结果通道已关闭
+				return
+			}
+
+			// 转换 EventBus PublishResult 为 Outbox PublishResult
+			outboxResult := a.toOutboxPublishResult(eventBusResult)
+
+			// 发送到 Outbox 结果通道
+			select {
+			case outboxResultChan <- outboxResult:
+				// 成功发送
+			case <-a.stopChan:
+				// 收到停止信号
+				return
+			default:
+				// 通道满，丢弃结果（避免阻塞）
+				// 注意：这种情况很少发生，因为缓冲区足够大
+			}
+
+		case <-a.stopChan:
+			// 收到停止信号
+			return
+		}
+	}
+}
+
 // Close 关闭适配器，释放资源
 // 应该在应用关闭时调用
 func (a *EventBusAdapter) Close() error {
@@ -200,6 +276,7 @@ func (a *EventBusAdapter) toEventBusEnvelope(envelope *outbox.Envelope) *eventbu
 		Timestamp:     envelope.Timestamp,
 		TraceID:       envelope.TraceID,
 		CorrelationID: envelope.CorrelationID,
+		TenantID:      envelope.TenantID, // ✅ 传递租户ID
 		Payload:       eventbus.RawMessage(envelope.Payload),
 	}
 }
@@ -214,6 +291,7 @@ func (a *EventBusAdapter) toOutboxPublishResult(result *eventbus.PublishResult) 
 		Timestamp:   result.Timestamp,
 		AggregateID: result.AggregateID,
 		EventType:   result.EventType,
+		TenantID:    result.TenantID, // ✅ 传递租户ID
 	}
 }
 
@@ -291,4 +369,3 @@ func NewNATSEventBusAdapter(natsConfig *eventbus.NATSConfig) (*EventBusAdapter, 
 	// 创建适配器
 	return NewEventBusAdapter(eventBus), nil
 }
-
