@@ -151,11 +151,6 @@ func (a *OutboxRepositoryAdapter) FindByAggregateID(ctx context.Context, aggrega
 	return a.repo.FindByAggregateID(ctx, aggregateID, tenantID)
 }
 
-// FindByStatus 根据状态查找事件
-func (a *OutboxRepositoryAdapter) FindByStatus(ctx context.Context, status outbox.EventStatus, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
-	return a.repo.FindByStatus(ctx, status, limit, tenantID)
-}
-
 // IncrementRetry 增加重试次数
 func (a *OutboxRepositoryAdapter) IncrementRetry(ctx context.Context, eventID string, errorMsg string) error {
 	return a.repo.IncrementRetry(ctx, eventID, errorMsg)
@@ -167,18 +162,18 @@ func (a *OutboxRepositoryAdapter) MarkAsMaxRetry(ctx context.Context, eventID st
 }
 
 // FindPendingEventsWithDelay 查找待发布的事件（带延迟）
-func (a *OutboxRepositoryAdapter) FindPendingEventsWithDelay(ctx context.Context, limit int, tenantID string, delaySeconds int) ([]*outbox.OutboxEvent, error) {
-	return a.repo.FindPendingEventsWithDelay(ctx, limit, tenantID, delaySeconds)
+func (a *OutboxRepositoryAdapter) FindPendingEventsWithDelay(ctx context.Context, tenantID string, delaySeconds int, limit int) ([]*outbox.OutboxEvent, error) {
+	return a.repo.FindPendingEventsWithDelay(ctx, tenantID, delaySeconds, limit)
 }
 
 // FindEventsForRetry 查找需要重试的事件
-func (a *OutboxRepositoryAdapter) FindEventsForRetry(ctx context.Context, maxRetries int, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
-	return a.repo.FindEventsForRetry(ctx, maxRetries, limit, tenantID)
+func (a *OutboxRepositoryAdapter) FindEventsForRetry(ctx context.Context, maxRetries int, limit int) ([]*outbox.OutboxEvent, error) {
+	return a.repo.FindEventsForRetry(ctx, maxRetries, limit)
 }
 
 // FindByAggregateType 根据聚合类型查找事件
-func (a *OutboxRepositoryAdapter) FindByAggregateType(ctx context.Context, aggregateType string, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
-	return a.repo.FindByAggregateType(ctx, aggregateType, limit, tenantID)
+func (a *OutboxRepositoryAdapter) FindByAggregateType(ctx context.Context, aggregateType string, limit int) ([]*outbox.OutboxEvent, error) {
+	return a.repo.FindByAggregateType(ctx, aggregateType, limit)
 }
 
 // BatchUpdate 批量更新事件（性能优化）
@@ -225,6 +220,22 @@ func (a *OutboxRepositoryAdapter) DeletePublishedBefore(ctx context.Context, bef
 // DeleteFailedBefore 删除指定时间之前失败的事件
 func (a *OutboxRepositoryAdapter) DeleteFailedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error) {
 	return a.repo.DeleteFailedBefore(ctx, before, tenantID)
+}
+
+// IncrementRetryCount 增加重试次数（已废弃，使用 IncrementRetry 代替）
+// Deprecated: 使用 IncrementRetry 代替
+func (a *OutboxRepositoryAdapter) IncrementRetryCount(ctx context.Context, id string) error {
+	return a.repo.IncrementRetryCount(ctx, id)
+}
+
+// Delete 删除事件
+func (a *OutboxRepositoryAdapter) Delete(ctx context.Context, id string) error {
+	return a.repo.Delete(ctx, id)
+}
+
+// DeleteBatch 批量删除事件
+func (a *OutboxRepositoryAdapter) DeleteBatch(ctx context.Context, ids []string) error {
+	return a.repo.DeleteBatch(ctx, ids)
 }
 
 // Ensure OutboxRepositoryAdapter implements OutboxRepository

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"jxt-core/sdk/pkg/outbox"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
 )
 
 // EventBus 接口（简化版本，与 jxt-core/sdk/pkg/eventbus.EventBus 兼容）
@@ -262,4 +262,3 @@ func main() {
 	}
 }
 */
-

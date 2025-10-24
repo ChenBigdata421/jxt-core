@@ -1,4 +1,4 @@
-package examples
+package main
 
 import (
 	"context"
@@ -273,4 +273,3 @@ func NATSStreamPreCreationBestPractices() {
 	log.Println("   - Ericsson: 启动时一次性配置")
 	log.Println("   - 类似Kafka的PreSubscription模式")
 }
-
