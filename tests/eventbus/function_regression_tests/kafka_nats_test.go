@@ -283,6 +283,14 @@ func TestKafkaEnvelopePublishSubscribe(t *testing.T) {
 	bus := helper.CreateKafkaEventBus(fmt.Sprintf("kafka-envelope-%d", helper.GetTimestamp()))
 	defer helper.CloseEventBus(bus)
 
+	// ✅ 关键修复：设置预订阅 topics（Kafka EventBus 预订阅模式要求）
+	if kafkaBus, ok := bus.(interface {
+		SetPreSubscriptionTopics([]string)
+	}); ok {
+		kafkaBus.SetPreSubscriptionTopics([]string{topic})
+		t.Logf("✅ Set pre-subscription topics: %s", topic)
+	}
+
 	var received int64
 	var lastEnvelope *eventbus.Envelope
 	ctx := context.Background()
@@ -300,13 +308,14 @@ func TestKafkaEnvelopePublishSubscribe(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// 发布 Envelope
+	// ✅ 修复：Payload 必须是有效的 JSON（RawMessage 要求）
 	envelope := &eventbus.Envelope{
 		EventID:      "evt-kafka-envelope-001",
 		AggregateID:  "test-aggregate-1",
 		EventType:    "TestEvent",
 		EventVersion: 1,
 		Timestamp:    time.Now(),
-		Payload:      []byte("Test payload"),
+		Payload:      []byte(`{"message":"Test payload"}`), // 有效的 JSON
 	}
 
 	err = bus.PublishEnvelope(ctx, topic, envelope)
@@ -316,9 +325,15 @@ func TestKafkaEnvelopePublishSubscribe(t *testing.T) {
 	success := helper.WaitForMessages(&received, 1, 10*time.Second)
 	helper.AssertTrue(success, "Should receive envelope within timeout")
 	helper.AssertEqual(int64(1), atomic.LoadInt64(&received), "Should receive exactly 1 envelope")
-	helper.AssertEqual(envelope.AggregateID, lastEnvelope.AggregateID, "AggregateID should match")
-	helper.AssertEqual(envelope.EventType, lastEnvelope.EventType, "EventType should match")
-	helper.AssertEqual(envelope.EventVersion, lastEnvelope.EventVersion, "EventVersion should match")
+
+	// 检查 lastEnvelope 不为 nil
+	if lastEnvelope != nil {
+		helper.AssertEqual(envelope.AggregateID, lastEnvelope.AggregateID, "AggregateID should match")
+		helper.AssertEqual(envelope.EventType, lastEnvelope.EventType, "EventType should match")
+		helper.AssertEqual(envelope.EventVersion, lastEnvelope.EventVersion, "EventVersion should match")
+	} else {
+		t.Errorf("❌ lastEnvelope is nil, no envelope was received")
+	}
 
 	t.Logf("✅ Kafka Envelope publish/subscribe test passed")
 }
@@ -354,13 +369,14 @@ func TestNATSEnvelopePublishSubscribe(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// 发布 Envelope
+	// ✅ 修复：Payload 必须是有效的 JSON（RawMessage 要求）
 	envelope := &eventbus.Envelope{
 		EventID:      "evt-nats-envelope-001",
 		AggregateID:  "test-aggregate-1",
 		EventType:    "TestEvent",
 		EventVersion: 1,
 		Timestamp:    time.Now(),
-		Payload:      []byte("Test payload"),
+		Payload:      []byte(`{"message":"Test payload"}`), // 有效的 JSON
 	}
 
 	err = bus.PublishEnvelope(ctx, topic, envelope)
@@ -394,6 +410,14 @@ func TestKafkaEnvelopeOrdering(t *testing.T) {
 	bus := helper.CreateKafkaEventBus(fmt.Sprintf("kafka-envelope-order-%d", helper.GetTimestamp()))
 	defer helper.CloseEventBus(bus)
 
+	// ✅ 关键修复：设置预订阅 topics（Kafka EventBus 预订阅模式要求）
+	if kafkaBus, ok := bus.(interface {
+		SetPreSubscriptionTopics([]string)
+	}); ok {
+		kafkaBus.SetPreSubscriptionTopics([]string{topic})
+		t.Logf("✅ Set pre-subscription topics: %s", topic)
+	}
+
 	aggregateID := "test-aggregate-order"
 	var receivedVersions []int64
 	var mu sync.Mutex
@@ -415,13 +439,14 @@ func TestKafkaEnvelopeOrdering(t *testing.T) {
 	// 发布多个版本的 Envelope
 	messageCount := 10
 	for i := 1; i <= messageCount; i++ {
+		// ✅ 修复：Payload 必须是有效的 JSON（RawMessage 要求）
 		envelope := &eventbus.Envelope{
 			EventID:      fmt.Sprintf("evt-kafka-multi-%03d", i),
 			AggregateID:  aggregateID,
 			EventType:    "TestEvent",
 			EventVersion: int64(i),
 			Timestamp:    time.Now(),
-			Payload:      []byte(fmt.Sprintf("Payload %d", i)),
+			Payload:      []byte(fmt.Sprintf(`{"message":"Payload %d"}`, i)), // 有效的 JSON
 		}
 		err = bus.PublishEnvelope(ctx, topic, envelope)
 		helper.AssertNoError(err, "PublishEnvelope should not return error")
@@ -483,13 +508,14 @@ func TestNATSEnvelopeOrdering(t *testing.T) {
 	// 发布多个版本的 Envelope
 	messageCount := 10
 	for i := 1; i <= messageCount; i++ {
+		// ✅ 修复：Payload 必须是有效的 JSON（RawMessage 要求）
 		envelope := &eventbus.Envelope{
 			EventID:      fmt.Sprintf("evt-nats-multi-%03d", i),
 			AggregateID:  aggregateID,
 			EventType:    "TestEvent",
 			EventVersion: int64(i),
 			Timestamp:    time.Now(),
-			Payload:      []byte(fmt.Sprintf("Payload %d", i)),
+			Payload:      []byte(fmt.Sprintf(`{"message":"Payload %d"}`, i)), // 有效的 JSON
 		}
 		err = bus.PublishEnvelope(ctx, topic, envelope)
 		helper.AssertNoError(err, "PublishEnvelope should not return error")

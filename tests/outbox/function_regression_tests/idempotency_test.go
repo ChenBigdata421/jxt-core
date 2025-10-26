@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	jxtevent "github.com/ChenBigdata421/jxt-core/sdk/pkg/domain/event"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
 )
 
@@ -94,19 +95,23 @@ func TestIdempotency_PublisherCheck(t *testing.T) {
 	config := GetDefaultPublisherConfig()
 	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
+	// 启动 ACK 监听器
+	outboxPublisher.StartACKListener(ctx)
+	defer outboxPublisher.StopACKListener()
+
 	// 创建事件
 	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
 
+	// 保存事件到仓储
+	err := repo.Save(ctx, event)
+	helper.AssertNoError(err, "Should save event")
+
 	// 第一次发布
-	err := outboxPublisher.PublishEvent(ctx, event)
+	err = outboxPublisher.PublishEvent(ctx, event)
 	helper.AssertNoError(err, "First publish should succeed")
 
-	// 模拟事件已发布
-	event.Status = outbox.EventStatusPublished
-	publishedAt := time.Now()
-	event.PublishedAt = &publishedAt
-	err = repo.Update(ctx, event)
-	helper.AssertNoError(err, "Should update event status")
+	// 等待 ACK 处理
+	time.Sleep(100 * time.Millisecond)
 
 	// 第二次发布相同的幂等性键（应该被跳过）
 	event2 := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
@@ -140,12 +145,16 @@ func TestIdempotency_DifferentTenants(t *testing.T) {
 func TestIdempotency_KeyFormat(t *testing.T) {
 	helper := NewTestHelper(t)
 
+	// 创建 DomainEvent
+	payload := map[string]interface{}{"test": true}
+	domainEvent := jxtevent.NewBaseDomainEvent("OrderCreated", "order-xyz", "Order", payload)
+
 	event, err := outbox.NewOutboxEvent(
 		"tenant-abc",
-		"Order",
 		"order-xyz",
+		"Order",
 		"OrderCreated",
-		[]byte(`{"test": true}`),
+		domainEvent,
 	)
 	helper.RequireNoError(err, "Failed to create event")
 
@@ -158,13 +167,17 @@ func TestIdempotency_KeyFormat(t *testing.T) {
 func TestIdempotency_EmptyFields(t *testing.T) {
 	helper := NewTestHelper(t)
 
+	// 创建 DomainEvent
+	payload := map[string]interface{}{"test": true}
+	domainEvent := jxtevent.NewBaseDomainEvent("OrderCreated", "order-123", "Order", payload)
+
 	// 创建带空字段的事件
 	event, err := outbox.NewOutboxEvent(
 		"", // 空租户 ID
-		"Order",
 		"order-123",
+		"Order",
 		"OrderCreated",
-		[]byte(`{"test": true}`),
+		domainEvent,
 	)
 	helper.RequireNoError(err, "Failed to create event")
 
@@ -176,13 +189,17 @@ func TestIdempotency_EmptyFields(t *testing.T) {
 func TestIdempotency_SpecialCharacters(t *testing.T) {
 	helper := NewTestHelper(t)
 
+	// 创建 DomainEvent
+	payload := map[string]interface{}{"test": true}
+	domainEvent := jxtevent.NewBaseDomainEvent("Order:Created", "order/456", "Order-Type", payload)
+
 	// 创建带特殊字符的事件
 	event, err := outbox.NewOutboxEvent(
 		"tenant:123",
-		"Order-Type",
 		"order/456",
+		"Order-Type",
 		"Order:Created",
-		[]byte(`{"test": true}`),
+		domainEvent,
 	)
 	helper.RequireNoError(err, "Failed to create event")
 
@@ -208,7 +225,8 @@ func TestIdempotency_ConcurrentPublish(t *testing.T) {
 	topicMapper.SetTopicMapping("Order", "order-events")
 
 	// 创建 Outbox 发布器
-	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper)
+	config := outbox.DefaultPublisherConfig()
+	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
 	// 创建事件
 	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
@@ -253,7 +271,8 @@ func TestIdempotency_BatchPublish(t *testing.T) {
 	topicMapper.SetTopicMapping("Order", "order-events")
 
 	// 创建 Outbox 发布器
-	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper)
+	config := outbox.DefaultPublisherConfig()
+	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
 	// 创建多个事件，其中有重复的幂等性键
 	events := []*outbox.OutboxEvent{
@@ -280,7 +299,8 @@ func TestIdempotency_BatchPublish(t *testing.T) {
 		events[2],      // 新事件
 	}
 
-	err = outboxPublisher.PublishEvents(ctx, batchEvents)
+	// 使用 PublishBatch 而不是 PublishEvents
+	_, err = outboxPublisher.PublishBatch(ctx, batchEvents)
 	helper.AssertNoError(err, "Batch publish should succeed")
 
 	// 验证只发布了新事件（跳过了重复的）

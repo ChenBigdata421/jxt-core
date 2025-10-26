@@ -327,6 +327,40 @@ func (h *TestHelper) AssertTrue(condition bool, message string) {
 	}
 }
 
+// AssertNotEmpty 断言非空
+func (h *TestHelper) AssertNotEmpty(obj interface{}, message string) {
+	if obj == nil {
+		h.t.Errorf("%s: expected non-empty, got nil", message)
+		return
+	}
+
+	// 检查字符串、切片、map 等
+	switch v := obj.(type) {
+	case string:
+		if v == "" {
+			h.t.Errorf("%s: expected non-empty string", message)
+		}
+	case []byte:
+		if len(v) == 0 {
+			h.t.Errorf("%s: expected non-empty byte slice", message)
+		}
+	}
+}
+
+// AssertNotNil 断言不为 nil
+func (h *TestHelper) AssertNotNil(obj interface{}, message string) {
+	if obj == nil {
+		h.t.Errorf("%s: expected non-nil, got nil", message)
+	}
+}
+
+// AssertError 断言有错误
+func (h *TestHelper) AssertError(err error, message string) {
+	if err == nil {
+		h.t.Errorf("%s: expected error, got nil", message)
+	}
+}
+
 // CreateKafkaTopics 创建 Kafka topics
 func (h *TestHelper) CreateKafkaTopics(topics []string, numPartitions int32) {
 	if h.kafkaAdmin == nil {

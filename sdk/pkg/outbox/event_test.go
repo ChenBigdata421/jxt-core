@@ -220,38 +220,54 @@ func TestOutboxEvent_GetPayloadAs(t *testing.T) {
 		t.Fatalf("NewOutboxEvent failed: %v", err)
 	}
 
-	var decoded TestPayload
-	if err := event.GetPayloadAs(&decoded); err != nil {
+	// GetPayloadAs 现在反序列化的是完整的 DomainEvent
+	var decodedEvent jxtevent.BaseDomainEvent
+	if err := event.GetPayloadAs(&decodedEvent); err != nil {
 		t.Fatalf("GetPayloadAs failed: %v", err)
 	}
 
-	if decoded.Name != "test" {
-		t.Errorf("Expected Name to be 'test', got '%s'", decoded.Name)
+	// 从 DomainEvent 中提取 payload
+	payloadMap, ok := decodedEvent.Payload.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected payload to be map[string]interface{}, got %T", decodedEvent.Payload)
 	}
 
-	if decoded.Age != 30 {
-		t.Errorf("Expected Age to be 30, got %d", decoded.Age)
+	// JSON 标签是小写的 name 和 age
+	if payloadMap["name"] != "test" {
+		t.Errorf("Expected name to be 'test', got '%v'", payloadMap["name"])
+	}
+
+	// Age 是 float64 类型（JSON 数字默认类型）
+	if age, ok := payloadMap["age"].(float64); !ok || int(age) != 30 {
+		t.Errorf("Expected age to be 30, got %v", payloadMap["age"])
 	}
 }
 
 func TestOutboxEvent_SetPayload(t *testing.T) {
 	event := &OutboxEvent{}
 
-	payload := map[string]interface{}{
+	payloadData := map[string]interface{}{
 		"name": "test",
 	}
 
-	if err := event.SetPayload(createTestDomainEvent("UserCreated", "aggregate-1", "User", payload)); err != nil {
+	if err := event.SetPayload(createTestDomainEvent("UserCreated", "aggregate-1", "User", payloadData)); err != nil {
 		t.Fatalf("SetPayload failed: %v", err)
 	}
 
-	var decoded map[string]interface{}
-	if err := event.GetPayloadAs(&decoded); err != nil {
+	// GetPayloadAs 现在反序列化的是完整的 DomainEvent
+	var decodedEvent jxtevent.BaseDomainEvent
+	if err := event.GetPayloadAs(&decodedEvent); err != nil {
 		t.Fatalf("GetPayloadAs failed: %v", err)
 	}
 
-	if decoded["name"] != "test" {
-		t.Errorf("Expected name to be 'test', got '%v'", decoded["name"])
+	// 从 DomainEvent 中提取 payload
+	payloadMap, ok := decodedEvent.Payload.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected payload to be map[string]interface{}, got %T", decodedEvent.Payload)
+	}
+
+	if payloadMap["name"] != "test" {
+		t.Errorf("Expected name to be 'test', got '%v'", payloadMap["name"])
 	}
 }
 

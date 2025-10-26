@@ -1,0 +1,432 @@
+=== RUN   TestE2E_MemoryEventBus_WithEnvelope
+2025-10-26 00:24:28.527970045 +0800 CST m=+0.003950281 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:28.528018766 +0800 CST m=+0.003999012 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:28.729832427 +0800 CST m=+0.205812753 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:28.730054112 +0800 CST m=+0.206034418 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestE2E_MemoryEventBus_WithEnvelope (1.20s)
+=== RUN   TestE2E_MemoryEventBus_MultipleTopics
+2025-10-26 00:24:29.730998652 +0800 CST m=+1.206978948 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:29.731131675 +0800 CST m=+1.207111951 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:29.731161506 +0800 CST m=+1.207141772 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:29.731183627 +0800 CST m=+1.207163903 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:29.731476283 +0800 CST m=+1.207456539 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:29.731503294 +0800 CST m=+1.207483540 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:29.731511914 +0800 CST m=+1.207492150 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:30.333122552 +0800 CST m=+1.809102798 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestE2E_MemoryEventBus_MultipleTopics (0.60s)
+=== RUN   TestE2E_MemoryEventBus_ConcurrentPublishSubscribe
+2025-10-26 00:24:30.333364519 +0800 CST m=+1.809344765 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:30.33339239 +0800 CST m=+1.809372636 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:30.33339981 +0800 CST m=+1.809380046 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:32.435812959 +0800 CST m=+3.911793245 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestE2E_MemoryEventBus_ConcurrentPublishSubscribe (2.10s)
+=== RUN   TestE2E_MemoryEventBus_ErrorRecovery
+2025-10-26 00:24:32.436132657 +0800 CST m=+3.912112933 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:32.436166667 +0800 CST m=+3.912146933 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:32.436182598 +0800 CST m=+3.912162864 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:32.53708472 +0800 CST m=+4.013065016 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:32.537172541 +0800 CST m=+4.013152807 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:32.537211722 +0800 CST m=+4.013191998 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:32.537229903 +0800 CST m=+4.013210169 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:32.53714466 +0800 CST m=+4.013124926 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:32.537247283 +0800 CST m=+4.013227549 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:33.037981025 +0800 CST m=+4.513961281 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestE2E_MemoryEventBus_ErrorRecovery (0.60s)
+=== RUN   TestE2E_MemoryEventBus_ContextCancellation
+2025-10-26 00:24:33.038146029 +0800 CST m=+4.514126275 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:33.038163729 +0800 CST m=+4.514143975 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:33.03820726 +0800 CST m=+4.514187506 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:33.340306214 +0800 CST m=+4.816286460 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestE2E_MemoryEventBus_ContextCancellation (0.30s)
+=== RUN   TestE2E_MemoryEventBus_Metrics
+2025-10-26 00:24:33.340664522 +0800 CST m=+4.816644768 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:33.340701113 +0800 CST m=+4.816681359 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:33.340720644 +0800 CST m=+4.816700890 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:33.941687937 +0800 CST m=+5.417668203 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestE2E_MemoryEventBus_Metrics (0.60s)
+=== RUN   TestMarshalToString
+--- PASS: TestMarshalToString (0.00s)
+=== RUN   TestUnmarshalFromString
+--- PASS: TestUnmarshalFromString (0.00s)
+=== RUN   TestMarshal
+--- PASS: TestMarshal (0.00s)
+=== RUN   TestUnmarshal
+--- PASS: TestUnmarshal (0.00s)
+=== RUN   TestMarshalFast
+--- PASS: TestMarshalFast (0.00s)
+=== RUN   TestUnmarshalFast
+--- PASS: TestUnmarshalFast (0.00s)
+=== RUN   TestJSON_RoundTrip
+--- PASS: TestJSON_RoundTrip (0.00s)
+=== RUN   TestJSONFast_RoundTrip
+--- PASS: TestJSONFast_RoundTrip (0.00s)
+=== RUN   TestMarshalToString_Error
+--- PASS: TestMarshalToString_Error (0.00s)
+=== RUN   TestUnmarshalFromString_Error
+--- PASS: TestUnmarshalFromString_Error (0.00s)
+=== RUN   TestMarshal_Struct
+--- PASS: TestMarshal_Struct (0.00s)
+=== RUN   TestUnmarshal_Struct
+--- PASS: TestUnmarshal_Struct (0.00s)
+=== RUN   TestJSON_Variables
+--- PASS: TestJSON_Variables (0.00s)
+=== RUN   TestRawMessage
+--- PASS: TestRawMessage (0.00s)
+=== RUN   TestMarshalToString_EmptyObject
+--- PASS: TestMarshalToString_EmptyObject (0.00s)
+=== RUN   TestUnmarshalFromString_EmptyObject
+--- PASS: TestUnmarshalFromString_EmptyObject (0.00s)
+=== RUN   TestMarshal_Array
+--- PASS: TestMarshal_Array (0.00s)
+=== RUN   TestUnmarshal_Array
+--- PASS: TestUnmarshal_Array (0.00s)
+=== RUN   TestEventBus_EnvelopeUsesUnifiedJSON
+--- PASS: TestEventBus_EnvelopeUsesUnifiedJSON (0.00s)
+=== RUN   TestEventBus_RawMessageCompatibility
+--- PASS: TestEventBus_RawMessageCompatibility (0.00s)
+=== RUN   TestEventBus_EnvelopeValidation
+--- PASS: TestEventBus_EnvelopeValidation (0.00s)
+=== RUN   TestEventBus_PublishEnvelopeWithJSON
+2025-10-26 00:24:33.943568389 +0800 CST m=+5.419548645 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:33.943653481 +0800 CST m=+5.419633727 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:34.244846157 +0800 CST m=+5.720826413 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:34.244908889 +0800 CST m=+5.720889125 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestEventBus_PublishEnvelopeWithJSON (1.30s)
+=== RUN   TestEventBus_HealthCheckMessageUsesJSON
+--- PASS: TestEventBus_HealthCheckMessageUsesJSON (0.00s)
+=== RUN   TestEventBus_PerformanceWithJSON
+    json_serialization_test.go:233: Average Envelope serialization time: 2.129µs
+--- PASS: TestEventBus_PerformanceWithJSON (0.00s)
+=== RUN   TestEventBus_ConcurrentEnvelopeSerialization
+--- PASS: TestEventBus_ConcurrentEnvelopeSerialization (0.02s)
+=== RUN   TestEventBus_ComplexPayloadSerialization
+--- PASS: TestEventBus_ComplexPayloadSerialization (0.00s)
+=== RUN   TestKafkaBasicPublishSubscribe
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaBasicPublishSubscribe (0.75s)
+=== RUN   TestNATSBasicPublishSubscribe
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSBasicPublishSubscribe (0.00s)
+=== RUN   TestKafkaMultipleMessages
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaMultipleMessages (0.75s)
+=== RUN   TestNATSMultipleMessages
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSMultipleMessages (0.00s)
+=== RUN   TestKafkaPublishWithOptions
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaPublishWithOptions (0.75s)
+=== RUN   TestNATSPublishWithOptions
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSPublishWithOptions (0.00s)
+=== RUN   TestKafkaEnvelopePublishSubscribe
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaEnvelopePublishSubscribe (0.75s)
+=== RUN   TestNATSEnvelopePublishSubscribe
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSEnvelopePublishSubscribe (0.00s)
+=== RUN   TestKafkaEnvelopeOrdering
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaEnvelopeOrdering (0.75s)
+=== RUN   TestNATSEnvelopeOrdering
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSEnvelopeOrdering (0.00s)
+=== RUN   TestKafkaMultipleAggregates
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaMultipleAggregates (0.75s)
+=== RUN   TestKafkaClose
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaClose (0.00s)
+=== RUN   TestNATSClose
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSClose (0.00s)
+=== RUN   TestKafkaPublishCallback
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaPublishCallback (0.76s)
+=== RUN   TestKafkaTopicConfiguration
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaTopicConfiguration (0.75s)
+=== RUN   TestNATSTopicConfiguration
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSTopicConfiguration (0.00s)
+=== RUN   TestKafkaSetTopicPersistence
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaSetTopicPersistence (0.75s)
+=== RUN   TestNATSSetTopicPersistence
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSSetTopicPersistence (0.00s)
+=== RUN   TestKafkaRemoveTopicConfig
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaRemoveTopicConfig (0.75s)
+=== RUN   TestNATSRemoveTopicConfig
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSRemoveTopicConfig (0.00s)
+=== RUN   TestKafkaStartupTopicConfiguration
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaStartupTopicConfiguration (0.75s)
+=== RUN   TestKafkaIdempotentTopicConfiguration
+    test_helper.go:371: Failed to create Kafka admin: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaIdempotentTopicConfiguration (0.75s)
+=== RUN   TestNATSStartupTopicConfiguration
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSStartupTopicConfiguration (0.00s)
+=== RUN   TestKafkaTopicConfigStrategy
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaTopicConfigStrategy (0.00s)
+=== RUN   TestNATSTopicConfigStrategy
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSTopicConfigStrategy (0.00s)
+=== RUN   TestKafkaSubscriberBacklogMonitoring
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaSubscriberBacklogMonitoring (0.00s)
+=== RUN   TestNATSSubscriberBacklogMonitoring
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSSubscriberBacklogMonitoring (0.00s)
+=== RUN   TestKafkaPublisherBacklogMonitoring
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaPublisherBacklogMonitoring (0.00s)
+=== RUN   TestNATSPublisherBacklogMonitoring
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSPublisherBacklogMonitoring (0.00s)
+=== RUN   TestKafkaStartAllBacklogMonitoring
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaStartAllBacklogMonitoring (0.00s)
+=== RUN   TestNATSStartAllBacklogMonitoring
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSStartAllBacklogMonitoring (0.00s)
+=== RUN   TestKafkaSetMessageRouter
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaSetMessageRouter (0.00s)
+=== RUN   TestNATSSetMessageRouter
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSSetMessageRouter (0.00s)
+=== RUN   TestKafkaSetErrorHandler
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaSetErrorHandler (0.00s)
+=== RUN   TestKafkaHealthCheckPublisher
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaHealthCheckPublisher (0.00s)
+=== RUN   TestNATSHealthCheckPublisher
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSHealthCheckPublisher (0.00s)
+=== RUN   TestKafkaHealthCheckSubscriber
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaHealthCheckSubscriber (0.00s)
+=== RUN   TestNATSHealthCheckSubscriber
+    test_helper.go:209: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSHealthCheckSubscriber (0.00s)
+=== RUN   TestKafkaStartAllHealthCheck
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaStartAllHealthCheck (0.00s)
+=== RUN   TestNATSStartAllHealthCheck
+    test_helper.go:209: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSStartAllHealthCheck (0.00s)
+=== RUN   TestKafkaHealthCheckPublisherCallback
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaHealthCheckPublisherCallback (0.00s)
+=== RUN   TestNATSHealthCheckPublisherCallback
+    test_helper.go:170: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSHealthCheckPublisherCallback (0.00s)
+=== RUN   TestKafkaHealthCheckSubscriberCallback
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaHealthCheckSubscriberCallback (0.00s)
+=== RUN   TestKafkaHealthCheckPublisherSubscriberIntegration
+    test_helper.go:138: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+--- FAIL: TestKafkaHealthCheckPublisherSubscriberIntegration (0.00s)
+=== RUN   TestNATSHealthCheckPublisherSubscriberIntegration
+    test_helper.go:209: Failed to create NATS EventBus: failed to connect to NATS: nats: no servers available for connection
+--- FAIL: TestNATSHealthCheckPublisherSubscriberIntegration (0.00s)
+=== RUN   TestPrometheusIntegration_BasicPublishSubscribe
+2025-10-26 00:24:44.331449907 +0800 CST m=+15.807430163 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:44.331502118 +0800 CST m=+15.807482364 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:44.331513108 +0800 CST m=+15.807493354 write error: can't open new logfile: open /info.log: permission denied
+    prometheus_integration_test.go:62: ✅ Prometheus 基本发布订阅指标测试通过
+2025-10-26 00:24:44.532931051 +0800 CST m=+16.008911367 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:44.533077985 +0800 CST m=+16.009058271 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestPrometheusIntegration_BasicPublishSubscribe (1.20s)
+=== RUN   TestPrometheusIntegration_PublishFailure
+2025-10-26 00:24:45.534606256 +0800 CST m=+17.010586562 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:45.53477605 +0800 CST m=+17.010756336 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:45.534809431 +0800 CST m=+17.010789717 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:45.635454029 +0800 CST m=+17.111434275 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.635512761 +0800 CST m=+17.111493007 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.635645209 +0800 CST m=+17.111625525 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.635790437 +0800 CST m=+17.111770743 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.635871089 +0800 CST m=+17.111851375 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.635971671 +0800 CST m=+17.111951957 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.636033263 +0800 CST m=+17.112013539 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.636164996 +0800 CST m=+17.112145242 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.636177996 +0800 CST m=+17.112158242 write error: can't open new logfile: open /error.log: permission denied
+2025-10-26 00:24:45.636184686 +0800 CST m=+17.112164922 write error: can't open new logfile: open /error.log: permission denied
+    prometheus_integration_test.go:119: ✅ Prometheus 发布失败指标测试通过 (失败: 5, 成功: 5)
+2025-10-26 00:24:45.736254729 +0800 CST m=+17.212234995 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:45.73628578 +0800 CST m=+17.212266026 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestPrometheusIntegration_PublishFailure (1.20s)
+=== RUN   TestPrometheusIntegration_MultipleTopics
+2025-10-26 00:24:46.73725149 +0800 CST m=+18.213231746 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:46.737302542 +0800 CST m=+18.213282788 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:46.737313372 +0800 CST m=+18.213293618 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:46.889211062 +0800 CST m=+18.365191308 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:46.889365606 +0800 CST m=+18.365345892 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:47.040503704 +0800 CST m=+18.516483990 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:47.040685228 +0800 CST m=+18.516665474 write error: can't open new logfile: open /info.log: permission denied
+    prometheus_integration_test.go:177: ✅ Prometheus 多主题指标测试通过 (总消息数: 18)
+2025-10-26 00:24:47.192159036 +0800 CST m=+18.668139342 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:47.192304059 +0800 CST m=+18.668284315 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestPrometheusIntegration_MultipleTopics (1.46s)
+=== RUN   TestPrometheusIntegration_Latency
+2025-10-26 00:24:48.19314447 +0800 CST m=+19.669124756 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:48.193268383 +0800 CST m=+19.669248659 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:48.193291513 +0800 CST m=+19.669271779 write error: can't open new logfile: open /info.log: permission denied
+    prometheus_integration_test.go:222: ✅ Prometheus 延迟指标测试通过 (Publish: 710ns, Consume: 10.178782ms)
+2025-10-26 00:24:48.394565804 +0800 CST m=+19.870546060 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:48.394697677 +0800 CST m=+19.870677933 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestPrometheusIntegration_Latency (1.20s)
+=== RUN   TestPrometheusIntegration_ConnectionMetrics
+    prometheus_integration_test.go:244: ✅ Prometheus 连接指标测试通过
+--- PASS: TestPrometheusIntegration_ConnectionMetrics (0.00s)
+=== RUN   TestPrometheusIntegration_BacklogMetrics
+    prometheus_integration_test.go:272: ✅ Prometheus 积压指标测试通过
+--- PASS: TestPrometheusIntegration_BacklogMetrics (0.00s)
+=== RUN   TestPrometheusIntegration_HealthCheckMetrics
+    prometheus_integration_test.go:293: ✅ Prometheus 健康检查指标测试通过
+--- PASS: TestPrometheusIntegration_HealthCheckMetrics (0.00s)
+=== RUN   TestPrometheusIntegration_ErrorMetrics
+    prometheus_integration_test.go:320: ✅ Prometheus 错误指标测试通过
+--- PASS: TestPrometheusIntegration_ErrorMetrics (0.00s)
+=== RUN   TestPrometheusIntegration_BatchMetrics
+    prometheus_integration_test.go:351: ✅ Prometheus 批量操作指标测试通过
+--- PASS: TestPrometheusIntegration_BatchMetrics (0.00s)
+=== RUN   TestPrometheusIntegration_E2E_Kafka
+    prometheus_integration_test.go:358: Skipping Kafka Prometheus integration test: MetricsCollector not yet implemented in KafkaEventBus
+--- SKIP: TestPrometheusIntegration_E2E_Kafka (0.00s)
+=== RUN   TestPrometheusIntegration_E2E_Memory
+2025-10-26 00:24:49.395966304 +0800 CST m=+20.871946550 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:49.396022355 +0800 CST m=+20.872002601 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:49.396033095 +0800 CST m=+20.872013331 write error: can't open new logfile: open /info.log: permission denied
+    prometheus_integration_test.go:494: ✅ Memory Prometheus 集成测试通过 (Publish: 20, Consume: 20)
+2025-10-26 00:24:49.596933835 +0800 CST m=+21.072914081 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:49.596991126 +0800 CST m=+21.072971372 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestPrometheusIntegration_E2E_Memory (1.20s)
+=== RUN   TestTopicNameValidation_ValidNames
+=== RUN   TestTopicNameValidation_ValidNames/Valid_orders
+=== RUN   TestTopicNameValidation_ValidNames/Valid_user.events
+=== RUN   TestTopicNameValidation_ValidNames/Valid_system_logs
+=== RUN   TestTopicNameValidation_ValidNames/Valid_payment-service
+=== RUN   TestTopicNameValidation_ValidNames/Valid_order.created.v2
+=== RUN   TestTopicNameValidation_ValidNames/Valid_user_profile_updated
+=== RUN   TestTopicNameValidation_ValidNames/Valid_system-health-check
+=== RUN   TestTopicNameValidation_ValidNames/Valid_a
+=== RUN   TestTopicNameValidation_ValidNames/Valid_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+=== RUN   TestTopicNameValidation_ValidNames/Valid_MixedCase123
+=== RUN   TestTopicNameValidation_ValidNames/Valid_with.dots.and_underscores-and-dashes
+=== RUN   TestTopicNameValidation_ValidNames/Valid_0123456789
+=== RUN   TestTopicNameValidation_ValidNames/Valid_topic.with.many.segments
+--- PASS: TestTopicNameValidation_ValidNames (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_orders (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_user.events (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_system_logs (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_payment-service (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_order.created.v2 (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_user_profile_updated (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_system-health-check (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_a (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_MixedCase123 (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_with.dots.and_underscores-and-dashes (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_0123456789 (0.00s)
+    --- PASS: TestTopicNameValidation_ValidNames/Valid_topic.with.many.segments (0.00s)
+=== RUN   TestTopicNameValidation_InvalidNames
+=== RUN   TestTopicNameValidation_InvalidNames/Empty
+=== RUN   TestTopicNameValidation_InvalidNames/TooLong
+=== RUN   TestTopicNameValidation_InvalidNames/ContainsSpace
+=== RUN   TestTopicNameValidation_InvalidNames/ContainsSpaceAtStart
+=== RUN   TestTopicNameValidation_InvalidNames/ContainsSpaceAtEnd
+=== RUN   TestTopicNameValidation_InvalidNames/ChineseCharacters
+=== RUN   TestTopicNameValidation_InvalidNames/MixedChineseEnglish
+=== RUN   TestTopicNameValidation_InvalidNames/JapaneseCharacters
+=== RUN   TestTopicNameValidation_InvalidNames/KoreanCharacters
+=== RUN   TestTopicNameValidation_InvalidNames/EmojiCharacters
+=== RUN   TestTopicNameValidation_InvalidNames/ControlCharacter
+--- PASS: TestTopicNameValidation_InvalidNames (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/Empty (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/TooLong (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/ContainsSpace (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/ContainsSpaceAtStart (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/ContainsSpaceAtEnd (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/ChineseCharacters (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/MixedChineseEnglish (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/JapaneseCharacters (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/KoreanCharacters (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/EmojiCharacters (0.00s)
+    --- PASS: TestTopicNameValidation_InvalidNames/ControlCharacter (0.00s)
+=== RUN   TestTopicBuilder_ValidationIntegration
+=== RUN   TestTopicBuilder_ValidationIntegration/ValidTopicName
+2025-10-26 00:24:50.601148297 +0800 CST m=+22.077128553 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:50.601206328 +0800 CST m=+22.077186574 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:50.601217798 +0800 CST m=+22.077198044 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestTopicBuilder_ValidationIntegration/InvalidTopicName_Chinese
+2025-10-26 00:24:50.601252359 +0800 CST m=+22.077232605 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:50.601271369 +0800 CST m=+22.077251615 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestTopicBuilder_ValidationIntegration/InvalidTopicName_Space
+2025-10-26 00:24:50.60129311 +0800 CST m=+22.077273346 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:50.601532213 +0800 CST m=+22.077512489 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestTopicBuilder_ValidationIntegration/InvalidTopicName_Empty
+2025-10-26 00:24:50.6018192 +0800 CST m=+22.077799466 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:24:50.601930376 +0800 CST m=+22.077910622 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestTopicBuilder_ValidationIntegration (0.00s)
+    --- PASS: TestTopicBuilder_ValidationIntegration/ValidTopicName (0.00s)
+    --- PASS: TestTopicBuilder_ValidationIntegration/InvalidTopicName_Chinese (0.00s)
+    --- PASS: TestTopicBuilder_ValidationIntegration/InvalidTopicName_Space (0.00s)
+    --- PASS: TestTopicBuilder_ValidationIntegration/InvalidTopicName_Empty (0.00s)
+=== RUN   TestConfigureTopic_ValidationIntegration
+=== RUN   TestConfigureTopic_ValidationIntegration/Memory
+2025-10-26 00:24:50.602128691 +0800 CST m=+22.078108937 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestConfigureTopic_ValidationIntegration/Memory/ValidTopicName
+2025-10-26 00:24:50.602190402 +0800 CST m=+22.078170648 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_Chinese
+=== RUN   TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_Space
+=== RUN   TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_TooLong
+=== RUN   TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_Empty
+2025-10-26 00:24:50.602317485 +0800 CST m=+22.078297731 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestConfigureTopic_ValidationIntegration/Kafka
+=== NAME  TestConfigureTopic_ValidationIntegration
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+=== NAME  TestConfigureTopic_ValidationIntegration/Kafka
+    testing.go:1679: test executed panic(nil) or runtime.Goexit: subtest may have called FailNow on a parent test
+--- FAIL: TestConfigureTopic_ValidationIntegration (0.00s)
+    --- PASS: TestConfigureTopic_ValidationIntegration/Memory (0.00s)
+        --- PASS: TestConfigureTopic_ValidationIntegration/Memory/ValidTopicName (0.00s)
+        --- PASS: TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_Chinese (0.00s)
+        --- PASS: TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_Space (0.00s)
+        --- PASS: TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_TooLong (0.00s)
+        --- PASS: TestConfigureTopic_ValidationIntegration/Memory/InvalidTopicName_Empty (0.00s)
+    --- FAIL: TestConfigureTopic_ValidationIntegration/Kafka (0.00s)
+=== RUN   TestSetTopicPersistence_ValidationIntegration
+=== RUN   TestSetTopicPersistence_ValidationIntegration/Memory
+2025-10-26 00:24:50.602716084 +0800 CST m=+22.078696330 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestSetTopicPersistence_ValidationIntegration/Memory/ValidTopicName
+2025-10-26 00:24:50.602733645 +0800 CST m=+22.078713891 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestSetTopicPersistence_ValidationIntegration/Memory/InvalidTopicName_Chinese
+2025-10-26 00:24:50.602752255 +0800 CST m=+22.078732501 write error: can't open new logfile: open /info.log: permission denied
+=== RUN   TestSetTopicPersistence_ValidationIntegration/Kafka
+=== NAME  TestSetTopicPersistence_ValidationIntegration
+    test_helper.go:86: Failed to create Kafka EventBus: failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+=== NAME  TestSetTopicPersistence_ValidationIntegration/Kafka
+    testing.go:1679: test executed panic(nil) or runtime.Goexit: subtest may have called FailNow on a parent test
+--- FAIL: TestSetTopicPersistence_ValidationIntegration (0.00s)
+    --- PASS: TestSetTopicPersistence_ValidationIntegration/Memory (0.00s)
+        --- PASS: TestSetTopicPersistence_ValidationIntegration/Memory/ValidTopicName (0.00s)
+        --- PASS: TestSetTopicPersistence_ValidationIntegration/Memory/InvalidTopicName_Chinese (0.00s)
+    --- FAIL: TestSetTopicPersistence_ValidationIntegration/Kafka (0.00s)
+=== RUN   TestTopicNameValidation_ErrorMessage
+=== RUN   TestTopicNameValidation_ErrorMessage/ChineseCharacter_DetailedMessage
+=== RUN   TestTopicNameValidation_ErrorMessage/Space_DetailedMessage
+=== RUN   TestTopicNameValidation_ErrorMessage/TooLong_DetailedMessage
+--- PASS: TestTopicNameValidation_ErrorMessage (0.00s)
+    --- PASS: TestTopicNameValidation_ErrorMessage/ChineseCharacter_DetailedMessage (0.00s)
+    --- PASS: TestTopicNameValidation_ErrorMessage/Space_DetailedMessage (0.00s)
+    --- PASS: TestTopicNameValidation_ErrorMessage/TooLong_DetailedMessage (0.00s)
+FAIL
+FAIL	github.com/ChenBigdata421/jxt-core/tests/eventbus/function_regression_tests	22.084s
+FAIL

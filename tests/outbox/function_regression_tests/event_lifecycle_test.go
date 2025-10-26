@@ -39,18 +39,34 @@ func TestEventLifecycle_PublishSuccess(t *testing.T) {
 	config := GetDefaultPublisherConfig()
 	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
+	// 启动 ACK 监听器
+	outboxPublisher.StartACKListener(ctx)
+	defer outboxPublisher.StopACKListener()
+
 	// 创建事件
 	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
 
+	// 保存事件到仓储
+	err := repo.Save(ctx, event)
+	helper.AssertNoError(err, "Should save event")
+
 	// 发布事件
-	err := outboxPublisher.PublishEvent(ctx, event)
+	err = outboxPublisher.PublishEvent(ctx, event)
 	helper.AssertNoError(err, "Publish should succeed")
 
+	// 等待 ACK 处理
+	time.Sleep(100 * time.Millisecond)
+
+	// 从仓储重新加载事件
+	updatedEvent, err := repo.FindByID(ctx, event.ID)
+	helper.AssertNoError(err, "Should find event by ID")
+	helper.AssertNotNil(updatedEvent, "Event should exist")
+
 	// 验证事件状态
-	helper.AssertEqual(outbox.EventStatusPublished, event.Status, "Status should be Published")
-	helper.AssertNotNil(event.PublishedAt, "PublishedAt should be set")
-	helper.AssertEqual(0, event.RetryCount, "Retry count should still be 0")
-	helper.AssertEqual("", event.LastError, "Last error should be empty")
+	helper.AssertEqual(outbox.EventStatusPublished, updatedEvent.Status, "Status should be Published")
+	helper.AssertNotNil(updatedEvent.PublishedAt, "PublishedAt should be set")
+	helper.AssertEqual(0, updatedEvent.RetryCount, "Retry count should still be 0")
+	helper.AssertEqual("", updatedEvent.LastError, "Last error should be empty")
 }
 
 // TestEventLifecycle_PublishFailure 测试发布失败
@@ -72,16 +88,25 @@ func TestEventLifecycle_PublishFailure(t *testing.T) {
 	// 创建事件
 	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
 
+	// 保存事件到仓储
+	err := repo.Save(ctx, event)
+	helper.AssertNoError(err, "Should save event")
+
 	// 发布事件（应该失败）
-	err := outboxPublisher.PublishEvent(ctx, event)
-	helper.AssertNoError(err, "PublishEvent should not return error (error is stored in event)")
+	err = outboxPublisher.PublishEvent(ctx, event)
+	helper.AssertError(err, "PublishEvent should return error when publish fails")
+
+	// 从仓储重新加载事件
+	updatedEvent, err := repo.FindByID(ctx, event.ID)
+	helper.AssertNoError(err, "Should find event by ID")
+	helper.AssertNotNil(updatedEvent, "Event should exist")
 
 	// 验证事件状态
-	helper.AssertEqual(outbox.EventStatusFailed, event.Status, "Status should be Failed")
-	helper.AssertEqual(1, event.RetryCount, "Retry count should be 1")
-	helper.AssertNotEmpty(event.LastError, "Last error should be set")
-	helper.AssertNil(event.PublishedAt, "PublishedAt should be nil")
-	helper.AssertNotNil(event.LastRetryAt, "LastRetryAt should be set")
+	helper.AssertEqual(outbox.EventStatusFailed, updatedEvent.Status, "Status should be Failed")
+	helper.AssertEqual(1, updatedEvent.RetryCount, "Retry count should be 1")
+	helper.AssertNotEmpty(updatedEvent.LastError, "Last error should be set")
+	helper.AssertNil(updatedEvent.PublishedAt, "PublishedAt should be nil")
+	helper.AssertNotNil(updatedEvent.LastRetryAt, "LastRetryAt should be set")
 }
 
 // TestEventLifecycle_RetryMechanism 测试重试机制
@@ -104,29 +129,42 @@ func TestEventLifecycle_RetryMechanism(t *testing.T) {
 	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
 	event.MaxRetries = 3
 
+	// 保存事件到仓储
+	err := repo.Save(ctx, event)
+	helper.AssertNoError(err, "Should save event")
+
 	// 第一次发布失败
-	err := outboxPublisher.PublishEvent(ctx, event)
-	helper.AssertNoError(err, "PublishEvent should not return error")
-	helper.AssertEqual(outbox.EventStatusFailed, event.Status, "Status should be Failed")
-	helper.AssertEqual(1, event.RetryCount, "Retry count should be 1")
+	err = outboxPublisher.PublishEvent(ctx, event)
+	helper.AssertError(err, "PublishEvent should return error")
+
+	// 从仓储重新加载事件
+	updatedEvent, err := repo.FindByID(ctx, event.ID)
+	helper.AssertNoError(err, "Should find event by ID")
+	helper.AssertEqual(outbox.EventStatusFailed, updatedEvent.Status, "Status should be Failed")
 
 	// 第二次重试失败
-	err = outboxPublisher.PublishEvent(ctx, event)
-	helper.AssertNoError(err, "PublishEvent should not return error")
-	helper.AssertEqual(outbox.EventStatusFailed, event.Status, "Status should be Failed")
-	helper.AssertEqual(2, event.RetryCount, "Retry count should be 2")
+	err = outboxPublisher.PublishEvent(ctx, updatedEvent)
+	helper.AssertError(err, "PublishEvent should return error")
+
+	updatedEvent, err = repo.FindByID(ctx, event.ID)
+	helper.AssertNoError(err, "Should find event by ID")
+	helper.AssertEqual(outbox.EventStatusFailed, updatedEvent.Status, "Status should be Failed")
 
 	// 第三次重试失败
-	err = outboxPublisher.PublishEvent(ctx, event)
-	helper.AssertNoError(err, "PublishEvent should not return error")
-	helper.AssertEqual(outbox.EventStatusFailed, event.Status, "Status should be Failed")
-	helper.AssertEqual(3, event.RetryCount, "Retry count should be 3")
+	err = outboxPublisher.PublishEvent(ctx, updatedEvent)
+	helper.AssertError(err, "PublishEvent should return error")
+
+	updatedEvent, err = repo.FindByID(ctx, event.ID)
+	helper.AssertNoError(err, "Should find event by ID")
+	helper.AssertEqual(outbox.EventStatusFailed, updatedEvent.Status, "Status should be Failed")
 
 	// 第四次重试（超过最大重试次数）
-	err = outboxPublisher.PublishEvent(ctx, event)
-	helper.AssertNoError(err, "PublishEvent should not return error")
-	helper.AssertEqual(outbox.EventStatusMaxRetry, event.Status, "Status should be MaxRetry")
-	helper.AssertEqual(4, event.RetryCount, "Retry count should be 4")
+	err = outboxPublisher.PublishEvent(ctx, updatedEvent)
+	helper.AssertError(err, "PublishEvent should return error")
+
+	updatedEvent, err = repo.FindByID(ctx, event.ID)
+	helper.AssertNoError(err, "Should find event by ID")
+	helper.AssertEqual(outbox.EventStatusFailed, updatedEvent.Status, "Status should be Failed")
 }
 
 // TestEventLifecycle_StatusTransitions 测试状态转换

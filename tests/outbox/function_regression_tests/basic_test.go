@@ -247,16 +247,32 @@ func TestBasic_PublishSuccess(t *testing.T) {
 	config := GetDefaultPublisherConfig()
 	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
+	// 启动 ACK 监听器
+	outboxPublisher.StartACKListener(ctx)
+	defer outboxPublisher.StopACKListener()
+
 	// 创建事件
 	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
 
+	// 保存事件到仓储
+	err := repo.Save(ctx, event)
+	helper.AssertNoError(err, "Should save event")
+
 	// 发布事件
-	err := outboxPublisher.PublishEvent(ctx, event)
+	err = outboxPublisher.PublishEvent(ctx, event)
 	helper.AssertNoError(err, "Publish should succeed")
 
+	// 等待 ACK 处理（给 ACK 监听器一些时间处理）
+	time.Sleep(100 * time.Millisecond)
+
+	// 从仓储重新加载事件以获取最新状态
+	updatedEvent, err := repo.FindByID(ctx, event.ID)
+	helper.AssertNoError(err, "Should find event by ID")
+	helper.AssertNotNil(updatedEvent, "Event should exist")
+
 	// 验证事件状态
-	helper.AssertEqual(outbox.EventStatusPublished, event.Status, "Status should be Published")
-	helper.AssertNotNil(event.PublishedAt, "PublishedAt should be set")
-	helper.AssertEqual(0, event.RetryCount, "Retry count should still be 0")
-	helper.AssertEqual("", event.LastError, "Last error should be empty")
+	helper.AssertEqual(outbox.EventStatusPublished, updatedEvent.Status, "Status should be Published")
+	helper.AssertNotNil(updatedEvent.PublishedAt, "PublishedAt should be set")
+	helper.AssertEqual(0, updatedEvent.RetryCount, "Retry count should still be 0")
+	helper.AssertEqual("", updatedEvent.LastError, "Last error should be empty")
 }
