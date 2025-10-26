@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "agg-123",
 				EventType:    "test.event",
 				EventVersion: 1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: false,
 		},
@@ -47,7 +48,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "",
 				EventType:    "test.event",
 				EventVersion: 1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "aggregate_id is required",
@@ -59,7 +60,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "   ",
 				EventType:    "test.event",
 				EventVersion: 1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "aggregate_id is required",
@@ -71,7 +72,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "agg-123",
 				EventType:    "",
 				EventVersion: 1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "event_type is required",
@@ -83,7 +84,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "agg-123",
 				EventType:    "   ",
 				EventVersion: 1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "event_type is required",
@@ -95,7 +96,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "agg-123",
 				EventType:    "test.event",
 				EventVersion: 0,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "event_version must be positive",
@@ -107,7 +108,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "agg-123",
 				EventType:    "test.event",
 				EventVersion: -1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "event_version must be positive",
@@ -119,7 +120,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "agg-123",
 				EventType:    "test.event",
 				EventVersion: 1,
-				Payload:      RawMessage{},
+				Payload:      jxtjson.RawMessage{},
 			},
 			wantError: true,
 			errorMsg:  "payload is required",
@@ -131,7 +132,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  "agg@123",
 				EventType:    "test.event",
 				EventVersion: 1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "invalid aggregate_id",
@@ -143,7 +144,7 @@ func TestEnvelope_Validate(t *testing.T) {
 				AggregateID:  string(make([]byte, 257)),
 				EventType:    "test.event",
 				EventVersion: 1,
-				Payload:      RawMessage(`{"key":"value"}`),
+				Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 			},
 			wantError: true,
 			errorMsg:  "aggregate_id too long",
@@ -171,7 +172,7 @@ func TestEnvelope_ToBytes(t *testing.T) {
 		EventType:    "test.event",
 		EventVersion: 1,
 		Timestamp:    time.Now(),
-		Payload:      RawMessage(`{"key":"value"}`),
+		Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 	}
 
 	bytes, err := env.ToBytes()
@@ -188,7 +189,7 @@ func TestEnvelope_ToBytes_InvalidEnvelope(t *testing.T) {
 		AggregateID:  "",
 		EventType:    "test.event",
 		EventVersion: 1,
-		Payload:      RawMessage(`{"key":"value"}`),
+		Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 	}
 
 	_, err := env.ToBytes()
@@ -203,7 +204,7 @@ func TestFromBytes(t *testing.T) {
 		EventType:    "test.event",
 		EventVersion: 1,
 		Timestamp:    time.Now(),
-		Payload:      RawMessage(`{"key":"value"}`),
+		Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 	}
 
 	bytes, err := original.ToBytes()
@@ -242,7 +243,7 @@ func TestExtractAggregateID_FromEnvelope(t *testing.T) {
 		AggregateID:  "agg-123",
 		EventType:    "test.event",
 		EventVersion: 1,
-		Payload:      RawMessage(`{"key":"value"}`),
+		Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 	}
 
 	bytes, err := env.ToBytes()
@@ -328,7 +329,7 @@ func TestExtractAggregateID_Priority(t *testing.T) {
 		AggregateID:  "from-envelope",
 		EventType:    "test.event",
 		EventVersion: 1,
-		Payload:      RawMessage(`{"key":"value"}`),
+		Payload:      jxtjson.RawMessage(`{"key":"value"}`),
 	}
 	bytes, _ := env.ToBytes()
 

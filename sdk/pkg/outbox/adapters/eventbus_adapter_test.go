@@ -160,6 +160,23 @@ func (m *MockEventBus) SubscribeEnvelope(ctx context.Context, topic string, hand
 	return nil
 }
 
+// ========== 多租户 ACK 支持 ==========
+func (m *MockEventBus) RegisterTenant(tenantID string, bufferSize int) error {
+	return nil
+}
+
+func (m *MockEventBus) UnregisterTenant(tenantID string) error {
+	return nil
+}
+
+func (m *MockEventBus) GetTenantPublishResultChannel(tenantID string) <-chan *eventbus.PublishResult {
+	return m.resultChan
+}
+
+func (m *MockEventBus) GetRegisteredTenants() []string {
+	return []string{}
+}
+
 // ========== 测试用例 ==========
 
 func TestNewEventBusAdapter(t *testing.T) {

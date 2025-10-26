@@ -1,9 +1,9 @@
 package gorm
 
 import (
-	"encoding/json"
 	"time"
 
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
 )
 
@@ -26,7 +26,7 @@ type OutboxEventModel struct {
 	EventType string `gorm:"type:varchar(100);not null;comment:事件类型"`
 
 	// Payload 事件负载（JSON）
-	Payload json.RawMessage `gorm:"type:json;comment:事件负载"`
+	Payload jxtjson.RawMessage `gorm:"type:json;comment:事件负载"`
 
 	// Status 事件状态
 	Status string `gorm:"type:varchar(20);not null;index:idx_tenant_status;index:idx_status;comment:事件状态"`

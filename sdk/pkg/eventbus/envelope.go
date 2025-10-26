@@ -8,19 +8,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 )
 
 // Envelope 统一消息包络结构（方案A）
 type Envelope struct {
-	EventID       string     `json:"event_id"`                 // 事件ID（可选，用户可自定义或自动生成，用于Outbox模式）
-	AggregateID   string     `json:"aggregate_id"`             // 聚合ID（必填）
-	EventType     string     `json:"event_type"`               // 事件类型（必填）
-	EventVersion  int64      `json:"event_version"`            // 事件版本（预留，为了将来可能实现事件溯源预留）
-	Timestamp     time.Time  `json:"timestamp"`                // 时间戳
-	TraceID       string     `json:"trace_id,omitempty"`       // 链路追踪ID（可选）
-	CorrelationID string     `json:"correlation_id,omitempty"` // 关联ID（可选）
-	TenantID      string     `json:"tenant_id,omitempty"`      // 租户ID（多租户支持，用于Outbox ACK路由）
-	Payload       RawMessage `json:"payload"`                  // 业务负载
+	EventID       string             `json:"event_id"`                 // 事件ID（可选，用户可自定义或自动生成，用于Outbox模式）
+	AggregateID   string             `json:"aggregate_id"`             // 聚合ID（必填）
+	EventType     string             `json:"event_type"`               // 事件类型（必填）
+	EventVersion  int64              `json:"event_version"`            // 事件版本（预留，为了将来可能实现事件溯源预留）
+	Timestamp     time.Time          `json:"timestamp"`                // 时间戳
+	TraceID       string             `json:"trace_id,omitempty"`       // 链路追踪ID（可选）
+	CorrelationID string             `json:"correlation_id,omitempty"` // 关联ID（可选）
+	TenantID      string             `json:"tenant_id,omitempty"`      // 租户ID（多租户支持，用于Outbox ACK路由）
+	Payload       jxtjson.RawMessage `json:"payload"`                  // 业务负载
 }
 
 // NewEnvelope 创建新的消息包络
@@ -32,7 +34,7 @@ func NewEnvelope(eventID, aggregateID, eventType string, eventVersion int64, pay
 		EventType:    eventType,
 		EventVersion: eventVersion,
 		Timestamp:    time.Now(),
-		Payload:      RawMessage(payload),
+		Payload:      jxtjson.RawMessage(payload),
 	}
 }
 
@@ -56,7 +58,7 @@ func NewEnvelopeWithAutoID(aggregateID, eventType string, eventVersion int64, pa
 		EventType:    eventType,
 		EventVersion: eventVersion,
 		Timestamp:    time.Now(),
-		Payload:      RawMessage(payload),
+		Payload:      jxtjson.RawMessage(payload),
 	}
 	return env
 }
@@ -92,13 +94,13 @@ func (e *Envelope) ToBytes() ([]byte, error) {
 	if err := e.Validate(); err != nil {
 		return nil, err
 	}
-	return Marshal(e)
+	return jxtjson.Marshal(e)
 }
 
 // FromBytes 从字节数组反序列化
 func FromBytes(data []byte) (*Envelope, error) {
 	var env Envelope
-	if err := Unmarshal(data, &env); err != nil {
+	if err := jxtjson.Unmarshal(data, &env); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal envelope: %w", err)
 	}
 	if err := env.Validate(); err != nil {
