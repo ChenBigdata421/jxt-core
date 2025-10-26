@@ -1,33 +1,33 @@
-goroutine 251 [running]:
-runtime/pprof.writeGoroutineStacks({0x104dd80, 0xc00009a000})
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/pprof/pprof.go:764 +0x6a
-runtime/pprof.writeGoroutine({0x104dd80?, 0xc00009a000?}, 0x54e345?)
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/pprof/pprof.go:753 +0x25
-runtime/pprof.(*Profile).WriteTo(0xefcb39?, {0x104dd80?, 0xc00009a000?}, 0x0?)
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/runtime/pprof/pprof.go:377 +0x14b
-github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_regression_tests.TestKafkaGoroutineLeakWithPprof(0xc000822380)
-	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/eventbus/performance_regression_tests/goroutine_leak_analysis_test.go:321 +0x49e
-testing.tRunner(0xc000822380, 0xf45998)
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792 +0xf4
+goroutine 44 [running]:
+runtime/pprof.writeGoroutineStacks({0xe996c0, 0xc000116008})
+	C:/Program Files/Go/src/runtime/pprof/pprof.go:764 +0x6a
+runtime/pprof.writeGoroutine({0xe996c0?, 0xc000116008?}, 0x394185?)
+	C:/Program Files/Go/src/runtime/pprof/pprof.go:753 +0x25
+runtime/pprof.(*Profile).WriteTo(0xd4576f?, {0xe996c0?, 0xc000116008?}, 0x0?)
+	C:/Program Files/Go/src/runtime/pprof/pprof.go:377 +0x14b
+github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_regression_tests.TestKafkaGoroutineLeakWithPprof(0xc0008ff340)
+	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_regression_tests/goroutine_leak_analysis_test.go:321 +0x49e
+testing.tRunner(0xc0008ff340, 0xd90c48)
+	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
 created by testing.(*T).Run in goroutine 1
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1851 +0x413
+	C:/Program Files/Go/src/testing/testing.go:1851 +0x3f6
 
 goroutine 1 [chan receive]:
-testing.(*T).Run(0xc000234e00, {0xf13364?, 0xc00040fb30?}, 0xf45998)
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1859 +0x431
-testing.runTests.func1(0xc000234e00)
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2279 +0x37
-testing.tRunner(0xc000234e00, 0xc00040fc70)
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:1792 +0xf4
-testing.runTests(0xc000011200, {0x16c1740, 0x12, 0x12}, {0x18?, 0xc00040fcf8?, 0x16cd060?})
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2277 +0x4b4
-testing.(*M).Run(0xc000452000)
-	/home/jiyuanjie/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.7.linux-amd64/src/testing/testing.go:2142 +0x64a
+testing.(*T).Run(0xc000106380, {0xd5e315?, 0x7ffdcda73fb0?}, 0xd90c48)
+	C:/Program Files/Go/src/testing/testing.go:1859 +0x414
+testing.runTests.func1(0xc000106380)
+	C:/Program Files/Go/src/testing/testing.go:2279 +0x37
+testing.tRunner(0xc000106380, 0xc00038fc70)
+	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
+testing.runTests(0xc000112348, {0x150dd20, 0x12, 0x12}, {0x151a900?, 0x7?, 0x1518ec0?})
+	C:/Program Files/Go/src/testing/testing.go:2277 +0x4b4
+testing.(*M).Run(0xc00013a140)
+	C:/Program Files/Go/src/testing/testing.go:2142 +0x64a
 main.main()
 	_testmain.go:79 +0x9b
 
-goroutine 54 [chan receive]:
+goroutine 69 [chan receive]:
 github.com/rcrowley/go-metrics.(*meterArbiter).tick(...)
-	/home/jiyuanjie/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:239
+	C:/Users/jiyua/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:239
 created by github.com/rcrowley/go-metrics.NewMeter in goroutine 51
-	/home/jiyuanjie/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:46 +0xbf
+	C:/Users/jiyua/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:46 +0xbf

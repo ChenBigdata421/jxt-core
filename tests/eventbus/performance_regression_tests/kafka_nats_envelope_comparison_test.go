@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/IBM/sarama"
 	"github.com/nats-io/nats.go"
@@ -789,7 +790,7 @@ func runPerformanceTestMultiTopic(t *testing.T, eb eventbus.EventBus, topics []s
 					EventType:    "TestEvent",
 					EventVersion: version, // 严格递增的版本号
 					Timestamp:    time.Now(),
-					Payload:      []byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
+					Payload:      jxtjson.RawMessage(fmt.Sprintf(`{"aggregate":"%s","version":%d}`, aggregateID, version)),
 				}
 
 				sendStart := time.Now()
@@ -956,7 +957,7 @@ func runPerformanceTest(t *testing.T, eb eventbus.EventBus, topic string, messag
 					EventType:    "PerformanceTestEvent",
 					EventVersion: version, // 严格递增的版本号
 					Timestamp:    time.Now(),
-					Payload:      eventbus.RawMessage(fmt.Sprintf(`{"aggregate":"%s","version":%d}`, aggregateID, version)),
+					Payload:      jxtjson.RawMessage(fmt.Sprintf(`{"aggregate":"%s","version":%d}`, aggregateID, version)),
 				}
 
 				// 🔑 关键：使用 PublishEnvelope 方法
