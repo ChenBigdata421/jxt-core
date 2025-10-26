@@ -2,12 +2,13 @@ package eventbus
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 )
 
 // TestPreSubscriptionBasic 测试预订阅模式基本功能
@@ -63,7 +64,7 @@ func TestPreSubscriptionBasic(t *testing.T) {
 	// 订阅处理器
 	handler := func(ctx context.Context, message []byte) error {
 		var msg map[string]interface{}
-		if err := json.Unmarshal(message, &msg); err != nil {
+		if err := jxtjson.Unmarshal(message, &msg); err != nil {
 			return err
 		}
 
@@ -94,7 +95,7 @@ func TestPreSubscriptionBasic(t *testing.T) {
 			"timestamp": time.Now().Unix(),
 		}
 
-		messageBytes, _ := json.Marshal(message)
+		messageBytes, _ := jxtjson.Marshal(message)
 		err := eventBus.Publish(ctx, "test.topic.1", messageBytes)
 		if err != nil {
 			t.Errorf("Failed to publish message %d: %v", i, err)
@@ -178,7 +179,7 @@ func TestPreSubscriptionMultiTopic(t *testing.T) {
 	handler := func(topicName string) MessageHandler {
 		return func(ctx context.Context, message []byte) error {
 			var msg map[string]interface{}
-			if err := json.Unmarshal(message, &msg); err != nil {
+			if err := jxtjson.Unmarshal(message, &msg); err != nil {
 				return err
 			}
 
@@ -223,7 +224,7 @@ func TestPreSubscriptionMultiTopic(t *testing.T) {
 				"timestamp": time.Now().Unix(),
 			}
 
-			messageBytes, _ := json.Marshal(message)
+			messageBytes, _ := jxtjson.Marshal(message)
 			err := eventBus.Publish(ctx, topic, messageBytes)
 			if err != nil {
 				t.Errorf("Failed to publish message %d to %s: %v", i, topic, err)

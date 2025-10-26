@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 )
 
 // 统一健康检查主题常量
@@ -46,12 +48,12 @@ func (h *HealthCheckMessage) ToBytes() ([]byte, error) {
 	if h.Metadata == nil {
 		h.Metadata = make(map[string]string)
 	}
-	return Marshal(h)
+	return jxtjson.Marshal(h)
 }
 
 // FromBytes 从字节数组反序列化
 func (h *HealthCheckMessage) FromBytes(data []byte) error {
-	return Unmarshal(data, h)
+	return jxtjson.Unmarshal(data, h)
 }
 
 // IsValid 验证消息是否有效
@@ -235,7 +237,7 @@ func NewHealthCheckMessageParser() *HealthCheckMessageParser {
 // Parse 解析健康检查消息
 func (p *HealthCheckMessageParser) Parse(data []byte) (*HealthCheckMessage, error) {
 	var msg HealthCheckMessage
-	if err := Unmarshal(data, &msg); err != nil {
+	if err := jxtjson.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal health check message: %w", err)
 	}
 
@@ -249,7 +251,7 @@ func (p *HealthCheckMessageParser) Parse(data []byte) (*HealthCheckMessage, erro
 // ParseWithoutValidation 解析健康检查消息（不验证）
 func (p *HealthCheckMessageParser) ParseWithoutValidation(data []byte) (*HealthCheckMessage, error) {
 	var msg HealthCheckMessage
-	if err := Unmarshal(data, &msg); err != nil {
+	if err := jxtjson.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal health check message: %w", err)
 	}
 

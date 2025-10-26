@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/config"
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ func TestMarshalToString(t *testing.T) {
 	}
 	data := TestData{Name: "test", Age: 30}
 
-	str, err := MarshalToString(data)
+	str, err := jxtjson.MarshalToString(data)
 	require.NoError(t, err)
 	assert.Contains(t, str, "test")
 	assert.Contains(t, str, "30")
@@ -33,7 +34,7 @@ func TestUnmarshalFromString(t *testing.T) {
 		Age  int    `json:"age"`
 	}
 	var result TestData
-	err := UnmarshalFromString(str, &result)
+	err := jxtjson.UnmarshalFromString(str, &result)
 	require.NoError(t, err)
 	assert.Equal(t, "test", result.Name)
 	assert.Equal(t, 30, result.Age)
@@ -46,7 +47,7 @@ func TestMarshal(t *testing.T) {
 		"age":  30,
 	}
 
-	bytes, err := Marshal(data)
+	bytes, err := jxtjson.Marshal(data)
 	require.NoError(t, err)
 	assert.NotEmpty(t, bytes)
 	assert.Contains(t, string(bytes), "test")
@@ -57,7 +58,7 @@ func TestUnmarshal(t *testing.T) {
 	bytes := []byte(`{"name":"test","age":30}`)
 
 	var result map[string]interface{}
-	err := Unmarshal(bytes, &result)
+	err := jxtjson.Unmarshal(bytes, &result)
 	require.NoError(t, err)
 	assert.Equal(t, "test", result["name"])
 	assert.Equal(t, float64(30), result["age"])
@@ -71,7 +72,7 @@ func TestMarshalFast(t *testing.T) {
 	}
 	data := TestData{Name: "test", Age: 30}
 
-	bytes, err := MarshalFast(data)
+	bytes, err := jxtjson.MarshalFast(data)
 	require.NoError(t, err)
 	assert.NotEmpty(t, bytes)
 }
@@ -81,7 +82,7 @@ func TestUnmarshalFast(t *testing.T) {
 	bytes := []byte(`{"name":"test","age":30}`)
 
 	var result map[string]interface{}
-	err := UnmarshalFast(bytes, &result)
+	err := jxtjson.UnmarshalFast(bytes, &result)
 	require.NoError(t, err)
 	assert.Equal(t, "test", result["name"])
 }
@@ -99,12 +100,12 @@ func TestJSON_RoundTrip(t *testing.T) {
 	}
 
 	// 序列化
-	bytes, err := Marshal(original)
+	bytes, err := jxtjson.Marshal(original)
 	require.NoError(t, err)
 
 	// 反序列化
 	var result map[string]interface{}
-	err = Unmarshal(bytes, &result)
+	err = jxtjson.Unmarshal(bytes, &result)
 	require.NoError(t, err)
 
 	// 验证
@@ -122,12 +123,12 @@ func TestJSONFast_RoundTrip(t *testing.T) {
 	original := TestData{String: "value", Number: 42}
 
 	// 快速序列化
-	bytes, err := MarshalFast(original)
+	bytes, err := jxtjson.MarshalFast(original)
 	require.NoError(t, err)
 
 	// 快速反序列化
 	var result TestData
-	err = UnmarshalFast(bytes, &result)
+	err = jxtjson.UnmarshalFast(bytes, &result)
 	require.NoError(t, err)
 
 	// 验证
@@ -140,7 +141,7 @@ func TestMarshalToString_Error(t *testing.T) {
 	// 创建一个无法序列化的对象（channel 类型）
 	invalidData := make(chan int)
 
-	_, err := MarshalToString(invalidData)
+	_, err := jxtjson.MarshalToString(invalidData)
 	assert.Error(t, err)
 }
 
@@ -149,7 +150,7 @@ func TestUnmarshalFromString_Error(t *testing.T) {
 	invalidJSON := `{"name": invalid}`
 
 	var result map[string]interface{}
-	err := UnmarshalFromString(invalidJSON, &result)
+	err := jxtjson.UnmarshalFromString(invalidJSON, &result)
 	assert.Error(t, err)
 }
 
@@ -162,7 +163,7 @@ func TestMarshal_Struct(t *testing.T) {
 
 	person := Person{Name: "Alice", Age: 30}
 
-	bytes, err := Marshal(person)
+	bytes, err := jxtjson.Marshal(person)
 	require.NoError(t, err)
 	assert.Contains(t, string(bytes), "Alice")
 	assert.Contains(t, string(bytes), "30")
@@ -178,7 +179,7 @@ func TestUnmarshal_Struct(t *testing.T) {
 	bytes := []byte(`{"name":"Bob","age":25}`)
 
 	var person Person
-	err := Unmarshal(bytes, &person)
+	err := jxtjson.Unmarshal(bytes, &person)
 	require.NoError(t, err)
 	assert.Equal(t, "Bob", person.Name)
 	assert.Equal(t, 25, person.Age)
@@ -186,31 +187,31 @@ func TestUnmarshal_Struct(t *testing.T) {
 
 // TestJSON_Variables 测试JSON变量
 func TestJSON_Variables(t *testing.T) {
-	assert.NotNil(t, JSON)
-	assert.NotNil(t, JSONFast)
-	assert.NotNil(t, JSONDefault)
+	assert.NotNil(t, jxtjson.JSON)
+	assert.NotNil(t, jxtjson.JSONFast)
+	assert.NotNil(t, jxtjson.JSONDefault)
 }
 
 // TestRawMessage 测试RawMessage类型
 func TestRawMessage(t *testing.T) {
 	type Message struct {
-		Type string     `json:"type"`
-		Data RawMessage `json:"data"`
+		Type string             `json:"type"`
+		Data jxtjson.RawMessage `json:"data"`
 	}
 
 	// 创建消息
 	msg := Message{
 		Type: "test",
-		Data: RawMessage(`{"key":"value"}`),
+		Data: jxtjson.RawMessage(`{"key":"value"}`),
 	}
 
 	// 序列化
-	bytes, err := Marshal(msg)
+	bytes, err := jxtjson.Marshal(msg)
 	require.NoError(t, err)
 
 	// 反序列化
 	var result Message
-	err = Unmarshal(bytes, &result)
+	err = jxtjson.Unmarshal(bytes, &result)
 	require.NoError(t, err)
 
 	assert.Equal(t, "test", result.Type)
@@ -222,7 +223,7 @@ func TestMarshalToString_EmptyObject(t *testing.T) {
 	type EmptyData struct{}
 	data := EmptyData{}
 
-	str, err := MarshalToString(data)
+	str, err := jxtjson.MarshalToString(data)
 	require.NoError(t, err)
 	assert.Equal(t, "{}", str)
 }
@@ -233,7 +234,7 @@ func TestUnmarshalFromString_EmptyObject(t *testing.T) {
 
 	type EmptyData struct{}
 	var result EmptyData
-	err := UnmarshalFromString(str, &result)
+	err := jxtjson.UnmarshalFromString(str, &result)
 	require.NoError(t, err)
 }
 
@@ -241,7 +242,7 @@ func TestUnmarshalFromString_EmptyObject(t *testing.T) {
 func TestMarshal_Array(t *testing.T) {
 	data := []int{1, 2, 3, 4, 5}
 
-	bytes, err := Marshal(data)
+	bytes, err := jxtjson.Marshal(data)
 	require.NoError(t, err)
 	assert.Contains(t, string(bytes), "1")
 	assert.Contains(t, string(bytes), "5")
@@ -252,7 +253,7 @@ func TestUnmarshal_Array(t *testing.T) {
 	bytes := []byte(`[1,2,3,4,5]`)
 
 	var result []int
-	err := Unmarshal(bytes, &result)
+	err := jxtjson.Unmarshal(bytes, &result)
 	require.NoError(t, err)
 	assert.Equal(t, []int{1, 2, 3, 4, 5}, result)
 }
@@ -267,7 +268,7 @@ func BenchmarkMarshal(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = Marshal(data)
+		_, _ = jxtjson.Marshal(data)
 	}
 }
 
@@ -281,7 +282,7 @@ func BenchmarkMarshalFast(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = MarshalFast(data)
+		_, _ = jxtjson.MarshalFast(data)
 	}
 }
 
@@ -295,7 +296,7 @@ func BenchmarkMarshalToString(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = MarshalToString(data)
+		_, _ = jxtjson.MarshalToString(data)
 	}
 }
 
@@ -397,19 +398,19 @@ func TestNewKafkaEventBusWithInternalConfig(t *testing.T) {
 	internalConfig := &KafkaConfig{
 		Brokers: []string{"localhost:9092"},
 		Producer: ProducerConfig{
-			RequiredAcks:     -1, // WaitForAll for idempotent producer
-			FlushFrequency:   100 * time.Millisecond,
-			FlushMessages:    50,
-			Timeout:          10 * time.Second,
-			FlushBytes:       1024 * 1024,
-			RetryMax:         3,
-			BatchSize:        16 * 1024,
-			BufferSize:       32 * 1024 * 1024,
-			Idempotent:       true,
-			MaxMessageBytes:  1024 * 1024,
-			PartitionerType:  "hash",
-			LingerMs:         5 * time.Millisecond,
-			MaxInFlight:      1,
+			RequiredAcks:    -1, // WaitForAll for idempotent producer
+			FlushFrequency:  100 * time.Millisecond,
+			FlushMessages:   50,
+			Timeout:         10 * time.Second,
+			FlushBytes:      1024 * 1024,
+			RetryMax:        3,
+			BatchSize:       16 * 1024,
+			BufferSize:      32 * 1024 * 1024,
+			Idempotent:      true,
+			MaxMessageBytes: 1024 * 1024,
+			PartitionerType: "hash",
+			LingerMs:        5 * time.Millisecond,
+			MaxInFlight:     1,
 		},
 		Consumer: ConsumerConfig{
 			GroupID:            "test-group",
@@ -584,19 +585,19 @@ func TestKafkaEventBusUsesOnlyProgrammerConfig(t *testing.T) {
 	programmerConfig := &KafkaConfig{
 		Brokers: []string{"localhost:9092"},
 		Producer: ProducerConfig{
-			RequiredAcks:     -1,
-			FlushFrequency:   100 * time.Millisecond,
-			FlushMessages:    50,
-			Timeout:          10 * time.Second,
-			FlushBytes:       1024 * 1024,
-			RetryMax:         3,
-			BatchSize:        16 * 1024,
-			BufferSize:       32 * 1024 * 1024,
-			Idempotent:       true,
-			MaxMessageBytes:  1024 * 1024,
-			PartitionerType:  "hash",
-			LingerMs:         5 * time.Millisecond,
-			MaxInFlight:      1,
+			RequiredAcks:    -1,
+			FlushFrequency:  100 * time.Millisecond,
+			FlushMessages:   50,
+			Timeout:         10 * time.Second,
+			FlushBytes:      1024 * 1024,
+			RetryMax:        3,
+			BatchSize:       16 * 1024,
+			BufferSize:      32 * 1024 * 1024,
+			Idempotent:      true,
+			MaxMessageBytes: 1024 * 1024,
+			PartitionerType: "hash",
+			LingerMs:        5 * time.Millisecond,
+			MaxInFlight:     1,
 		},
 		Consumer: ConsumerConfig{
 			GroupID:            "test-group",

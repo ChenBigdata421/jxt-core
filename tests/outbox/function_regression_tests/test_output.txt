@@ -1,0 +1,445 @@
+=== RUN   TestAsyncACK_PublishEnvelopeSuccess
+--- PASS: TestAsyncACK_PublishEnvelopeSuccess (0.20s)
+=== RUN   TestAsyncACK_PublishEnvelopeFailure
+--- PASS: TestAsyncACK_PublishEnvelopeFailure (0.20s)
+=== RUN   TestAsyncACK_BatchPublish
+--- PASS: TestAsyncACK_BatchPublish (0.30s)
+=== RUN   TestAsyncACK_ConcurrentPublish
+--- PASS: TestAsyncACK_ConcurrentPublish (0.50s)
+=== RUN   TestAsyncACK_ListenerStartStop
+--- PASS: TestAsyncACK_ListenerStartStop (0.50s)
+=== RUN   TestAsyncACK_EnvelopeConversion
+--- PASS: TestAsyncACK_EnvelopeConversion (0.00s)
+=== RUN   TestBasic_UUIDGeneration
+--- PASS: TestBasic_UUIDGeneration (0.00s)
+=== RUN   TestBasic_UUIDUniqueness
+--- PASS: TestBasic_UUIDUniqueness (0.00s)
+=== RUN   TestBasic_UUIDConcurrent
+--- PASS: TestBasic_UUIDConcurrent (0.03s)
+=== RUN   TestBasic_IdempotencyKeyGeneration
+--- PASS: TestBasic_IdempotencyKeyGeneration (0.00s)
+=== RUN   TestBasic_IdempotencyKeyUniqueness
+--- PASS: TestBasic_IdempotencyKeyUniqueness (0.00s)
+=== RUN   TestBasic_EventInitialState
+--- PASS: TestBasic_EventInitialState (0.00s)
+=== RUN   TestBasic_EventStatusTransitions
+--- PASS: TestBasic_EventStatusTransitions (0.00s)
+=== RUN   TestBasic_EventTimestamps
+--- PASS: TestBasic_EventTimestamps (0.00s)
+=== RUN   TestBasic_EventScheduledPublish
+--- PASS: TestBasic_EventScheduledPublish (0.00s)
+=== RUN   TestBasic_EventErrorTracking
+--- PASS: TestBasic_EventErrorTracking (0.00s)
+=== RUN   TestBasic_EventVersionTracking
+--- PASS: TestBasic_EventVersionTracking (0.00s)
+=== RUN   TestBasic_EventTraceAndCorrelation
+--- PASS: TestBasic_EventTraceAndCorrelation (0.00s)
+=== RUN   TestBasic_PublishSuccess
+    test_helper.go:40: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:40
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/basic_test.go:258
+        	Error:      	Not equal: 
+        	            	expected: "published"
+        	            	actual  : "pending"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,2 +1,2 @@
+        	            	-(outbox.EventStatus) (len=9) "published"
+        	            	+(outbox.EventStatus) (len=7) "pending"
+        	            	 
+        	Test:       	TestBasic_PublishSuccess
+        	Messages:   	Status should be Published
+    test_helper.go:55: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:55
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/basic_test.go:259
+        	Error:      	Expected value not to be nil.
+        	Test:       	TestBasic_PublishSuccess
+        	Messages:   	PublishedAt should be set
+--- FAIL: TestBasic_PublishSuccess (0.00s)
+=== RUN   TestEventLifecycle_InitialState
+--- PASS: TestEventLifecycle_InitialState (0.00s)
+=== RUN   TestEventLifecycle_PublishSuccess
+    test_helper.go:40: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:40
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:50
+        	Error:      	Not equal: 
+        	            	expected: "published"
+        	            	actual  : "pending"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,2 +1,2 @@
+        	            	-(outbox.EventStatus) (len=9) "published"
+        	            	+(outbox.EventStatus) (len=7) "pending"
+        	            	 
+        	Test:       	TestEventLifecycle_PublishSuccess
+        	Messages:   	Status should be Published
+    test_helper.go:55: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:55
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:51
+        	Error:      	Expected value not to be nil.
+        	Test:       	TestEventLifecycle_PublishSuccess
+        	Messages:   	PublishedAt should be set
+--- FAIL: TestEventLifecycle_PublishSuccess (0.00s)
+=== RUN   TestEventLifecycle_PublishFailure
+    test_helper.go:30: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:30
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:77
+        	Error:      	Received unexpected error:
+        	            	failed to publish event: publish failed
+        	Test:       	TestEventLifecycle_PublishFailure
+        	Messages:   	PublishEvent should not return error (error is stored in event)
+--- FAIL: TestEventLifecycle_PublishFailure (0.00s)
+=== RUN   TestEventLifecycle_RetryMechanism
+    test_helper.go:30: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:30
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:109
+        	Error:      	Received unexpected error:
+        	            	failed to publish event: publish failed
+        	Test:       	TestEventLifecycle_RetryMechanism
+        	Messages:   	PublishEvent should not return error
+    test_helper.go:30: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:30
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:115
+        	Error:      	Received unexpected error:
+        	            	failed to publish event: publish failed
+        	Test:       	TestEventLifecycle_RetryMechanism
+        	Messages:   	PublishEvent should not return error
+    test_helper.go:30: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:30
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:121
+        	Error:      	Received unexpected error:
+        	            	failed to publish event: publish failed
+        	Test:       	TestEventLifecycle_RetryMechanism
+        	Messages:   	PublishEvent should not return error
+    test_helper.go:30: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:30
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:127
+        	Error:      	Received unexpected error:
+        	            	failed to publish event: publish failed
+        	Test:       	TestEventLifecycle_RetryMechanism
+        	Messages:   	PublishEvent should not return error
+    test_helper.go:40: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:40
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/event_lifecycle_test.go:128
+        	Error:      	Not equal: 
+        	            	expected: "max_retry"
+        	            	actual  : "failed"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,2 +1,2 @@
+        	            	-(outbox.EventStatus) (len=9) "max_retry"
+        	            	+(outbox.EventStatus) (len=6) "failed"
+        	            	 
+        	Test:       	TestEventLifecycle_RetryMechanism
+        	Messages:   	Status should be MaxRetry
+--- FAIL: TestEventLifecycle_RetryMechanism (0.00s)
+=== RUN   TestEventLifecycle_StatusTransitions
+--- PASS: TestEventLifecycle_StatusTransitions (0.00s)
+=== RUN   TestEventLifecycle_ScheduledPublish
+--- PASS: TestEventLifecycle_ScheduledPublish (0.00s)
+=== RUN   TestEventLifecycle_Timestamps
+--- PASS: TestEventLifecycle_Timestamps (0.00s)
+=== RUN   TestEventLifecycle_MaxRetriesExceeded
+--- PASS: TestEventLifecycle_MaxRetriesExceeded (0.00s)
+=== RUN   TestEventLifecycle_ErrorTracking
+--- PASS: TestEventLifecycle_ErrorTracking (0.01s)
+=== RUN   TestEventLifecycle_VersionTracking
+--- PASS: TestEventLifecycle_VersionTracking (0.00s)
+=== RUN   TestEventLifecycle_TraceAndCorrelation
+--- PASS: TestEventLifecycle_TraceAndCorrelation (0.00s)
+=== RUN   TestEventBusAdapter_Integration_PublishSuccess
+--- PASS: TestEventBusAdapter_Integration_PublishSuccess (0.30s)
+=== RUN   TestEventBusAdapter_Integration_PublishFailure
+--- PASS: TestEventBusAdapter_Integration_PublishFailure (0.30s)
+=== RUN   TestEventBusAdapter_Integration_BatchPublish
+--- PASS: TestEventBusAdapter_Integration_BatchPublish (0.40s)
+=== RUN   TestEventBusAdapter_Integration_AdapterClose
+--- PASS: TestEventBusAdapter_Integration_AdapterClose (0.10s)
+=== RUN   TestEventBusAdapter_Integration_GetEventBus
+--- PASS: TestEventBusAdapter_Integration_GetEventBus (0.10s)
+=== RUN   TestEventBusAdapter_Integration_EnvelopeConversion
+--- PASS: TestEventBusAdapter_Integration_EnvelopeConversion (0.20s)
+=== RUN   TestIdempotency_AutoGeneration
+--- PASS: TestIdempotency_AutoGeneration (0.00s)
+=== RUN   TestIdempotency_CustomKey
+--- PASS: TestIdempotency_CustomKey (0.00s)
+=== RUN   TestIdempotency_UniqueKeys
+--- PASS: TestIdempotency_UniqueKeys (0.00s)
+=== RUN   TestIdempotency_SameEventDifferentIDs
+--- PASS: TestIdempotency_SameEventDifferentIDs (0.00s)
+=== RUN   TestIdempotency_PublisherCheck
+    test_helper.go:40: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/test_helper.go:40
+        	            				/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/idempotency_test.go:120
+        	Error:      	Not equal: 
+        	            	expected: 1
+        	            	actual  : 2
+        	Test:       	TestIdempotency_PublisherCheck
+        	Messages:   	Should only publish once
+--- FAIL: TestIdempotency_PublisherCheck (0.00s)
+=== RUN   TestIdempotency_DifferentTenants
+--- PASS: TestIdempotency_DifferentTenants (0.00s)
+=== RUN   TestIdempotency_KeyFormat
+--- PASS: TestIdempotency_KeyFormat (0.00s)
+=== RUN   TestIdempotency_EmptyFields
+--- PASS: TestIdempotency_EmptyFields (0.00s)
+=== RUN   TestIdempotency_SpecialCharacters
+--- PASS: TestIdempotency_SpecialCharacters (0.00s)
+=== RUN   TestIdempotency_ConcurrentPublish
+    idempotency_test.go:255: Published count: 10 (expected: 1 or more due to race conditions)
+--- PASS: TestIdempotency_ConcurrentPublish (0.00s)
+=== RUN   TestIdempotency_BatchPublish
+--- PASS: TestIdempotency_BatchPublish (0.00s)
+=== RUN   TestOutbox_UsesEventComponentSerialization
+--- PASS: TestOutbox_UsesEventComponentSerialization (0.00s)
+=== RUN   TestOutbox_PayloadContainsFullDomainEvent
+--- PASS: TestOutbox_PayloadContainsFullDomainEvent (0.00s)
+=== RUN   TestOutbox_SetPayloadUsesEventSerialization
+--- PASS: TestOutbox_SetPayloadUsesEventSerialization (0.00s)
+=== RUN   TestOutbox_GetPayloadAsReturnsFullDomainEvent
+--- PASS: TestOutbox_GetPayloadAsReturnsFullDomainEvent (0.00s)
+=== RUN   TestOutbox_RawMessageCompatibility
+--- PASS: TestOutbox_RawMessageCompatibility (0.00s)
+=== RUN   TestOutbox_PerformanceWithEventSerialization
+    json_serialization_test.go:217: Average OutboxEvent creation time: 1.74µs
+--- PASS: TestOutbox_PerformanceWithEventSerialization (0.00s)
+=== RUN   TestOutbox_ConcurrentSerialization
+--- PASS: TestOutbox_ConcurrentSerialization (0.02s)
+=== RUN   TestOutbox_ComplexPayloadSerialization
+--- PASS: TestOutbox_ComplexPayloadSerialization (0.00s)
+=== RUN   TestMultiTenantACKChannel_MemoryEventBus
+2025-10-26 00:25:05.617366047 +0800 CST m=+3.191459200 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:05.61746305 +0800 CST m=+3.191556193 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:45: ✅ Registered tenant: tenant-a
+2025-10-26 00:25:05.61749707 +0800 CST m=+3.191590213 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:45: ✅ Registered tenant: tenant-b
+2025-10-26 00:25:05.617515441 +0800 CST m=+3.191608584 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:45: ✅ Registered tenant: tenant-c
+    multi_tenant_ack_channel_test.go:88: ✅ Created Outbox Publisher for tenant: tenant-a
+    multi_tenant_ack_channel_test.go:88: ✅ Created Outbox Publisher for tenant: tenant-b
+    multi_tenant_ack_channel_test.go:88: ✅ Created Outbox Publisher for tenant: tenant-c
+    multi_tenant_ack_channel_test.go:109: ✅ Created and published 5 events for tenant: tenant-a
+    multi_tenant_ack_channel_test.go:109: ✅ Created and published 5 events for tenant: tenant-b
+    multi_tenant_ack_channel_test.go:109: ✅ Created and published 5 events for tenant: tenant-c
+    multi_tenant_ack_channel_test.go:120: 📊 Tenant tenant-a: 0/5 events published
+    multi_tenant_ack_channel_test.go:125:   ⚠️  Tenant tenant-a has 5 pending events
+    multi_tenant_ack_channel_test.go:128: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:128
+        	Error:      	Not equal: 
+        	            	expected: 5
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_MemoryEventBus
+        	Messages:   	Tenant tenant-a should have 5 published events
+    multi_tenant_ack_channel_test.go:120: 📊 Tenant tenant-b: 0/5 events published
+    multi_tenant_ack_channel_test.go:125:   ⚠️  Tenant tenant-b has 5 pending events
+    multi_tenant_ack_channel_test.go:128: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:128
+        	Error:      	Not equal: 
+        	            	expected: 5
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_MemoryEventBus
+        	Messages:   	Tenant tenant-b should have 5 published events
+    multi_tenant_ack_channel_test.go:120: 📊 Tenant tenant-c: 0/5 events published
+    multi_tenant_ack_channel_test.go:125:   ⚠️  Tenant tenant-c has 5 pending events
+    multi_tenant_ack_channel_test.go:128: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:128
+        	Error:      	Not equal: 
+        	            	expected: 5
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_MemoryEventBus
+        	Messages:   	Tenant tenant-c should have 5 published events
+2025-10-26 00:25:07.619628269 +0800 CST m=+5.193721462 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:141: ✅ Unregistered tenant: tenant-a
+2025-10-26 00:25:07.619752702 +0800 CST m=+5.193845865 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:141: ✅ Unregistered tenant: tenant-b
+2025-10-26 00:25:07.619772442 +0800 CST m=+5.193865585 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:141: ✅ Unregistered tenant: tenant-c
+    multi_tenant_ack_channel_test.go:144: ✅ Multi-tenant ACK Channel test passed (Memory EventBus)
+2025-10-26 00:25:07.720493999 +0800 CST m=+5.294587182 write error: can't open new logfile: open /info.log: permission denied
+--- FAIL: TestMultiTenantACKChannel_MemoryEventBus (2.10s)
+=== RUN   TestMultiTenantACKChannel_Isolation
+2025-10-26 00:25:07.72096292 +0800 CST m=+5.295056103 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:07.721115953 +0800 CST m=+5.295209136 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:07.721248376 +0800 CST m=+5.295341559 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:213: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:213
+        	Error:      	Not equal: 
+        	            	expected: "published"
+        	            	actual  : "pending"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,2 +1,2 @@
+        	            	-(outbox.EventStatus) (len=9) "published"
+        	            	+(outbox.EventStatus) (len=7) "pending"
+        	            	 
+        	Test:       	TestMultiTenantACKChannel_Isolation
+        	Messages:   	Tenant A's event should be published
+    multi_tenant_ack_channel_test.go:219: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:219
+        	Error:      	Not equal: 
+        	            	expected: "published"
+        	            	actual  : "pending"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,2 +1,2 @@
+        	            	-(outbox.EventStatus) (len=9) "published"
+        	            	+(outbox.EventStatus) (len=7) "pending"
+        	            	 
+        	Test:       	TestMultiTenantACKChannel_Isolation
+        	Messages:   	Tenant B's event should be published
+2025-10-26 00:25:08.222898318 +0800 CST m=+5.796991501 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:08.22300447 +0800 CST m=+5.797097633 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:234: ✅ Tenant isolation test passed
+2025-10-26 00:25:08.324195315 +0800 CST m=+5.898288518 write error: can't open new logfile: open /info.log: permission denied
+--- FAIL: TestMultiTenantACKChannel_Isolation (0.60s)
+=== RUN   TestMultiTenantACKChannel_ConcurrentPublish
+2025-10-26 00:25:08.324892271 +0800 CST m=+5.898985434 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:08.324989963 +0800 CST m=+5.899083116 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:08.325007914 +0800 CST m=+5.899101067 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:08.325019844 +0800 CST m=+5.899112997 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:08.325088306 +0800 CST m=+5.899181459 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:08.325117136 +0800 CST m=+5.899210289 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:336: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:336
+        	Error:      	Not equal: 
+        	            	expected: 20
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_ConcurrentPublish
+        	Messages:   	Tenant tenant-concurrent-0 should have 20 published events
+    multi_tenant_ack_channel_test.go:336: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:336
+        	Error:      	Not equal: 
+        	            	expected: 20
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_ConcurrentPublish
+        	Messages:   	Tenant tenant-concurrent-1 should have 20 published events
+    multi_tenant_ack_channel_test.go:336: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:336
+        	Error:      	Not equal: 
+        	            	expected: 20
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_ConcurrentPublish
+        	Messages:   	Tenant tenant-concurrent-2 should have 20 published events
+    multi_tenant_ack_channel_test.go:336: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:336
+        	Error:      	Not equal: 
+        	            	expected: 20
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_ConcurrentPublish
+        	Messages:   	Tenant tenant-concurrent-3 should have 20 published events
+    multi_tenant_ack_channel_test.go:336: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_channel_test.go:336
+        	Error:      	Not equal: 
+        	            	expected: 20
+        	            	actual  : 0
+        	Test:       	TestMultiTenantACKChannel_ConcurrentPublish
+        	Messages:   	Tenant tenant-concurrent-4 should have 20 published events
+2025-10-26 00:25:09.327434067 +0800 CST m=+6.901527250 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:09.327577781 +0800 CST m=+6.901670964 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:09.327608461 +0800 CST m=+6.901701644 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:09.327739424 +0800 CST m=+6.901832607 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:09.328376751 +0800 CST m=+6.902469894 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_channel_test.go:348: ✅ Concurrent publish test passed: 5 tenants × 20 events = 100 total
+2025-10-26 00:25:09.429147561 +0800 CST m=+7.003240764 write error: can't open new logfile: open /info.log: permission denied
+--- FAIL: TestMultiTenantACKChannel_ConcurrentPublish (1.10s)
+=== RUN   TestMultiTenantACKChannel_Kafka
+    multi_tenant_ack_kafka_test.go:60: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_kafka_test.go:60
+        	Error:      	Received unexpected error:
+        	            	failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+        	Test:       	TestMultiTenantACKChannel_Kafka
+        	Messages:   	Failed to create Kafka EventBus
+--- FAIL: TestMultiTenantACKChannel_Kafka (0.00s)
+=== RUN   TestMultiTenantACKChannel_NATS
+    multi_tenant_ack_nats_test.go:42: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_nats_test.go:42
+        	Error:      	Received unexpected error:
+        	            	failed to connect to NATS: nats: no servers available for connection
+        	Test:       	TestMultiTenantACKChannel_NATS
+        	Messages:   	Failed to create NATS EventBus
+--- FAIL: TestMultiTenantACKChannel_NATS (0.00s)
+=== RUN   TestMultiTenantACKRouting
+2025-10-26 00:25:09.431188694 +0800 CST m=+7.005281837 write error: can't open new logfile: open /info.log: permission denied
+2025-10-26 00:25:09.431241315 +0800 CST m=+7.005334458 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_routing_test.go:40: ✅ Registered tenant: tenant-routing-a
+2025-10-26 00:25:09.431261635 +0800 CST m=+7.005354778 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_routing_test.go:40: ✅ Registered tenant: tenant-routing-b
+2025-10-26 00:25:09.431270145 +0800 CST m=+7.005363288 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_routing_test.go:40: ✅ Registered tenant: tenant-routing-c
+    multi_tenant_ack_routing_test.go:74: ✅ Created ACK receiver for tenant: tenant-routing-a
+    multi_tenant_ack_routing_test.go:74: ✅ Created ACK receiver for tenant: tenant-routing-b
+    multi_tenant_ack_routing_test.go:74: ✅ Created ACK receiver for tenant: tenant-routing-c
+    multi_tenant_ack_routing_test.go:88: 📊 Testing tenant ACK channel registration and retrieval...
+    multi_tenant_ack_routing_test.go:108: ✅ Tenant tenant-routing-a and tenant-routing-b have independent channels
+    multi_tenant_ack_routing_test.go:108: ✅ Tenant tenant-routing-a and tenant-routing-c have independent channels
+    multi_tenant_ack_routing_test.go:108: ✅ Tenant tenant-routing-b and tenant-routing-a have independent channels
+    multi_tenant_ack_routing_test.go:108: ✅ Tenant tenant-routing-b and tenant-routing-c have independent channels
+    multi_tenant_ack_routing_test.go:108: ✅ Tenant tenant-routing-c and tenant-routing-a have independent channels
+    multi_tenant_ack_routing_test.go:108: ✅ Tenant tenant-routing-c and tenant-routing-b have independent channels
+    multi_tenant_ack_routing_test.go:119: ✅ GetRegisteredTenants returned: [tenant-routing-a tenant-routing-b tenant-routing-c]
+2025-10-26 00:25:09.431602728 +0800 CST m=+7.005695941 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_routing_test.go:125: ✅ Unregistered tenant: tenant-routing-a
+    multi_tenant_ack_routing_test.go:131: ✅ After unregister, registered tenants: [tenant-routing-b tenant-routing-c]
+2025-10-26 00:25:09.53222234 +0800 CST m=+7.106315493 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_routing_test.go:141: ✅ Unregistered tenant: tenant-routing-b
+2025-10-26 00:25:09.532305432 +0800 CST m=+7.106398575 write error: can't open new logfile: open /info.log: permission denied
+    multi_tenant_ack_routing_test.go:141: ✅ Unregistered tenant: tenant-routing-c
+    multi_tenant_ack_routing_test.go:145: ✅ Multi-tenant ACK routing test passed!
+2025-10-26 00:25:09.532324702 +0800 CST m=+7.106417835 write error: can't open new logfile: open /info.log: permission denied
+--- PASS: TestMultiTenantACKRouting (0.10s)
+=== RUN   TestSingleTenantACKChannel_NATS
+    single_tenant_ack_test.go:22: ========================================
+    single_tenant_ack_test.go:23:   单租户 ACK Channel 测试 (NATS JetStream)
+    single_tenant_ack_test.go:24:   默认租户ID: *
+    single_tenant_ack_test.go:25: ========================================
+    single_tenant_ack_test.go:45: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/single_tenant_ack_test.go:45
+        	Error:      	Received unexpected error:
+        	            	failed to connect to NATS: nats: no servers available for connection
+        	Test:       	TestSingleTenantACKChannel_NATS
+        	Messages:   	Failed to create NATS EventBus
+--- FAIL: TestSingleTenantACKChannel_NATS (0.00s)
+=== RUN   TestSingleTenantACKChannel_Kafka
+    single_tenant_ack_test.go:174: ========================================
+    single_tenant_ack_test.go:175:   单租户 ACK Channel 测试 (Kafka/RedPanda)
+    single_tenant_ack_test.go:176:   默认租户ID: *
+    single_tenant_ack_test.go:177: ========================================
+    single_tenant_ack_test.go:209: 
+        	Error Trace:	/home/jiyuanjie/jxt/jxt-evidence-system/jxt-core/tests/outbox/function_regression_tests/single_tenant_ack_test.go:209
+        	Error:      	Received unexpected error:
+        	            	failed to create kafka client: kafka: client has run out of available brokers to talk to: dial tcp 127.0.0.1:29094: connect: connection refused
+        	Test:       	TestSingleTenantACKChannel_Kafka
+        	Messages:   	Failed to create Kafka EventBus
+--- FAIL: TestSingleTenantACKChannel_Kafka (0.00s)
+=== RUN   TestUUIDGeneration_Basic
+--- PASS: TestUUIDGeneration_Basic (0.00s)
+=== RUN   TestUUIDGeneration_Uniqueness
+--- PASS: TestUUIDGeneration_Uniqueness (0.00s)
+=== RUN   TestUUIDGeneration_Concurrent
+--- PASS: TestUUIDGeneration_Concurrent (0.02s)
+=== RUN   TestUUIDGeneration_TimeOrdering
+--- PASS: TestUUIDGeneration_TimeOrdering (0.01s)
+=== RUN   TestUUIDGeneration_Format
+--- PASS: TestUUIDGeneration_Format (0.00s)
+=== RUN   TestUUIDGeneration_Performance
+    uuid_generation_test.go:154: Generated 10000 UUIDs in 26.598839ms (384.62 UUIDs/ms)
+--- PASS: TestUUIDGeneration_Performance (0.03s)
+=== RUN   TestUUIDGeneration_Stability
+--- PASS: TestUUIDGeneration_Stability (0.00s)
+=== RUN   TestUUIDGeneration_DifferentAggregates
+--- PASS: TestUUIDGeneration_DifferentAggregates (0.00s)
+=== RUN   TestUUIDGeneration_Fallback
+--- PASS: TestUUIDGeneration_Fallback (0.02s)
+FAIL
+FAIL	github.com/ChenBigdata421/jxt-core/tests/outbox/function_regression_tests	7.202s
+FAIL

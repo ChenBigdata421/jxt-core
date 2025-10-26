@@ -2,13 +2,14 @@ package function_regression_tests
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	jxtevent "github.com/ChenBigdata421/jxt-core/sdk/pkg/domain/event"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +28,11 @@ func NewTestHelper(t *testing.T) *TestHelper {
 // AssertNoError 断言无错误
 func (h *TestHelper) AssertNoError(err error, msgAndArgs ...interface{}) {
 	assert.NoError(h.t, err, msgAndArgs...)
+}
+
+// AssertError 断言有错误
+func (h *TestHelper) AssertError(err error, msgAndArgs ...interface{}) {
+	assert.Error(h.t, err, msgAndArgs...)
 }
 
 // RequireNoError 要求无错误
@@ -91,15 +97,15 @@ func (h *TestHelper) CreateTestEvent(tenantID, aggregateType, aggregateID, event
 		"timestamp": time.Now().Unix(),
 	}
 
-	payloadBytes, err := json.Marshal(payload)
-	h.RequireNoError(err, "Failed to marshal payload")
+	// 创建 DomainEvent
+	domainEvent := jxtevent.NewBaseDomainEvent(eventType, aggregateID, aggregateType, payload)
 
 	event, err := outbox.NewOutboxEvent(
 		tenantID,
-		aggregateType,
 		aggregateID,
+		aggregateType,
 		eventType,
-		payloadBytes,
+		domainEvent,
 	)
 	h.RequireNoError(err, "Failed to create outbox event")
 
@@ -108,15 +114,15 @@ func (h *TestHelper) CreateTestEvent(tenantID, aggregateType, aggregateID, event
 
 // CreateTestEventWithPayload 创建带自定义负载的测试事件
 func (h *TestHelper) CreateTestEventWithPayload(tenantID, aggregateType, aggregateID, eventType string, payload interface{}) *outbox.OutboxEvent {
-	payloadBytes, err := json.Marshal(payload)
-	h.RequireNoError(err, "Failed to marshal payload")
+	// 创建 DomainEvent
+	domainEvent := jxtevent.NewBaseDomainEvent(eventType, aggregateID, aggregateType, payload)
 
 	event, err := outbox.NewOutboxEvent(
 		tenantID,
-		aggregateType,
 		aggregateID,
+		aggregateType,
 		eventType,
-		payloadBytes,
+		domainEvent,
 	)
 	h.RequireNoError(err, "Failed to create outbox event")
 
@@ -567,18 +573,47 @@ func (m *MockEventPublisher) Publish(ctx context.Context, topic string, data []b
 	}
 
 	if m.publishError != nil {
+		// 发送失败结果到通道
+		result := &outbox.PublishResult{
+			Success: false,
+			Error:   m.publishError,
+		}
+		// 尝试从 data 中解析 Envelope 以获取 EventID
+		var envelope outbox.Envelope
+		if err := jxtjson.Unmarshal(data, &envelope); err == nil {
+			result.EventID = envelope.EventID
+		}
+		select {
+		case m.resultChan <- result:
+		default:
+		}
 		return m.publishError
 	}
 
 	m.publishedData = append(m.publishedData, data)
 	m.publishedTopics = append(m.publishedTopics, topic)
+
+	// 发送成功结果到通道
+	result := &outbox.PublishResult{
+		Success: true,
+	}
+	// 尝试从 data 中解析 Envelope 以获取 EventID
+	var envelope outbox.Envelope
+	if err := jxtjson.Unmarshal(data, &envelope); err == nil {
+		result.EventID = envelope.EventID
+	}
+	select {
+	case m.resultChan <- result:
+	default:
+	}
+
 	return nil
 }
 
 // PublishEnvelope 发布 Envelope（符合 EventPublisher 接口）
 func (m *MockEventPublisher) PublishEnvelope(ctx context.Context, topic string, envelope *outbox.Envelope) error {
 	// 简单实现：将 Envelope 序列化为 JSON
-	data, err := json.Marshal(envelope)
+	data, err := jxtjson.Marshal(envelope)
 	if err != nil {
 		return err
 	}

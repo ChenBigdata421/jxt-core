@@ -995,7 +995,28 @@ func (m *eventBusManager) PublishEnvelope(ctx context.Context, topic string, env
 		return fmt.Errorf("failed to serialize envelope: %w", err)
 	}
 
-	return m.publisher.Publish(ctx, topic, envelopeBytes)
+	publishErr := m.publisher.Publish(ctx, topic, envelopeBytes)
+
+	// ✅ 发送 ACK 结果到 publishResultChan（用于 Outbox 模式）
+	// 对于 Memory EventBus，需要手动发送 ACK 结果
+	if envelope.EventID != "" {
+		// 创建 ACK 结果（在 goroutine 外部，避免竞态条件）
+		result := &PublishResult{
+			EventID:     envelope.EventID,
+			Topic:       topic,
+			Success:     publishErr == nil,
+			Error:       publishErr,
+			Timestamp:   time.Now(),
+			AggregateID: envelope.AggregateID,
+			EventType:   envelope.EventType,
+			TenantID:    envelope.TenantID,
+		}
+
+		// 异步发送到租户专属通道或全局通道
+		go m.sendResultToChannel(result)
+	}
+
+	return publishErr
 }
 
 // SubscribeEnvelope 订阅Envelope消息（方案A）
@@ -1427,4 +1448,47 @@ func (m *eventBusManager) GetRegisteredTenants() []string {
 	}
 
 	return tenants
+}
+
+// sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
+func (m *eventBusManager) sendResultToChannel(result *PublishResult) {
+	// 优先发送到租户专属通道
+	if result.TenantID != "" {
+		m.tenantChannelsMu.RLock()
+		tenantChan, exists := m.tenantPublishResultChans[result.TenantID]
+		m.tenantChannelsMu.RUnlock()
+
+		if exists {
+			select {
+			case tenantChan <- result:
+				// 成功发送到租户通道
+				return
+			default:
+				// 租户通道满，记录警告并回退到全局通道
+				logger.Warn("Tenant ACK channel full, falling back to global channel",
+					"tenantID", result.TenantID,
+					"eventID", result.EventID,
+					"topic", result.Topic)
+			}
+		} else {
+			// 租户未注册，记录警告并回退到全局通道
+			logger.Warn("Tenant not registered, falling back to global channel",
+				"tenantID", result.TenantID,
+				"eventID", result.EventID)
+		}
+	}
+
+	// 发送到全局通道
+	if m.publishResultChan != nil {
+		select {
+		case m.publishResultChan <- result:
+			// 成功发送到全局通道
+		default:
+			// 全局通道满，记录错误
+			logger.Error("Global ACK channel full, ACK result dropped",
+				"eventID", result.EventID,
+				"topic", result.Topic,
+				"tenantID", result.TenantID)
+		}
+	}
 }

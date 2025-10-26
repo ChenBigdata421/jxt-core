@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
 )
 
@@ -277,7 +278,7 @@ func (a *EventBusAdapter) toEventBusEnvelope(envelope *outbox.Envelope) *eventbu
 		TraceID:       envelope.TraceID,
 		CorrelationID: envelope.CorrelationID,
 		TenantID:      envelope.TenantID, // ✅ 传递租户ID
-		Payload:       eventbus.RawMessage(envelope.Payload),
+		Payload:       jxtjson.RawMessage(envelope.Payload),
 	}
 }
 

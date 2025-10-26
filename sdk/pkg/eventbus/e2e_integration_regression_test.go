@@ -2,12 +2,12 @@ package eventbus
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,7 +54,7 @@ func TestE2E_MemoryEventBus_WithEnvelope(t *testing.T) {
 			[]byte(`{"orderId":"order-123","amount":100}`),
 		)
 
-		data, err := json.Marshal(envelope)
+		data, err := jxtjson.Marshal(envelope)
 		require.NoError(t, err)
 
 		err = bus.Publish(ctx, topic, data)

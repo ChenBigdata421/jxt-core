@@ -1,10 +1,12 @@
 package outbox
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
+
+	jxtevent "github.com/ChenBigdata421/jxt-core/sdk/pkg/domain/event"
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 )
 
 // EventStatus 事件状态
@@ -42,7 +44,7 @@ type OutboxEvent struct {
 	EventType string
 
 	// Payload 事件负载（JSON 格式）
-	Payload json.RawMessage
+	Payload jxtjson.RawMessage
 
 	// Status 事件状态
 	Status EventStatus
@@ -90,15 +92,17 @@ type OutboxEvent struct {
 }
 
 // NewOutboxEvent 创建新的 Outbox 事件
+// payload 必须是 jxtevent.BaseEvent 类型（BaseDomainEvent 或 EnterpriseDomainEvent）
+// 使用 event 组件的序列化方法确保统一性和性能
 func NewOutboxEvent(
 	tenantID string,
 	aggregateID string,
 	aggregateType string,
 	eventType string,
-	payload interface{},
+	payload jxtevent.BaseEvent,
 ) (*OutboxEvent, error) {
-	// 序列化 payload
-	payloadBytes, err := json.Marshal(payload)
+	// 使用 event 组件的序列化方法
+	payloadBytes, err := jxtevent.MarshalDomainEvent(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -220,13 +224,15 @@ func (e *OutboxEvent) ShouldPublishNow() bool {
 }
 
 // GetPayloadAs 将 Payload 反序列化为指定类型
+// 推荐使用 event 组件的 UnmarshalDomainEvent 和 UnmarshalPayload 方法
 func (e *OutboxEvent) GetPayloadAs(v interface{}) error {
-	return json.Unmarshal(e.Payload, v)
+	return jxtjson.Unmarshal(e.Payload, v)
 }
 
 // SetPayload 设置 Payload
-func (e *OutboxEvent) SetPayload(payload interface{}) error {
-	payloadBytes, err := json.Marshal(payload)
+// payload 应该是 jxtevent.BaseEvent 类型
+func (e *OutboxEvent) SetPayload(payload jxtevent.BaseEvent) error {
+	payloadBytes, err := jxtevent.MarshalDomainEvent(payload)
 	if err != nil {
 		return err
 	}
@@ -240,7 +246,7 @@ func (e *OutboxEvent) Clone() *OutboxEvent {
 	clone := *e
 	// 深拷贝 Payload
 	if e.Payload != nil {
-		clone.Payload = make(json.RawMessage, len(e.Payload))
+		clone.Payload = make(jxtjson.RawMessage, len(e.Payload))
 		copy(clone.Payload, e.Payload)
 	}
 	// 深拷贝指针字段
