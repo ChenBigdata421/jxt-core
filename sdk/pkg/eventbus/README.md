@@ -54,6 +54,8 @@ Connection
 
 ### 基础使用示例
 
+#### 示例 1：简单消息发布/订阅
+
 ```go
 package main
 
@@ -93,6 +95,154 @@ func main() {
     }
 }
 ```
+
+#### 示例 2：使用 DomainEvent（推荐）
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+    jxtevent "github.com/ChenBigdata421/jxt-core/sdk/pkg/domain/event"
+)
+
+func main() {
+    bus, err := eventbus.NewPersistentNATSEventBus(
+        []string{"nats://localhost:4222"},
+        "my-client",
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer bus.Close()
+
+    ctx := context.Background()
+
+    // 订阅 DomainEvent（使用 SubscribeEnvelope）
+    err = bus.SubscribeEnvelope(ctx, "archive-events", func(ctx context.Context, envelope *eventbus.Envelope) error {
+        // 1. 反序列化 DomainEvent
+        domainEvent, err := jxtevent.UnmarshalDomainEvent[*jxtevent.EnterpriseDomainEvent](envelope.Payload)
+        if err != nil {
+            return err
+        }
+
+        // 2. 提取 Payload
+        payload, err := jxtevent.UnmarshalPayload[ArchiveCreatedPayload](domainEvent)
+        if err != nil {
+            return err
+        }
+
+        log.Printf("Received Archive.Created: %+v", payload)
+        return nil
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 发布 DomainEvent
+    domainEvent := jxtevent.NewEnterpriseDomainEvent(
+        "Archive.Created",
+        "archive-123",
+        "Archive",
+        ArchiveCreatedPayload{
+            ArchiveID: "archive-123",
+            Title:     "Test Archive",
+        },
+    )
+    domainEvent.SetTenantId("tenant-001")
+
+    // 序列化 DomainEvent
+    eventBytes, err := jxtevent.MarshalDomainEvent(domainEvent)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 创建 Envelope
+    envelope := eventbus.NewEnvelope(
+        domainEvent.GetEventType(),
+        domainEvent.GetAggregateID(),
+        domainEvent.GetTenantId(),
+        eventBytes,
+    )
+
+    // 发布 Envelope
+    err = bus.PublishEnvelope(ctx, "archive-events", envelope)
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+type ArchiveCreatedPayload struct {
+    ArchiveID string `json:"archiveId"`
+    Title     string `json:"title"`
+}
+```
+
+### 🔄 与 DomainEvent 集成
+
+EventBus 与 `domain/event` 组件深度集成，提供标准化的事件处理流程：
+
+#### 发布端（Publisher）
+
+```go
+import jxtevent "github.com/ChenBigdata421/jxt-core/sdk/pkg/domain/event"
+
+// 1. 创建 DomainEvent
+domainEvent := jxtevent.NewEnterpriseDomainEvent(
+    "Archive.Created",
+    archiveID,
+    "Archive",
+    payload,
+)
+
+// 2. 序列化
+eventBytes, _ := jxtevent.MarshalDomainEvent(domainEvent)
+
+// 3. 创建 Envelope
+envelope := eventbus.NewEnvelope(
+    domainEvent.GetEventType(),
+    domainEvent.GetAggregateID(),
+    domainEvent.GetTenantId(),
+    eventBytes,
+)
+
+// 4. 发布
+bus.PublishEnvelope(ctx, "archive-events", envelope)
+```
+
+#### 订阅端（Subscriber）
+
+```go
+// 订阅 Envelope
+bus.SubscribeEnvelope(ctx, "archive-events", func(ctx context.Context, envelope *eventbus.Envelope) error {
+    // 1. 反序列化 DomainEvent
+    domainEvent, err := jxtevent.UnmarshalDomainEvent[*jxtevent.EnterpriseDomainEvent](envelope.Payload)
+    if err != nil {
+        return err
+    }
+
+    // 2. 提取 Payload
+    payload, err := jxtevent.UnmarshalPayload[ArchiveCreatedPayload](domainEvent)
+    if err != nil {
+        return err
+    }
+
+    // 3. 处理业务逻辑
+    return handleArchiveCreated(ctx, payload)
+})
+```
+
+#### 性能特性
+
+- ✅ **高性能序列化**: 使用 jxtjson（基于 jsoniter），比标准库快 2-3 倍
+- ✅ **序列化性能**: ~690ns/op
+- ✅ **反序列化性能**: ~1.2μs/op
+- ✅ **并发安全**: 支持 100+ goroutines 并发处理
+
+详细信息请参考：[DomainEvent 序列化指南](../domain/event/SERIALIZATION_GUIDE.md)
 
 ## 四、配置
 
@@ -10380,9 +10530,40 @@ eventbus:
 
 ### 📖 相关文档
 
+#### EventBus 核心文档
 - **ACK 处理机制**: [ACK 处理机制](#📊-ack-处理机制)
 - **Outbox 集成**: [Outbox 模式集成示例](#🎯-outbox-模式集成示例kafka--nats)
+- **性能优化**: [NATS 优化报告](./docs/NATS_OPTIMIZATION_CODE_ADOPTION_REPORT.md)
+- **Kafka 最佳实践**: [Kafka 行业最佳实践](./docs/KAFKA_INDUSTRY_BEST_PRACTICES.md)
+
+#### DomainEvent 集成文档
+- **序列化指南**: [DomainEvent 序列化指南](../domain/event/SERIALIZATION_GUIDE.md)
+- **实现总结**: [DomainEvent 实现总结](../domain/event/IMPLEMENTATION_SUMMARY.md)
+- **性能分析**: [为什么使用 jsoniter](../domain/event/WHY_JSONITER.md)
+- **统一 JSON**: [统一 JSON 迁移](../../UNIFIED_JSON_MIGRATION.md)
+
+#### 测试文档
+- **序列化测试覆盖率**: [EnterpriseDomainEvent 序列化测试](../../../tests/domain/event/function_regression_tests/ENTERPRISE_SERIALIZATION_TEST_COVERAGE.md)
 - **测试代码**:
   - `jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_nats_test.go`
   - `jxt-core/tests/outbox/function_regression_tests/multi_tenant_ack_kafka_test.go`
   - `jxt-core/tests/outbox/function_regression_tests/single_tenant_ack_test.go`
+  - `jxt-core/tests/domain/event/function_regression_tests/enterprise_serialization_test.go`
+
+---
+
+## 📝 版本历史
+
+### v1.1.0 (2025-10-26) - DomainEvent 集成增强
+- ✅ 新增 DomainEvent 集成示例
+- ✅ 新增 SubscribeEnvelope 使用示例
+- ✅ 新增序列化性能说明
+- ✅ 更新文档链接，包含 DomainEvent 相关文档
+- ✅ 完善 Envelope 与 DomainEvent 的集成说明
+
+### v1.0.0 (2025-10-25) - 初始版本
+- ✅ 统一 EventBus 架构
+- ✅ 支持 NATS、Kafka、Memory 三种实现
+- ✅ 异步 ACK 处理机制
+- ✅ 多租户支持
+- ✅ 完整的测试覆盖

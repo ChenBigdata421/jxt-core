@@ -145,14 +145,16 @@ func main() {
 
 ### 步骤 4：业务代码使用
 
+#### 方式 1：使用 DomainEvent（推荐）
+
 ```go
 // internal/service/archive_service.go
 package service
 
 import (
     "context"
+    jxtevent "github.com/ChenBigdata421/jxt-core/sdk/pkg/domain/event"
     "github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
-    gormadapter "github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox/adapters/gorm"
 )
 
 type ArchiveService struct {
@@ -167,34 +169,151 @@ func (s *ArchiveService) CreateArchive(ctx context.Context, archive *Archive) er
         if err := tx.Create(archive).Error; err != nil {
             return err
         }
-        
-        // 2. 创建 Outbox 事件
-        event, err := outbox.NewOutboxEvent(
+
+        // 2. 创建 DomainEvent（推荐使用 EnterpriseDomainEvent）
+        domainEvent := jxtevent.NewEnterpriseDomainEvent(
+            "Archive.Created",
+            archive.ID,
+            "Archive",
+            ArchiveCreatedPayload{
+                ArchiveID: archive.ID,
+                Title:     archive.Title,
+                CreatedBy: archive.CreatedBy,
+            },
+        )
+        domainEvent.SetTenantId(archive.TenantID)
+
+        // 3. 序列化 DomainEvent
+        eventBytes, err := jxtevent.MarshalDomainEvent(domainEvent)
+        if err != nil {
+            return err
+        }
+
+        // 4. 创建 Outbox 事件
+        outboxEvent, err := outbox.NewOutboxEvent(
             archive.TenantID,
             archive.ID,
             "Archive",
-            "ArchiveCreated",
-            archive,
+            "Archive.Created",
+            eventBytes,  // 传入序列化后的 DomainEvent
         )
         if err != nil {
             return err
         }
-        
-        // 3. 在同一事务中保存 Outbox 事件
-        if err := s.outboxRepo.Save(ctx, event); err != nil {
+
+        // 5. 在同一事务中保存 Outbox 事件
+        if err := s.outboxRepo.Save(ctx, outboxEvent); err != nil {
             return err
         }
-        
+
         return nil
     })
 }
 ```
 
+#### 方式 2：直接使用 Payload（简单场景）
+
+```go
+func (s *ArchiveService) CreateArchive(ctx context.Context, archive *Archive) error {
+    return s.db.Transaction(func(tx *gorm.DB) error {
+        // 1. 保存业务数据
+        if err := tx.Create(archive).Error; err != nil {
+            return err
+        }
+
+        // 2. 创建 Outbox 事件（直接传入 Payload）
+        event, err := outbox.NewOutboxEvent(
+            archive.TenantID,
+            archive.ID,
+            "Archive",
+            "ArchiveCreated",
+            archive,  // 直接传入业务对象
+        )
+        if err != nil {
+            return err
+        }
+
+        // 3. 在同一事务中保存 Outbox 事件
+        if err := s.outboxRepo.Save(ctx, event); err != nil {
+            return err
+        }
+
+        return nil
+    })
+}
+```
+
+**推荐使用方式 1**，因为：
+- ✅ 使用标准的 DomainEvent 结构
+- ✅ 包含完整的事件元数据（EventID、OccurredAt、Version 等）
+- ✅ 支持企业级字段（TenantId、CorrelationId、TraceId 等）
+- ✅ 便于事件溯源和审计
+- ✅ 与 Query Side 的事件处理保持一致
+
+## 🔄 与 DomainEvent 集成
+
+Outbox 组件与 `domain/event` 组件深度集成，支持标准的 DomainEvent 序列化：
+
+### Command Side（发布端）
+
+```go
+import jxtevent "github.com/ChenBigdata421/jxt-core/sdk/pkg/domain/event"
+
+// 1. 创建 EnterpriseDomainEvent
+domainEvent := jxtevent.NewEnterpriseDomainEvent(
+    "Archive.Created",
+    archiveID,
+    "Archive",
+    payload,
+)
+domainEvent.SetTenantId(tenantID)
+
+// 2. 序列化 DomainEvent
+eventBytes, err := jxtevent.MarshalDomainEvent(domainEvent)
+
+// 3. 保存到 Outbox
+outboxEvent, err := outbox.NewOutboxEvent(
+    tenantID,
+    archiveID,
+    "Archive",
+    "Archive.Created",
+    eventBytes,  // 传入序列化后的字节数组
+)
+```
+
+### Query Side（订阅端）
+
+```go
+// 1. 从消息队列接收 Envelope
+envelope, err := eventbus.FromBytes(msg.Data)
+
+// 2. 反序列化 DomainEvent
+domainEvent, err := jxtevent.UnmarshalDomainEvent[*jxtevent.EnterpriseDomainEvent](envelope.Payload)
+
+// 3. 提取 Payload
+payload, err := jxtevent.UnmarshalPayload[ArchiveCreatedPayload](domainEvent)
+```
+
+### 性能特性
+
+- ✅ **高性能序列化**: 使用 jxtjson（基于 jsoniter），比标准库快 2-3 倍
+- ✅ **序列化性能**: ~690ns/op
+- ✅ **反序列化性能**: ~1.2μs/op
+- ✅ **并发安全**: 支持 100+ goroutines 并发序列化
+
+详细信息请参考：[DomainEvent 序列化指南](../domain/event/SERIALIZATION_GUIDE.md)
+
 ## 📚 详细文档
 
+### 核心文档
 - [完整设计方案](../../../docs/outbox-pattern-design.md)
 - [快速开始指南](../../../docs/outbox-pattern-quick-start.md)
 - [依赖注入设计](../../../docs/outbox-pattern-dependency-injection-design.md)
+
+### 集成文档
+- [DomainEvent 序列化指南](../domain/event/SERIALIZATION_GUIDE.md)
+- [DomainEvent 实现总结](../domain/event/IMPLEMENTATION_SUMMARY.md)
+- [统一 JSON 迁移](../../UNIFIED_JSON_MIGRATION.md)
 
 ## 🎁 核心优势
 

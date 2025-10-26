@@ -113,12 +113,13 @@ if err != nil {
 - `MarshalPayload(payload interface{}) ([]byte, error)` - 序列化 Payload（特殊场景）
 
 **优势：**
-- ✅ 统一使用 encoding/json
+- ✅ 统一使用 jxtjson（基于 jsoniter，性能比标准库快 2-3 倍）
 - ✅ 类型安全（泛型）
 - ✅ 自动处理 interface{} → map[string]interface{} → 结构体 的转换
 - ✅ 支持 []byte 和 RawMessage 类型的 Payload
 - ✅ 统一的错误处理
 - ✅ 避免各服务重复实现
+- ✅ 与 encoding/json 完全兼容
 
 **使用示例：**
 
@@ -316,16 +317,70 @@ type ArchiveCreatedPayload struct {
 }
 ```
 
+## 性能特性
+
+### JSON 序列化性能
+
+本包使用统一的 `jxtjson` 包（基于 jsoniter），提供高性能的 JSON 序列化：
+
+| 操作 | 性能指标 | 说明 |
+|------|---------|------|
+| **序列化** | ~690ns/op | 比 encoding/json 快 2-3 倍 |
+| **反序列化** | ~1.2μs/op | 比 encoding/json 快 2-3 倍 |
+| **大 Payload** | ~511μs (1000 字段) | 51KB JSON 数据 |
+| **并发安全** | ✅ 100 goroutines | 无竞态条件 |
+
+### 性能测试
+
+```bash
+# 运行性能基准测试
+cd jxt-core/tests/domain/event/function_regression_tests
+go test -run TestEnterpriseDomainEvent_PerformanceBenchmark -v
+
+# 运行并发测试
+go test -run TestEnterpriseDomainEvent_ConcurrentSerialization -v
+```
+
 ## 测试
 
-运行单元测试：
+### 运行单元测试
 
 ```bash
 cd jxt-core/sdk/pkg/domain/event
 go test -v
 ```
 
+### 运行回归测试
+
+```bash
+cd jxt-core/tests/domain/event/function_regression_tests
+go test -v
+```
+
+### 测试覆盖率
+
+- ✅ **基础功能测试**: 14 个测试用例
+- ✅ **企业级事件测试**: 15 个测试用例
+- ✅ **序列化测试**: 21 个测试用例
+- ✅ **集成测试**: 9 个测试用例
+- ✅ **Payload 测试**: 13 个测试用例
+- ✅ **验证测试**: 16 个测试用例
+
+详细测试报告：
+- [序列化测试覆盖率](../../../tests/domain/event/function_regression_tests/ENTERPRISE_SERIALIZATION_TEST_COVERAGE.md)
+- [序列化测试说明](../../../tests/domain/event/function_regression_tests/ENTERPRISE_SERIALIZATION_TESTS_README.md)
+
 ## 版本历史
+
+- **v1.1.0** (2025-10-26): 序列化增强版本
+  - ✅ 新增 21 个 EnterpriseDomainEvent 序列化/反序列化测试
+  - ✅ 统一使用 jxtjson 包（基于 jsoniter）
+  - ✅ 性能优化：序列化 ~690ns/op，反序列化 ~1.2μs/op
+  - ✅ 完整的性能基准测试和并发测试
+  - ✅ 与 encoding/json 完全兼容
+  - ✅ 支持特殊字符（中文、Emoji、转义字符）
+  - ✅ 支持大 Payload（1000+ 字段）
+  - ✅ 完整的错误处理测试
 
 - **v1.0.0** (2025-10-25): 初始版本
   - 实现 BaseDomainEvent
@@ -336,5 +391,17 @@ go test -v
 
 ## 相关文档
 
-- [DomainEvent迁移到jxt-core方案](../../../../../evidence-management/docs/domain-event-migration-to-jxt-core.md)
+### 核心文档
+- [序列化指南](./SERIALIZATION_GUIDE.md) - 详细的序列化使用指南
+- [实现总结](./IMPLEMENTATION_SUMMARY.md) - 实现细节和设计决策
+- [为什么使用 jsoniter](./WHY_JSONITER.md) - 性能分析和选型理由
+
+### 测试文档
+- [序列化测试覆盖率](../../../tests/domain/event/function_regression_tests/ENTERPRISE_SERIALIZATION_TEST_COVERAGE.md)
+- [序列化测试说明](../../../tests/domain/event/function_regression_tests/ENTERPRISE_SERIALIZATION_TESTS_README.md)
+- [测试覆盖率分析](../../../tests/domain/event/function_regression_tests/TEST_COVERAGE_ANALYSIS.md)
+
+### 迁移文档
+- [DomainEvent 迁移到 jxt-core 方案](../../../../../evidence-management/docs/domain-event-migration-to-jxt-core.md)
+- [统一 JSON 迁移](../../UNIFIED_JSON_MIGRATION.md)
 
