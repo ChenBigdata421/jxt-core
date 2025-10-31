@@ -11,33 +11,39 @@ import (
 func TestOrderCheckerConcurrency(t *testing.T) {
 	orderChecker := NewOrderChecker()
 
-	// 模拟 Keyed-Worker Pool 的行为
-	// 256 个 workers，每个 worker 串行处理消息
-	workerCount := 256
-	messagesPerWorker := 100
+	// 模拟 Hollywood Actor Pool 的行为
+	// 256 个 actors，每个 actor 串行处理消息
+	// 关键：每个 actor 处理不同的聚合 ID，避免冲突
+	actorCount := 256
+	messagesPerActor := 100
 
 	var wg sync.WaitGroup
 
-	// 为每个 worker 创建一个 goroutine
-	for workerID := 0; workerID < workerCount; workerID++ {
+	// 为每个 actor 创建一个 goroutine
+	for actorID := 0; actorID < actorCount; actorID++ {
 		wg.Add(1)
-		go func(wID int) {
+		go func(aID int) {
 			defer wg.Done()
 
-			// 每个 worker 串行处理消息
-			for i := 0; i < messagesPerWorker; i++ {
-				aggregateID := fmt.Sprintf("aggregate-%d", wID%10) // 10 个聚合ID
+			// 每个 actor 处理自己专属的聚合 ID
+			aggregateID := fmt.Sprintf("aggregate-%d", aID)
+
+			// 串行处理该聚合 ID 的消息
+			for i := 0; i < messagesPerActor; i++ {
 				version := int64(i + 1)
 
 				// 检查顺序
 				orderChecker.Check(aggregateID, version)
 			}
-		}(workerID)
+		}(actorID)
 	}
 
 	wg.Wait()
 
 	violations := orderChecker.GetViolations()
+	t.Logf("Actor 数量: %d", actorCount)
+	t.Logf("每个 Actor 消息数: %d", messagesPerActor)
+	t.Logf("总消息数: %d", actorCount*messagesPerActor)
 	t.Logf("顺序违反次数: %d", violations)
 
 	if violations > 0 {

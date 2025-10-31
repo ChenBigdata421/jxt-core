@@ -23,6 +23,13 @@ const (
 // MessageHandler 消息处理器函数类型
 type MessageHandler func(ctx context.Context, message []byte) error
 
+// handlerWrapper 包装 handler 和 isEnvelope 标记
+// ⭐ 用于区分 Envelope 消息（at-least-once）和普通消息（at-most-once）
+type handlerWrapper struct {
+	handler    MessageHandler
+	isEnvelope bool // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
+}
+
 // PublishResult 异步发布结果
 type PublishResult struct {
 	// EventID 事件ID（来自Envelope.EventID或自定义ID）

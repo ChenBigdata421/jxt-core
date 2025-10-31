@@ -554,6 +554,14 @@ func TestKafkaMultipleAggregates(t *testing.T) {
 	bus := helper.CreateKafkaEventBus(fmt.Sprintf("kafka-multi-agg-%d", helper.GetTimestamp()))
 	defer helper.CloseEventBus(bus)
 
+	// ✅ 关键修复：设置预订阅 topics（Kafka EventBus 预订阅模式要求）
+	if kafkaBus, ok := bus.(interface {
+		SetPreSubscriptionTopics([]string)
+	}); ok {
+		kafkaBus.SetPreSubscriptionTopics([]string{topic})
+		t.Logf("✅ Set pre-subscription topics: %s", topic)
+	}
+
 	var received int64
 	ctx := context.Background()
 
@@ -573,13 +581,14 @@ func TestKafkaMultipleAggregates(t *testing.T) {
 
 	for aggID := 1; aggID <= aggregateCount; aggID++ {
 		for version := 1; version <= messagesPerAggregate; version++ {
+			// ✅ 修复：Payload 必须是有效的 JSON（RawMessage 要求）
 			envelope := &eventbus.Envelope{
 				EventID:      fmt.Sprintf("evt-kafka-agg-%d-v%d", aggID, version),
 				AggregateID:  fmt.Sprintf("aggregate-%d", aggID),
 				EventType:    "TestEvent",
 				EventVersion: int64(version),
 				Timestamp:    time.Now(),
-				Payload:      []byte(fmt.Sprintf("Aggregate %d, Version %d", aggID, version)),
+				Payload:      []byte(fmt.Sprintf(`{"aggregate_id":%d,"version":%d}`, aggID, version)),
 			}
 			err = bus.PublishEnvelope(ctx, topic, envelope)
 			helper.AssertNoError(err, "PublishEnvelope should not return error")
@@ -592,6 +601,79 @@ func TestKafkaMultipleAggregates(t *testing.T) {
 	helper.AssertEqual(int64(totalMessages), atomic.LoadInt64(&received), "Should receive all messages")
 
 	t.Logf("✅ Kafka multiple aggregates test passed")
+}
+
+// TestNATSMultipleAggregates 测试 NATS 多聚合并发处理（Hollywood Actor Pool）
+func TestNATSMultipleAggregates(t *testing.T) {
+	helper := NewTestHelper(t)
+	defer helper.Cleanup()
+
+	clientID := fmt.Sprintf("nats-multi-agg-%d", helper.GetTimestamp())
+	topic := fmt.Sprintf("%s.test", clientID)
+
+	bus := helper.CreateNATSEventBus(clientID)
+	defer helper.CloseEventBus(bus)
+
+	var received int64
+	aggregateVersions := make(map[string][]int64)
+	var mu sync.Mutex
+	ctx := context.Background()
+
+	// 订阅 Envelope
+	err := bus.SubscribeEnvelope(ctx, topic, func(ctx context.Context, envelope *eventbus.Envelope) error {
+		atomic.AddInt64(&received, 1)
+		mu.Lock()
+		aggregateVersions[envelope.AggregateID] = append(aggregateVersions[envelope.AggregateID], envelope.EventVersion)
+		mu.Unlock()
+		return nil
+	})
+	helper.AssertNoError(err, "SubscribeEnvelope should not return error")
+
+	time.Sleep(2 * time.Second)
+
+	// 发布多个聚合的消息
+	aggregateCount := 5
+	messagesPerAggregate := 10
+	totalMessages := aggregateCount * messagesPerAggregate
+
+	for aggID := 1; aggID <= aggregateCount; aggID++ {
+		for version := 1; version <= messagesPerAggregate; version++ {
+			// ✅ 修复：Payload 必须是有效的 JSON（RawMessage 要求）
+			envelope := &eventbus.Envelope{
+				EventID:      fmt.Sprintf("evt-nats-agg-%d-v%d", aggID, version),
+				AggregateID:  fmt.Sprintf("aggregate-%d", aggID),
+				EventType:    "TestEvent",
+				EventVersion: int64(version),
+				Timestamp:    time.Now(),
+				Payload:      []byte(fmt.Sprintf(`{"aggregate_id":%d,"version":%d}`, aggID, version)),
+			}
+			err = bus.PublishEnvelope(ctx, topic, envelope)
+			helper.AssertNoError(err, "PublishEnvelope should not return error")
+		}
+	}
+
+	// 等待所有消息接收
+	success := helper.WaitForMessages(&received, int64(totalMessages), 20*time.Second)
+	helper.AssertTrue(success, "Should receive all messages within timeout")
+	helper.AssertEqual(int64(totalMessages), atomic.LoadInt64(&received), "Should receive all messages")
+
+	// 验证每个聚合的顺序
+	mu.Lock()
+	for aggID := 1; aggID <= aggregateCount; aggID++ {
+		aggregateIDStr := fmt.Sprintf("aggregate-%d", aggID)
+		versions := aggregateVersions[aggregateIDStr]
+		helper.AssertEqual(messagesPerAggregate, len(versions), fmt.Sprintf("Aggregate %s should have %d messages", aggregateIDStr, messagesPerAggregate))
+
+		// 验证顺序
+		for i := 0; i < len(versions); i++ {
+			expected := int64(i + 1)
+			actual := versions[i]
+			helper.AssertEqual(expected, actual, fmt.Sprintf("Aggregate %s: order violation at index %d", aggregateIDStr, i))
+		}
+	}
+	mu.Unlock()
+
+	t.Logf("✅ NATS multiple aggregates test passed (Hollywood Actor Pool)")
 }
 
 // ============================================================================

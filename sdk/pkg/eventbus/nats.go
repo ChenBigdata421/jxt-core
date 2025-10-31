@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/config"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
@@ -88,7 +87,7 @@ type NATSWorker struct {
 // NewNATSGlobalWorkerPool 创建NATS专用的全局Worker池
 func NewNATSGlobalWorkerPool(workerCount int, logger *zap.Logger) *NATSGlobalWorkerPool {
 	if workerCount <= 0 {
-		workerCount = 256 // 默认：256 workers（与 Kafka 和 KeyedWorkerPool 保持一致）
+		workerCount = 256 // 默认：256 workers（与 Kafka 和 Hollywood Actor Pool 保持一致）
 	}
 
 	queueSize := workerCount * 100 // 队列大小：worker数量 × 100
@@ -235,6 +234,9 @@ type natsEventBus struct {
 	lastHealthCheck   atomic.Value // time.Time
 	healthStatus      atomic.Bool
 
+	// ⭐ Actor Pool 迁移：Round-Robin 计数器（用于普通消息）
+	roundRobinCounter atomic.Uint64
+
 	// 增强的企业级特性
 	metricsCollector *time.Ticker
 	metrics          *Metrics
@@ -254,7 +256,7 @@ type natsEventBus struct {
 	reconnectCallback ReconnectCallback
 
 	// 订阅管理（用于重连后恢复订阅）
-	subscriptionHandlers map[string]MessageHandler // topic -> handler
+	subscriptionHandlers map[string]*handlerWrapper // ⭐ 修改：topic -> handlerWrapper（支持 at-least-once）
 	subscriptionsMu      sync.RWMutex
 
 	// 积压检测器
@@ -263,8 +265,9 @@ type natsEventBus struct {
 
 	// 移除fullConfig字段，企业级特性配置现在在config.Enterprise中
 
-	// 全局 Keyed-Worker Pool（所有 topic 共享，与 Kafka 保持一致）
-	globalKeyedPool *KeyedWorkerPool
+	// 🔥 Hollywood Actor Pool（所有 topic 共享，与 Kafka 保持一致）
+	// 直接使用 Hollywood Actor Pool，无需配置开关
+	actorPool *HollywoodActorPool
 
 	// 🔥 P1优化：主题配置管理改为 sync.Map（无锁读取）
 	topicConfigs          sync.Map                  // key: string (topic), value: TopicOptions
@@ -376,7 +379,7 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		// 🔥 P0修复：topicHandlers 改为 sync.Map，不需要初始化
 		// topicHandlers: sync.Map 零值可用
 		subscribedTopics:     make([]string, 0),
-		subscriptionHandlers: make(map[string]MessageHandler),
+		subscriptionHandlers: make(map[string]*handlerWrapper), // ⭐ 修改类型
 		// 🚀 初始化异步发布结果通道（缓冲区大小：100000）
 		publishResultChan: make(chan *PublishResult, 100000),
 		// 🔥 P0修复：createdStreams 改为 sync.Map，不需要初始化
@@ -396,13 +399,23 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 	}
 	bus.closed.Store(false)
 
-	// 🔥 创建全局 Keyed-Worker Pool（所有 topic 共享，与 Kafka 保持一致）
-	// 使用较大的 worker 数量以支持多个 topic 的并发处理
-	bus.globalKeyedPool = NewKeyedWorkerPool(KeyedWorkerPoolConfig{
-		WorkerCount: 256,                    // 全局 worker 数量（与 Kafka 一致）
-		QueueSize:   1000,                   // 每个 worker 的队列大小
-		WaitTimeout: 500 * time.Millisecond, // 等待超时（与 Kafka 一致）
-	}, nil) // handler 将在处理消息时动态传入
+	// 🔥 创建 Hollywood Actor Pool（所有 topic 共享，与 Kafka 保持一致）
+	// 直接使用 Hollywood Actor Pool，无需配置开关
+	// 使用 ClientID 作为命名空间，确保每个实例的指标不冲突
+	// 注意：Prometheus 指标名称只能包含 [a-zA-Z0-9_]，需要替换 - 为 _
+	metricsNamespace := fmt.Sprintf("nats_eventbus_%s", strings.ReplaceAll(config.ClientID, "-", "_"))
+	actorPoolMetrics := NewPrometheusActorPoolMetricsCollector(metricsNamespace)
+
+	bus.actorPool = NewHollywoodActorPool(HollywoodActorPoolConfig{
+		PoolSize:    256,  // 固定 Actor 数量（与 Kafka 一致）
+		InboxSize:   1000, // Inbox 队列大小
+		MaxRestarts: 3,    // Supervisor 最大重启次数
+	}, actorPoolMetrics)
+
+	bus.logger.Info("NATS EventBus using Hollywood Actor Pool",
+		zap.Int("poolSize", 256),
+		zap.Int("inboxSize", 1000),
+		zap.Int("maxRestarts", 3))
 
 	// ✅ 重构：配置全局异步发布处理器（业界最佳实践）
 	if config.JetStream.Enabled && js != nil {
@@ -437,13 +450,13 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		// 🔥 P0修复：使用 atomic.Value 存储
 		bus.js.Store(js)
 
-		logger.Info("NATS JetStream configured with global async publish handler",
+		bus.logger.Info("NATS JetStream configured with global async publish handler",
 			zap.Int("maxPending", 100000))
 	}
 
-	logger.Info("NATS EventBus created successfully",
-		"urls", config.URLs,
-		"clientId", config.ClientID)
+	bus.logger.Info("NATS EventBus created successfully",
+		zap.String("urls", fmt.Sprintf("%v", config.URLs)),
+		zap.String("clientId", config.ClientID))
 
 	// 🔥 初始化统一Consumer（如果启用JetStream）
 	if config.JetStream.Enabled {
@@ -460,7 +473,7 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 
 		// ✅ 方案2：启动 ACK worker 池
 		bus.startACKWorkers()
-		logger.Info("NATS ACK worker pool started",
+		bus.logger.Info("NATS ACK worker pool started",
 			zap.Int("workerCount", bus.ackWorkerCount),
 			zap.Int("ackChanSize", cap(bus.ackChan)),
 			zap.Int("resultChanSize", cap(bus.publishResultChan)))
@@ -547,6 +560,95 @@ func (n *natsEventBus) ensureStreamExists() error {
 	// 🔥 P0修复：使用 sync.Map 存储
 	n.createdStreams.Store(streamName, true)
 
+	return nil
+}
+
+// subjectMatches 检查 NATS subject pattern 是否匹配 topic
+// 支持通配符：* (匹配单个 token), > (匹配多个 token)
+func (n *natsEventBus) subjectMatches(pattern, topic string) bool {
+	// 完全匹配
+	if pattern == topic {
+		return true
+	}
+
+	// 分割 pattern 和 topic
+	patternTokens := strings.Split(pattern, ".")
+	topicTokens := strings.Split(topic, ".")
+
+	// 检查通配符匹配
+	pi, ti := 0, 0
+	for pi < len(patternTokens) && ti < len(topicTokens) {
+		pToken := patternTokens[pi]
+		tToken := topicTokens[ti]
+
+		if pToken == ">" {
+			// > 匹配剩余所有 tokens
+			return true
+		} else if pToken == "*" {
+			// * 匹配单个 token
+			pi++
+			ti++
+		} else if pToken == tToken {
+			// 精确匹配
+			pi++
+			ti++
+		} else {
+			// 不匹配
+			return false
+		}
+	}
+
+	// 检查是否完全匹配
+	return pi == len(patternTokens) && ti == len(topicTokens)
+}
+
+// ensureTopicStreamExists 确保 topic 专用的 Stream 存在（使用指定的存储类型）
+func (n *natsEventBus) ensureTopicStreamExists(js nats.JetStreamContext, streamName, topic string, storageType nats.StorageType) error {
+	// 检查 Stream 是否已存在
+	streamInfo, err := js.StreamInfo(streamName)
+	if err == nil {
+		// Stream 已存在，检查存储类型是否匹配
+		if streamInfo.Config.Storage != storageType {
+			n.logger.Warn("Stream storage type mismatch",
+				zap.String("stream", streamName),
+				zap.String("expected", storageType.String()),
+				zap.String("actual", streamInfo.Config.Storage.String()))
+			// 注意：NATS 不支持修改已存在 Stream 的存储类型
+			// 如果需要修改，必须先删除 Stream 再重建（会丢失数据）
+			// 这里我们选择使用已存在的 Stream
+		}
+		n.logger.Info("JetStream stream already exists",
+			zap.String("stream", streamName),
+			zap.String("topic", topic),
+			zap.String("storage", streamInfo.Config.Storage.String()))
+		n.createdStreams.Store(streamName, true)
+		return nil
+	}
+
+	// Stream 不存在，创建新的
+	streamConfig := &nats.StreamConfig{
+		Name:      streamName,
+		Subjects:  []string{topic}, // ⭐ 使用 topic 作为 subject
+		Retention: parseRetentionPolicy(n.config.JetStream.Stream.Retention),
+		Storage:   storageType, // ⭐ 使用指定的存储类型
+		Replicas:  n.config.JetStream.Stream.Replicas,
+		MaxAge:    n.config.JetStream.Stream.MaxAge,
+		MaxBytes:  n.config.JetStream.Stream.MaxBytes,
+		MaxMsgs:   n.config.JetStream.Stream.MaxMsgs,
+		Discard:   parseDiscardPolicy(n.config.JetStream.Stream.Discard),
+	}
+
+	_, err = js.AddStream(streamConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create stream %s: %w", streamName, err)
+	}
+
+	n.logger.Info("Created JetStream stream for topic",
+		zap.String("stream", streamName),
+		zap.String("topic", topic),
+		zap.String("storage", storageType.String()))
+
+	n.createdStreams.Store(streamName, true)
 	return nil
 }
 
@@ -652,245 +754,6 @@ func buildNATSOptionsInternal(config *NATSConfig) []nats.Option {
 
 	return opts
 }
-
-// NewNATSEventBusWithFullConfig 创建NATS JetStream事件总线（带完整配置）
-// 已废弃：使用新的内部配置结构
-/*
-func NewNATSEventBusWithFullConfig(config *config.NATSConfig, fullConfig *EventBusConfig) (EventBus, error) {
-	// 构建连接选项
-	opts := buildNATSOptions(config)
-
-	// 连接到NATS服务器
-	var nc *nats.Conn
-	var err error
-
-	if len(config.URLs) > 0 {
-		nc, err = nats.Connect(config.URLs[0], opts...)
-	} else {
-		nc, err = nats.Connect(nats.DefaultURL, opts...)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
-	}
-
-	// 创建JetStream上下文（如果启用）
-	var js nats.JetStreamContext
-	if config.JetStream.Enabled {
-		jsOpts := buildJetStreamOptions(config)
-		js, err = nc.JetStream(jsOpts...)
-		if err != nil {
-			nc.Close()
-			return nil, fmt.Errorf("failed to create JetStream context: %w", err)
-		}
-
-		// 确保流存在
-		if err := ensureStream(js, config); err != nil {
-			nc.Close()
-			return nil, fmt.Errorf("failed to ensure stream: %w", err)
-		}
-	}
-
-	// 初始化指标收集器（简化版本）
-
-	// 获取配置策略（从环境变量或使用默认值）
-	configStrategy := StrategyCreateOrUpdate
-	configOnMismatch := TopicConfigMismatchAction{
-		LogLevel: "warn",
-		FailFast: false,
-	}
-
-	eventBus := &natsEventBus{
-		conn:                  nc,
-		js:                    js,
-		config:                config,
-		fullConfig:            fullConfig,
-		subscriptions:         make(map[string]*nats.Subscription),
-		consumers:             make(map[string]nats.ConsumerInfo),
-		logger:                logger.Logger,
-		metricsCollector:      time.NewTicker(DefaultMetricsCollectInterval),
-		reconnectConfig:       DefaultReconnectConfig(),
-		subscriptionHandlers:  make(map[string]MessageHandler),
-		keyedPools:            make(map[string]*KeyedWorkerPool), // 初始化Keyed-Worker池映射
-		topicConfigs:          make(map[string]TopicOptions),     // 初始化主题配置映射
-		topicConfigStrategy:   configStrategy,                    // 设置配置策略
-		topicConfigOnMismatch: configOnMismatch,                  // 设置不一致处理行为
-		metrics: &Metrics{
-			LastHealthCheck:   time.Now(),
-			HealthCheckStatus: "healthy",
-		},
-	}
-
-	// 设置重连处理器来执行重连回调
-	nc.SetReconnectHandler(func(nc *nats.Conn) {
-		eventBus.logger.Info("NATS reconnected", zap.String("url", nc.ConnectedUrl()))
-		// 重置失败计数
-		eventBus.failureCount.Store(0)
-		// 更新重连时间
-		eventBus.lastReconnectTime.Store(time.Now())
-		// 恢复订阅
-		eventBus.restoreSubscriptions(context.Background())
-		// 执行重连回调
-		eventBus.executeReconnectCallbacks()
-	})
-
-	// 初始化健康状态
-	eventBus.lastHealthCheck.Store(time.Now())
-	eventBus.healthStatus.Store(true)
-
-	// 启动指标收集协程
-	go eventBus.collectMetrics()
-
-	// 根据配置初始化积压检测器
-	if fullConfig != nil {
-		// 初始化订阅端积压检测器
-		if fullConfig.Enterprise.Subscriber.BacklogDetection.Enabled {
-			backlogConfig := BacklogDetectionConfig{
-				MaxLagThreshold:  fullConfig.Enterprise.Subscriber.BacklogDetection.MaxLagThreshold,
-				MaxTimeThreshold: fullConfig.Enterprise.Subscriber.BacklogDetection.MaxTimeThreshold,
-				CheckInterval:    fullConfig.Enterprise.Subscriber.BacklogDetection.CheckInterval,
-			}
-			eventBus.backlogDetector = NewNATSBacklogDetector(js, nc, config.JetStream.Stream.Name, backlogConfig)
-			logger.Logger.Info("NATS JetStream subscriber backlog detector initialized",
-				zap.String("stream", config.JetStream.Stream.Name),
-				zap.Int64("maxLagThreshold", backlogConfig.MaxLagThreshold),
-				zap.Duration("maxTimeThreshold", backlogConfig.MaxTimeThreshold),
-				zap.Duration("checkInterval", backlogConfig.CheckInterval))
-		}
-
-		// 初始化发送端积压检测器
-		if fullConfig.Enterprise.Publisher.BacklogDetection.Enabled {
-			// NATS 发送端积压检测器需要特殊的实现，这里暂时使用通用的
-			// 注意：NATS 的发送端积压检测可能需要不同的实现方式
-			eventBus.publisherBacklogDetector = NewPublisherBacklogDetector(nil, nil, fullConfig.Enterprise.Publisher.BacklogDetection)
-			logger.Logger.Info("NATS JetStream publisher backlog detector initialized",
-				zap.Int64("maxQueueDepth", fullConfig.Enterprise.Publisher.BacklogDetection.MaxQueueDepth),
-				zap.Duration("maxPublishLatency", fullConfig.Enterprise.Publisher.BacklogDetection.MaxPublishLatency),
-				zap.Float64("rateThreshold", fullConfig.Enterprise.Publisher.BacklogDetection.RateThreshold),
-				zap.Duration("checkInterval", fullConfig.Enterprise.Publisher.BacklogDetection.CheckInterval))
-		}
-	} else {
-		// 如果没有完整配置，使用默认的订阅端积压检测器（向后兼容）
-		backlogConfig := BacklogDetectionConfig{
-			MaxLagThreshold:  1000,             // 默认最大延迟阈值
-			MaxTimeThreshold: 5 * time.Minute,  // 默认最大时间阈值
-			CheckInterval:    30 * time.Second, // 默认检查间隔
-		}
-		eventBus.backlogDetector = NewNATSBacklogDetector(js, nc, config.JetStream.Stream.Name, backlogConfig)
-		logger.Logger.Info("NATS JetStream backlog detector initialized (default config)",
-			zap.String("stream", config.JetStream.Stream.Name))
-	}
-
-	logger.Logger.Info("NATS JetStream EventBus initialized successfully",
-		zap.String("client_id", config.ClientID),
-		zap.Bool("jetstream_enabled", config.JetStream.Enabled))
-
-	return eventBus, nil
-}
-*/
-
-// buildNATSOptions 构建NATS连接选项
-// 已废弃：使用buildNATSOptionsInternal
-/*
-func buildNATSOptions(config *config.NATSConfig) []nats.Option {
-	opts := []nats.Option{
-		nats.MaxReconnects(config.MaxReconnects),
-		nats.ReconnectWait(config.ReconnectWait),
-		nats.Timeout(config.ConnectionTimeout),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
-			logger.Logger.Warn("NATS disconnected", zap.Error(err))
-		}),
-		nats.ClosedHandler(func(nc *nats.Conn) {
-			logger.Logger.Info("NATS connection closed")
-		}),
-	}
-
-	// 添加安全配置
-	if config.Security.Enabled {
-		if config.Security.Token != "" {
-			opts = append(opts, nats.Token(config.Security.Token))
-		}
-		if config.Security.Username != "" && config.Security.Password != "" {
-			opts = append(opts, nats.UserInfo(config.Security.Username, config.Security.Password))
-		}
-		if config.Security.NKeyFile != "" {
-			opts = append(opts, nats.UserCredentials(config.Security.NKeyFile))
-		}
-		if config.Security.CredFile != "" {
-			opts = append(opts, nats.UserCredentials(config.Security.CredFile))
-		}
-		if config.Security.CertFile != "" && config.Security.KeyFile != "" {
-			opts = append(opts, nats.ClientCert(config.Security.CertFile, config.Security.KeyFile))
-		}
-		if config.Security.CAFile != "" {
-			opts = append(opts, nats.RootCAs(config.Security.CAFile))
-		}
-		if config.Security.SkipVerify {
-			opts = append(opts, nats.Secure())
-		}
-	}
-
-	return opts
-}
-*/
-
-// buildJetStreamOptions 构建JetStream选项
-// 已废弃：使用内部配置
-/*
-func buildJetStreamOptions(config *config.NATSConfig) []nats.JSOpt {
-	var opts []nats.JSOpt
-
-	if config.JetStream.Domain != "" {
-		opts = append(opts, nats.Domain(config.JetStream.Domain))
-	}
-	if config.JetStream.APIPrefix != "" {
-		opts = append(opts, nats.APIPrefix(config.JetStream.APIPrefix))
-	}
-	if config.JetStream.PublishTimeout > 0 {
-		opts = append(opts, nats.PublishAsyncMaxPending(256))
-	}
-
-	return opts
-}
-*/
-
-// ensureStream 确保流存在
-// 已废弃：使用内部配置
-/*
-func ensureStream(js nats.JetStreamContext, config *config.NATSConfig) error {
-	streamConfig := &nats.StreamConfig{
-		Name:      config.JetStream.Stream.Name,
-		Subjects:  config.JetStream.Stream.Subjects,
-		Retention: parseRetentionPolicy(config.JetStream.Stream.Retention),
-		Storage:   parseStorageType(config.JetStream.Stream.Storage),
-		Replicas:  config.JetStream.Stream.Replicas,
-		MaxAge:    config.JetStream.Stream.MaxAge,
-		MaxBytes:  config.JetStream.Stream.MaxBytes,
-		MaxMsgs:   config.JetStream.Stream.MaxMsgs,
-		Discard:   parseDiscardPolicy(config.JetStream.Stream.Discard),
-	}
-
-	// 尝试获取流信息
-	_, err := js.StreamInfo(streamConfig.Name)
-	if err != nil {
-		// 流不存在，创建新流
-		_, err = js.AddStream(streamConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create stream %s: %w", streamConfig.Name, err)
-		}
-		logger.Logger.Info("Created JetStream stream", zap.String("name", streamConfig.Name))
-	} else {
-		// 流已存在，更新配置
-		_, err = js.UpdateStream(streamConfig)
-		if err != nil {
-			return fmt.Errorf("failed to update stream %s: %w", streamConfig.Name, err)
-		}
-		logger.Logger.Info("Updated JetStream stream", zap.String("name", streamConfig.Name))
-	}
-
-	return nil
-}
-*/
 
 // parseRetentionPolicy 解析保留策略
 func parseRetentionPolicy(policy string) nats.RetentionPolicy {
@@ -1123,7 +986,7 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 //	    return processNotification(notification) // 直接并发处理
 //	})
 func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler MessageHandler) error {
-	n.logger.Error("🔥 SUBSCRIBE CALLED",
+	n.logger.Debug("Subscribe called",
 		zap.String("topic", topic))
 
 	n.mu.Lock()
@@ -1139,9 +1002,15 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 		return fmt.Errorf("already subscribed to topic: %s", topic)
 	}
 
+	// ⭐ 包装 handler 为 handlerWrapper（at-most-once 语义）
+	wrapper := &handlerWrapper{
+		handler:    handler,
+		isEnvelope: false, // 普通 Subscribe：at-most-once 语义
+	}
+
 	// 保存订阅处理器（用于重连后恢复）
 	n.subscriptionsMu.Lock()
-	n.subscriptionHandlers[topic] = handler
+	n.subscriptionHandlers[topic] = wrapper
 	n.subscriptionsMu.Unlock()
 
 	// 根据配置选择订阅模式
@@ -1157,9 +1026,9 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 
 	if n.config.JetStream.Enabled && jsAvailable {
 		// 使用JetStream订阅（持久化）
-		n.logger.Error("🔥 USING JETSTREAM SUBSCRIPTION",
+		n.logger.Debug("Using JetStream subscription",
 			zap.String("topic", topic))
-		err = n.subscribeJetStream(ctx, topic, handler)
+		err = n.subscribeJetStream(ctx, topic, handler, false) // ⭐ 普通 Subscribe：at-most-once
 	} else {
 		// 使用Core NATS订阅（非持久化）
 		n.logger.Error("🔥 USING CORE NATS SUBSCRIPTION",
@@ -1203,10 +1072,32 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 	return nil
 }
 
-// 🔥 subscribeJetStream 使用统一Consumer和Pull Subscription订阅
-func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, handler MessageHandler) error {
-	// 🔥 P0修复：使用 sync.Map 存储 handler
-	n.topicHandlers.Store(topic, handler)
+// subscribeJetStream 使用统一Consumer和Pull Subscription订阅
+// 默认使用配置文件中的存储类型
+func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, handler MessageHandler, isEnvelope bool) error {
+	// 根据 isEnvelope 决定存储类型
+	var storageType nats.StorageType
+	if isEnvelope {
+		// SubscribeEnvelope: 使用 file storage（at-least-once）
+		storageType = nats.FileStorage
+	} else {
+		// Subscribe: 使用 memory storage（at-most-once）
+		storageType = nats.MemoryStorage
+	}
+
+	return n.subscribeJetStreamWithStorage(ctx, topic, handler, isEnvelope, storageType)
+}
+
+// subscribeJetStreamWithStorage 使用指定的存储类型订阅 JetStream
+func (n *natsEventBus) subscribeJetStreamWithStorage(ctx context.Context, topic string, handler MessageHandler, isEnvelope bool, storageType nats.StorageType) error {
+	// ⭐ 包装 handler 为 handlerWrapper
+	wrapper := &handlerWrapper{
+		handler:    handler,
+		isEnvelope: isEnvelope,
+	}
+
+	// 🔥 P0修复：使用 sync.Map 存储 handlerWrapper
+	n.topicHandlers.Store(topic, wrapper)
 
 	// 🔥 添加到订阅topic列表
 	n.subscribedTopicsMu.Lock()
@@ -1237,6 +1128,43 @@ func (n *natsEventBus) subscribeJetStream(ctx context.Context, topic string, han
 		// 回滚更改
 		n.topicHandlers.Delete(topic)
 		return fmt.Errorf("failed to get jetstream context: %w", err)
+	}
+
+	// ⭐ Stream 预建立优化：优先使用已存在的统一 Stream
+	// 检查配置中的统一 Stream 是否已存在且能匹配当前 topic
+	streamName := n.config.JetStream.Stream.Name
+	streamInfo, streamErr := js.StreamInfo(streamName)
+
+	if streamErr == nil {
+		// 统一 Stream 存在，检查是否能匹配当前 topic
+		canUseUnifiedStream := false
+		for _, subject := range streamInfo.Config.Subjects {
+			// 检查 subject pattern 是否能匹配当前 topic
+			if n.subjectMatches(subject, topic) {
+				canUseUnifiedStream = true
+				n.logger.Info("Using pre-created unified stream",
+					zap.String("stream", streamName),
+					zap.String("topic", topic),
+					zap.String("subjectPattern", subject))
+				break
+			}
+		}
+
+		if !canUseUnifiedStream {
+			// 统一 Stream 不能匹配当前 topic，需要创建专用 Stream
+			streamName = fmt.Sprintf("%s_%s", n.config.JetStream.Stream.Name, topicSuffix)
+			if err := n.ensureTopicStreamExists(js, streamName, topic, storageType); err != nil {
+				n.topicHandlers.Delete(topic)
+				return fmt.Errorf("failed to ensure stream exists for topic %s: %w", topic, err)
+			}
+		}
+	} else {
+		// 统一 Stream 不存在，为 topic 创建专用的 Stream
+		streamName = fmt.Sprintf("%s_%s", n.config.JetStream.Stream.Name, topicSuffix)
+		if err := n.ensureTopicStreamExists(js, streamName, topic, storageType); err != nil {
+			n.topicHandlers.Delete(topic)
+			return fmt.Errorf("failed to ensure stream exists for topic %s: %w", topic, err)
+		}
 	}
 
 	sub, err := js.PullSubscribe(topic, durableName)
@@ -1298,6 +1226,13 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 				if err == nats.ErrTimeout {
 					continue // 超时是正常的，继续拉取
 				}
+				// ⭐ 优化：订阅关闭错误降为 debug 级别（正常清理行为）
+				if strings.Contains(err.Error(), "subscription closed") || strings.Contains(err.Error(), "invalid subscription") {
+					n.logger.Debug("Subscription closed, stopping message fetch",
+						zap.String("topic", topic),
+						zap.Error(err))
+					return // 订阅已关闭，退出协程
+				}
 				n.logger.Error("Failed to fetch messages from unified consumer",
 					zap.String("topic", topic),
 					zap.Error(err))
@@ -1311,8 +1246,8 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 				zap.Int("msgCount", len(msgs)))
 
 			for _, msg := range msgs {
-				// 🔥 P0修复：无锁读取 handler（使用 sync.Map）
-				handlerAny, exists := n.topicHandlers.Load(topic)
+				// 🔥 P0修复：无锁读取 handlerWrapper（使用 sync.Map）
+				wrapperAny, exists := n.topicHandlers.Load(topic)
 
 				n.logger.Error("🔥 HANDLER LOOKUP",
 					zap.String("topic", topic),
@@ -1325,14 +1260,17 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 					continue
 				}
 
-				handler := handlerAny.(MessageHandler)
+				wrapper := wrapperAny.(*handlerWrapper) // ⭐ 修改类型断言
 
 				n.logger.Error("🔥 CALLING handleMessage",
 					zap.String("topic", topic),
 					zap.Int("dataLen", len(msg.Data)))
 
-				n.handleMessage(ctx, topic, msg.Data, handler, func() error {
+				// ⭐ 传递 wrapper 和 isEnvelope 标记
+				n.handleMessageWithWrapper(ctx, topic, msg.Data, wrapper, func() error {
 					return msg.Ack()
+				}, func() error {
+					return msg.Nak()
 				})
 			}
 		}
@@ -1345,7 +1283,189 @@ func (n *natsEventBus) processPullMessages(ctx context.Context, topic string, su
 	n.processUnifiedPullMessages(ctx, topic, sub)
 }
 
+// handleMessageWithWrapper 处理单个消息（支持 at-least-once 语义）
+// ⭐ Actor Pool 迁移：按 Topic 类型区分路由策略
+func (n *natsEventBus) handleMessageWithWrapper(ctx context.Context, topic string, data []byte, wrapper *handlerWrapper, ackFunc func() error, nakFunc func() error) {
+	n.logger.Error("🔥 handleMessageWithWrapper CALLED",
+		zap.String("topic", topic),
+		zap.Int("dataLen", len(data)),
+		zap.Bool("isEnvelope", wrapper.isEnvelope))
+
+	defer func() {
+		if r := recover(); r != nil {
+			n.errorCount.Add(1)
+			n.logger.Error("Panic in NATS message handler",
+				zap.String("topic", topic),
+				zap.Any("panic", r))
+		}
+	}()
+
+	// 创建带超时的上下文
+	handlerCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	// ⭐ 提取聚合ID（用于路由决策）
+	aggregateID, _ := ExtractAggregateID(data, nil, nil, topic)
+
+	// ⭐ 按 Topic 类型确定路由键（核心变更）
+	var routingKey string
+	if wrapper.isEnvelope {
+		// ⭐ 领域事件 Topic：必须使用聚合ID路由（保证顺序）
+		routingKey = aggregateID
+		if routingKey == "" {
+			// ⚠️ 异常情况：领域事件没有聚合ID
+			n.errorCount.Add(1)
+			n.logger.Error("Domain event missing aggregate ID",
+				zap.String("topic", topic))
+			// Nak 重投，等待修复
+			if nakFunc != nil {
+				if nakErr := nakFunc(); nakErr != nil {
+					n.logger.Error("Failed to nak NATS message",
+						zap.String("topic", topic),
+						zap.Error(nakErr))
+				}
+			}
+			return
+		}
+	} else {
+		// ⭐ 普通消息 Topic：总是使用 Round-Robin（忽略聚合ID）
+		index := n.roundRobinCounter.Add(1)
+		routingKey = fmt.Sprintf("rr-%d", index)
+	}
+
+	// ⭐ 使用 Hollywood Actor Pool 处理（统一路由）
+	if n.actorPool != nil {
+		aggMsg := &AggregateMessage{
+			Topic:       topic,
+			Partition:   0,
+			Offset:      0,
+			Key:         []byte(routingKey),
+			Value:       data,
+			Headers:     make(map[string][]byte),
+			Timestamp:   time.Now(),
+			AggregateID: routingKey, // ⭐ 使用计算出的路由键
+			Context:     handlerCtx,
+			Done:        make(chan error, 1),
+			Handler:     wrapper.handler,
+			IsEnvelope:  wrapper.isEnvelope,
+		}
+
+		// 提交到 Actor Pool
+		if err := n.actorPool.ProcessMessage(handlerCtx, aggMsg); err != nil {
+			n.errorCount.Add(1)
+			n.logger.Error("Failed to submit message to Hollywood Actor Pool",
+				zap.String("topic", topic),
+				zap.String("routingKey", routingKey),
+				zap.Error(err))
+			// ⭐ 按 Topic 类型处理错误
+			if wrapper.isEnvelope && nakFunc != nil {
+				nakFunc()
+			} else {
+				// 普通消息：Ack（不重投）
+				if ackFunc != nil {
+					ackFunc()
+				}
+			}
+			return
+		}
+
+		// ⭐ 等待 Actor 处理完成（Done Channel）
+		select {
+		case err := <-aggMsg.Done:
+			if err != nil {
+				n.errorCount.Add(1)
+				n.logger.Error("Failed to handle NATS message in Hollywood Actor Pool",
+					zap.String("topic", topic),
+					zap.String("routingKey", routingKey),
+					zap.Error(err))
+				// ⭐ 按 Topic 类型处理错误
+				if wrapper.isEnvelope {
+					// 领域事件：Nak 重投（at-least-once）
+					if nakFunc != nil {
+						if nakErr := nakFunc(); nakErr != nil {
+							n.logger.Error("Failed to nak NATS message",
+								zap.String("topic", topic),
+								zap.Error(nakErr))
+						}
+					}
+				} else {
+					// 普通消息：Ack（at-most-once）
+					if ackFunc != nil {
+						if ackErr := ackFunc(); ackErr != nil {
+							n.logger.Error("Failed to ack NATS message",
+								zap.String("topic", topic),
+								zap.Error(ackErr))
+						}
+					}
+				}
+				return
+			}
+			// 成功：Ack
+			if err := ackFunc(); err != nil {
+				n.logger.Error("Failed to ack NATS message",
+					zap.String("topic", topic),
+					zap.Error(err))
+			} else {
+				n.consumedMessages.Add(1)
+			}
+			return
+		case <-handlerCtx.Done():
+			n.errorCount.Add(1)
+			n.logger.Error("Context cancelled while waiting for Actor Pool",
+				zap.String("topic", topic),
+				zap.String("routingKey", routingKey),
+				zap.Error(handlerCtx.Err()))
+			// ⭐ 超时也按 Topic 类型处理
+			if wrapper.isEnvelope && nakFunc != nil {
+				nakFunc()
+			} else if ackFunc != nil {
+				ackFunc()
+			}
+			return
+		}
+	}
+
+	// 降级：直接处理（Actor Pool 未初始化）
+	if err := wrapper.handler(handlerCtx, data); err != nil {
+		n.errorCount.Add(1)
+		n.logger.Error("Failed to handle NATS message (fallback)",
+			zap.String("topic", topic),
+			zap.Error(err))
+		// ⭐ 按 Topic 类型处理错误
+		if wrapper.isEnvelope {
+			// 领域事件：Nak 重投
+			if nakFunc != nil {
+				if nakErr := nakFunc(); nakErr != nil {
+					n.logger.Error("Failed to nak NATS message",
+						zap.String("topic", topic),
+						zap.Error(nakErr))
+				}
+			}
+		} else {
+			// 普通消息：Ack
+			if ackFunc != nil {
+				if ackErr := ackFunc(); ackErr != nil {
+					n.logger.Error("Failed to ack NATS message",
+						zap.String("topic", topic),
+						zap.Error(ackErr))
+				}
+			}
+		}
+		return
+	}
+
+	// 成功：Ack
+	if err := ackFunc(); err != nil {
+		n.logger.Error("Failed to ack NATS message",
+			zap.String("topic", topic),
+			zap.Error(err))
+	} else {
+		n.consumedMessages.Add(1)
+	}
+}
+
 // handleMessage 处理单个消息（支持方案A：Envelope优先级提取）
+// ⚠️ 已废弃：使用 handleMessageWithWrapper 代替
 func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []byte, handler MessageHandler, ackFunc func() error) {
 	n.logger.Error("🔥 handleMessage CALLED",
 		zap.String("topic", topic),
@@ -1370,14 +1490,13 @@ func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []b
 	aggregateID, _ := ExtractAggregateID(data, nil, nil, "")
 
 	if aggregateID != "" {
-		// ✅ 有聚合ID：使用全局 Keyed-Worker 池进行顺序处理
+		// ✅ 有聚合ID：使用 Hollywood Actor Pool 进行顺序处理
 		// 这种情况通常发生在：
 		// 1. SubscribeEnvelope订阅的Envelope消息
 		// 2. NATS Subject中包含有效聚合ID的情况
-		// 使用全局 Keyed-Worker 池处理（与 Kafka 保持一致）
-		pool := n.globalKeyedPool
-		if pool != nil {
-			// ⭐ 使用全局 Keyed-Worker 池处理（与 Kafka 保持一致）
+		// 使用 Hollywood Actor Pool 处理（与 Kafka 保持一致）
+		if n.actorPool != nil {
+			// ⭐ 使用 Hollywood Actor Pool 处理（与 Kafka 保持一致）
 			aggMsg := &AggregateMessage{
 				Topic:       topic,
 				Partition:   0, // NATS没有分区概念
@@ -1392,10 +1511,10 @@ func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []b
 				Handler:     handler, // 携带 topic 的 handler
 			}
 
-			// 路由到全局 Keyed-Worker 池处理
-			if err := pool.ProcessMessage(handlerCtx, aggMsg); err != nil {
+			// 路由到 Hollywood Actor Pool 处理
+			if err := n.actorPool.ProcessMessage(handlerCtx, aggMsg); err != nil {
 				n.errorCount.Add(1)
-				n.logger.Error("Failed to process message with global Keyed-Worker pool",
+				n.logger.Error("Failed to process message with Hollywood Actor Pool",
 					zap.String("topic", topic),
 					zap.String("aggregateID", aggregateID),
 					zap.Error(err))
@@ -1403,12 +1522,12 @@ func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []b
 				return
 			}
 
-			// 等待Worker处理完成
+			// 等待 Actor 处理完成
 			select {
 			case err := <-aggMsg.Done:
 				if err != nil {
 					n.errorCount.Add(1)
-					n.logger.Error("Failed to handle NATS message in global Keyed-Worker",
+					n.logger.Error("Failed to handle NATS message in Hollywood Actor Pool",
 						zap.String("topic", topic),
 						zap.String("aggregateID", aggregateID),
 						zap.Error(err))
@@ -1536,10 +1655,10 @@ func (n *natsEventBus) Close() error {
 		}
 	}
 
-	// ⭐ 停止全局 Keyed-Worker 池
-	if n.globalKeyedPool != nil {
-		n.globalKeyedPool.Stop()
-		n.logger.Debug("Stopped global keyed worker pool")
+	// ⭐ 停止 Hollywood Actor Pool
+	if n.actorPool != nil {
+		n.actorPool.Stop()
+		n.logger.Debug("Stopped Hollywood Actor Pool")
 	}
 
 	// 🔥 P0修复：清空统一Consumer管理的映射（使用 sync.Map）
@@ -1699,7 +1818,7 @@ func (n *natsEventBus) Start(ctx context.Context) error {
 		return fmt.Errorf("nats eventbus is closed")
 	}
 
-	logger.Info("NATS eventbus started successfully")
+	n.logger.Info("NATS eventbus started successfully")
 	return nil
 }
 
@@ -1722,7 +1841,7 @@ func (n *natsEventBus) SetMessageFormatter(formatter MessageFormatter) error {
 	defer n.mu.Unlock()
 
 	n.messageFormatter = formatter
-	logger.Debug("Message formatter set for nats eventbus")
+	n.logger.Debug("Message formatter set for nats eventbus")
 	return nil
 }
 
@@ -1732,7 +1851,7 @@ func (n *natsEventBus) RegisterPublishCallback(callback PublishCallback) error {
 	defer n.mu.Unlock()
 
 	n.publishCallback = callback
-	logger.Debug("Publish callback registered for nats eventbus")
+	n.logger.Debug("Publish callback registered for nats eventbus")
 	return nil
 }
 
@@ -1848,7 +1967,7 @@ func (n *natsEventBus) SetMessageRouter(router MessageRouter) error {
 	defer n.mu.Unlock()
 
 	n.messageRouter = router
-	logger.Debug("Message router set for nats eventbus")
+	n.logger.Debug("Message router set for nats eventbus")
 	return nil
 }
 
@@ -1858,13 +1977,13 @@ func (n *natsEventBus) SetErrorHandler(handler ErrorHandler) error {
 	defer n.mu.Unlock()
 
 	n.errorHandler = handler
-	logger.Info("Error handler set for nats eventbus")
+	n.logger.Info("Error handler set for nats eventbus")
 	return nil
 }
 
 // RegisterSubscriptionCallback 注册订阅回调
 func (n *natsEventBus) RegisterSubscriptionCallback(callback SubscriptionCallback) error {
-	logger.Info("Subscription callback registered for nats eventbus")
+	n.logger.Info("Subscription callback registered for nats eventbus")
 	return nil
 }
 
@@ -1980,7 +2099,7 @@ func (n *natsEventBus) GetHealthStatus() HealthCheckStatus {
 
 // RegisterHealthCheckCallback 注册健康检查回调
 func (n *natsEventBus) RegisterHealthCheckCallback(callback HealthCheckCallback) error {
-	logger.Info("Health check callback registered for nats eventbus")
+	n.logger.Info("Health check callback registered for nats eventbus")
 	return nil
 }
 
@@ -2413,15 +2532,15 @@ func (n *natsEventBus) reinitializeConnectionInternal() error {
 
 	// 恢复订阅
 	n.subscriptionsMu.RLock()
-	handlers := make(map[string]MessageHandler)
-	for topic, handler := range n.subscriptionHandlers {
-		handlers[topic] = handler
+	handlers := make(map[string]*handlerWrapper) // ⭐ 修改类型
+	for topic, wrapper := range n.subscriptionHandlers {
+		handlers[topic] = wrapper
 	}
 	n.subscriptionsMu.RUnlock()
 
 	// 重新订阅所有topic
-	for topic, handler := range handlers {
-		if err := n.Subscribe(context.Background(), topic, handler); err != nil {
+	for topic, wrapper := range handlers {
+		if err := n.Subscribe(context.Background(), topic, wrapper.handler); err != nil {
 			n.logger.Warn("Failed to restore subscription during reconnection",
 				zap.String("topic", topic),
 				zap.Error(err))
@@ -2432,76 +2551,12 @@ func (n *natsEventBus) reinitializeConnectionInternal() error {
 	return nil
 }
 
-// reinitializeConnection 重新初始化 NATS 连接
-// 已废弃：使用内部配置
-/*
-func (n *natsEventBus) reinitializeConnection() error {
-	// 关闭现有连接
-	if n.conn != nil {
-		n.conn.Close()
-	}
-
-	// 构建连接选项
-	opts := buildNATSOptions(n.config)
-
-	// 重新连接到NATS服务器
-	var nc *nats.Conn
-	var err error
-
-	if len(n.config.URLs) > 0 {
-		nc, err = nats.Connect(n.config.URLs[0], opts...)
-	} else {
-		nc, err = nats.Connect(nats.DefaultURL, opts...)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to reconnect to NATS: %w", err)
-	}
-
-	// 更新连接
-	n.conn = nc
-
-	// 重新创建JetStream上下文（如果启用）
-	if n.config.JetStream.Enabled {
-		jsOpts := buildJetStreamOptions(n.config)
-		js, err := nc.JetStream(jsOpts...)
-		if err != nil {
-			nc.Close()
-			return fmt.Errorf("failed to recreate JetStream context: %w", err)
-		}
-		n.js = js
-
-		// 确保流存在
-		if err := ensureStream(js, n.config); err != nil {
-			nc.Close()
-			return fmt.Errorf("failed to ensure stream after reconnect: %w", err)
-		}
-	}
-
-	// 设置重连处理器
-	nc.SetReconnectHandler(func(nc *nats.Conn) {
-		n.logger.Info("NATS reconnected", zap.String("url", nc.ConnectedUrl()))
-		// 重置失败计数
-		n.failureCount.Store(0)
-		// 更新重连时间
-		n.lastReconnectTime.Store(time.Now())
-		// 恢复订阅
-		n.restoreSubscriptions(context.Background())
-		// 执行重连回调
-		n.executeReconnectCallbacks()
-	})
-
-	n.logger.Info("NATS connection reinitialized successfully")
-	return nil
-}
-*/
-
 // 🔥 restoreSubscriptions 恢复所有订阅（使用统一Consumer架构）
 func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 	n.subscriptionsMu.RLock()
-	handlers := make(map[string]MessageHandler)
-	for topic, handler := range n.subscriptionHandlers {
-		handlers[topic] = handler
+	handlers := make(map[string]*handlerWrapper) // ⭐ 修改类型
+	for topic, wrapper := range n.subscriptionHandlers {
+		handlers[topic] = wrapper
 	}
 	n.subscriptionsMu.RUnlock()
 
@@ -2535,8 +2590,8 @@ func (n *natsEventBus) restoreSubscriptions(ctx context.Context) error {
 	restoredCount := 0
 
 	// 🔥 重新建立每个订阅（使用统一Consumer）
-	for topic, handler := range handlers {
-		err := n.subscribeJetStream(ctx, topic, handler)
+	for topic, wrapper := range handlers {
+		err := n.subscribeJetStream(ctx, topic, wrapper.handler, wrapper.isEnvelope) // ⭐ 传递 isEnvelope 标记
 
 		if err != nil {
 			errors = append(errors, fmt.Errorf("failed to restore subscription for topic %s: %w", topic, err))
@@ -2846,8 +2901,77 @@ func (n *natsEventBus) SubscribeEnvelope(ctx context.Context, topic string, hand
 		return handler(ctx, envelope)
 	}
 
-	// 使用现有的Subscribe方法
-	return n.Subscribe(ctx, topic, wrappedHandler)
+	// ⭐ 重要：不能直接调用 Subscribe，需要设置 isEnvelope = true
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// 检查关闭状态
+	if n.closed.Load() {
+		return fmt.Errorf("eventbus is closed")
+	}
+
+	// 检查是否已经订阅了该主题
+	if _, exists := n.subscriptions[topic]; exists {
+		return fmt.Errorf("already subscribed to topic: %s", topic)
+	}
+
+	// ⭐ 包装 handler 为 handlerWrapper（at-least-once 语义）
+	wrapper := &handlerWrapper{
+		handler:    wrappedHandler,
+		isEnvelope: true, // ⭐ SubscribeEnvelope：at-least-once 语义
+	}
+
+	// 保存订阅处理器（用于重连后恢复）
+	n.subscriptionsMu.Lock()
+	n.subscriptionHandlers[topic] = wrapper
+	n.subscriptionsMu.Unlock()
+
+	// 根据配置选择订阅模式
+	var err error
+
+	// 检查 JetStream 是否可用
+	_, jsErr := n.getJetStreamContext()
+	jsAvailable := jsErr == nil
+
+	if n.config.JetStream.Enabled && jsAvailable {
+		// 使用JetStream订阅（持久化）
+		n.logger.Info("Using JetStream subscription for Envelope",
+			zap.String("topic", topic))
+		err = n.subscribeJetStream(ctx, topic, wrappedHandler, true) // ⭐ isEnvelope = true
+	} else {
+		// 使用Core NATS订阅（非持久化）
+		n.logger.Warn("Using Core NATS subscription for Envelope (no persistence)",
+			zap.String("topic", topic))
+		msgHandler := func(msg *nats.Msg) {
+			// Core NATS 不支持 Nak，只能使用 at-most-once 语义
+			n.handleMessage(ctx, topic, msg.Data, wrappedHandler, func() error {
+				return nil // Core NATS不需要手动确认
+			})
+		}
+
+		conn, connErr := n.getConn()
+		if connErr != nil {
+			return fmt.Errorf("failed to get nats connection: %w", connErr)
+		}
+
+		sub, err := conn.Subscribe(topic, msgHandler)
+		if err != nil {
+			return fmt.Errorf("failed to subscribe to topic %s with Core NATS: %w", topic, err)
+		}
+
+		n.subscriptions[topic] = sub
+	}
+
+	if err != nil {
+		return err
+	}
+
+	n.logger.Info("Subscribed to NATS Envelope topic",
+		zap.String("topic", topic),
+		zap.Bool("persistent", n.config.JetStream.Enabled),
+		zap.Bool("atLeastOnce", n.config.JetStream.Enabled && jsAvailable))
+
+	return nil
 }
 
 // GetPublishResultChannel 获取异步发布结果通道

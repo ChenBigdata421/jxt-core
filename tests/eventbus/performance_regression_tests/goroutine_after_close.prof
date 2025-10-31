@@ -1,32 +1,32 @@
-goroutine 44 [running]:
-runtime/pprof.writeGoroutineStacks({0xe996c0, 0xc000116008})
+goroutine 921 [running]:
+runtime/pprof.writeGoroutineStacks({0x18f2080, 0xc000318000})
 	C:/Program Files/Go/src/runtime/pprof/pprof.go:764 +0x6a
-runtime/pprof.writeGoroutine({0xe996c0?, 0xc000116008?}, 0x394185?)
+runtime/pprof.writeGoroutine({0x18f2080?, 0xc000318000?}, 0xdb4b25?)
 	C:/Program Files/Go/src/runtime/pprof/pprof.go:753 +0x25
-runtime/pprof.(*Profile).WriteTo(0xd4576f?, {0xe996c0?, 0xc000116008?}, 0x0?)
+runtime/pprof.(*Profile).WriteTo(0x1796215?, {0x18f2080?, 0xc000318000?}, 0x0?)
 	C:/Program Files/Go/src/runtime/pprof/pprof.go:377 +0x14b
-github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_regression_tests.TestKafkaGoroutineLeakWithPprof(0xc0008ff340)
+github.com/ChenBigdata421/jxt-core/tests/eventbus/performance_regression_tests.TestKafkaGoroutineLeakWithPprof(0xc000f19a40)
 	D:/JXT/jxt-evidence-system/jxt-core/tests/eventbus/performance_regression_tests/goroutine_leak_analysis_test.go:321 +0x49e
-testing.tRunner(0xc0008ff340, 0xd90c48)
+testing.tRunner(0xc000f19a40, 0x17e4940)
 	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
 created by testing.(*T).Run in goroutine 1
 	C:/Program Files/Go/src/testing/testing.go:1851 +0x3f6
 
 goroutine 1 [chan receive]:
-testing.(*T).Run(0xc000106380, {0xd5e315?, 0x7ffdcda73fb0?}, 0xd90c48)
+testing.(*T).Run(0xc000106380, {0x17af092?, 0x7ffdcda73fb0?}, 0x17e4940)
 	C:/Program Files/Go/src/testing/testing.go:1859 +0x414
 testing.runTests.func1(0xc000106380)
 	C:/Program Files/Go/src/testing/testing.go:2279 +0x37
-testing.tRunner(0xc000106380, 0xc00038fc70)
+testing.tRunner(0xc000106380, 0xc000367c70)
 	C:/Program Files/Go/src/testing/testing.go:1792 +0xcb
-testing.runTests(0xc000112348, {0x150dd20, 0x12, 0x12}, {0x151a900?, 0x7?, 0x1518ec0?})
+testing.runTests(0xc0001200a8, {0x1f82800, 0x12, 0x12}, {0x1f8fee0?, 0x7?, 0x1f8e3c0?})
 	C:/Program Files/Go/src/testing/testing.go:2277 +0x4b4
-testing.(*M).Run(0xc00013a140)
+testing.(*M).Run(0xc000124140)
 	C:/Program Files/Go/src/testing/testing.go:2142 +0x64a
 main.main()
 	_testmain.go:79 +0x9b
 
-goroutine 69 [chan receive]:
+goroutine 52 [chan receive]:
 github.com/rcrowley/go-metrics.(*meterArbiter).tick(...)
 	C:/Users/jiyua/go/pkg/mod/github.com/rcrowley/go-metrics@v0.0.0-20250401214520-65e299d6c5c9/meter.go:239
 created by github.com/rcrowley/go-metrics.NewMeter in goroutine 51

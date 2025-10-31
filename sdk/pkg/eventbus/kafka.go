@@ -3,7 +3,6 @@ package eventbus
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,201 +19,6 @@ type subscriptionUpdate struct {
 	action  string // "add" or "remove"
 	topic   string
 	handler MessageHandler
-}
-
-// WorkItem 全局Worker池工作项
-type WorkItem struct {
-	Topic   string
-	Message *sarama.ConsumerMessage
-	Handler MessageHandler
-	Session sarama.ConsumerGroupSession
-}
-
-// GlobalWorkerPool 全局Worker池
-type GlobalWorkerPool struct {
-	workers     []*Worker
-	workQueue   chan WorkItem
-	workerCount int
-	queueSize   int
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	logger      *zap.Logger
-	closed      atomic.Bool // 标记是否已关闭
-}
-
-// Worker 全局Worker
-type Worker struct {
-	id       int
-	pool     *GlobalWorkerPool
-	workChan chan WorkItem
-	quit     chan bool
-}
-
-// NewGlobalWorkerPool 创建全局Worker池
-func NewGlobalWorkerPool(workerCount int, logger *zap.Logger) *GlobalWorkerPool {
-	if workerCount <= 0 {
-		workerCount = runtime.NumCPU() * 2 // 默认为CPU核心数的2倍
-	}
-
-	queueSize := workerCount * 100 // 队列大小为worker数的100倍
-	ctx, cancel := context.WithCancel(context.Background())
-
-	pool := &GlobalWorkerPool{
-		workerCount: workerCount,
-		queueSize:   queueSize,
-		workQueue:   make(chan WorkItem, queueSize),
-		ctx:         ctx,
-		cancel:      cancel,
-		logger:      logger,
-	}
-
-	// 启动workers
-	pool.start()
-
-	return pool
-}
-
-// start 启动所有workers
-func (p *GlobalWorkerPool) start() {
-	p.workers = make([]*Worker, p.workerCount)
-
-	for i := 0; i < p.workerCount; i++ {
-		worker := &Worker{
-			id:       i,
-			pool:     p,
-			workChan: make(chan WorkItem),
-			quit:     make(chan bool),
-		}
-		p.workers[i] = worker
-
-		p.wg.Add(1)
-		go worker.start()
-	}
-
-	// 启动工作分发器
-	p.wg.Add(1) // 🔧 修复：将 dispatcher 加入 WaitGroup
-	go p.dispatcher()
-
-	p.logger.Info("Global worker pool started",
-		zap.Int("workerCount", p.workerCount),
-		zap.Int("queueSize", p.queueSize))
-}
-
-// dispatcher 工作分发器
-// 优化：移除goroutine创建，使用轮询分发
-func (p *GlobalWorkerPool) dispatcher() {
-	defer p.wg.Done() // 🔧 修复：dispatcher 退出时通知 WaitGroup
-
-	workerIndex := 0
-	for {
-		select {
-		case work := <-p.workQueue:
-			// 轮询分发工作到可用的worker（无goroutine创建）
-			dispatched := false
-			for i := 0; i < len(p.workers); i++ {
-				workerIndex = (workerIndex + 1) % len(p.workers)
-				select {
-				case p.workers[workerIndex].workChan <- work:
-					dispatched = true
-					i = len(p.workers) // 跳出循环
-				default:
-					continue
-				}
-			}
-
-			// 所有worker都忙，阻塞等待第一个可用的worker
-			if !dispatched {
-				p.workers[workerIndex].workChan <- work
-			}
-		case <-p.ctx.Done():
-			return
-		}
-	}
-}
-
-// SubmitWork 提交工作到全局Worker池
-// 优化：添加背压机制，等待而非丢弃
-func (p *GlobalWorkerPool) SubmitWork(work WorkItem) bool {
-	select {
-	case p.workQueue <- work:
-		return true
-	case <-time.After(100 * time.Millisecond):
-		// 等待100ms后仍然满，记录警告但仍尝试提交
-		p.logger.Warn("Global worker pool queue full, applying backpressure",
-			zap.String("topic", work.Topic))
-		// 阻塞等待，确保消息不丢失
-		p.workQueue <- work
-		return true
-	}
-}
-
-// start Worker启动
-func (w *Worker) start() {
-	defer w.pool.wg.Done()
-
-	for {
-		select {
-		case work := <-w.workChan:
-			w.processWork(work)
-		case <-w.quit:
-			return
-		case <-w.pool.ctx.Done():
-			return
-		}
-	}
-}
-
-// processWork 处理工作
-func (w *Worker) processWork(work WorkItem) {
-	defer func() {
-		if r := recover(); r != nil {
-			w.pool.logger.Error("Worker panic during message processing",
-				zap.Int("workerID", w.id),
-				zap.String("topic", work.Topic),
-				zap.Any("panic", r))
-		}
-	}()
-
-	// 处理消息
-	ctx := context.Background()
-	err := work.Handler(ctx, work.Message.Value)
-	if err != nil {
-		w.pool.logger.Error("Message processing failed",
-			zap.Int("workerID", w.id),
-			zap.String("topic", work.Topic),
-			zap.Error(err))
-	}
-
-	// 标记消息已处理
-	work.Session.MarkMessage(work.Message, "")
-}
-
-// Close 关闭全局Worker池
-func (p *GlobalWorkerPool) Close() {
-	// 🔧 修复：避免重复关闭 channel
-	if !p.closed.CompareAndSwap(false, true) {
-		p.logger.Warn("Global worker pool already closed, skipping")
-		return
-	}
-
-	p.logger.Info("Shutting down global worker pool")
-
-	// 取消context
-	p.cancel()
-
-	// 停止所有workers
-	for _, worker := range p.workers {
-		close(worker.quit)
-	}
-
-	// 等待所有workers完成
-	p.wg.Wait()
-
-	// 关闭队列
-	close(p.workQueue)
-
-	p.logger.Info("Global worker pool shutdown complete")
 }
 
 // ReconnectConfig 重连配置
@@ -294,8 +98,8 @@ type kafkaEventBus struct {
 	// 预订阅模式 - 统一消费者组管理
 	unifiedConsumerGroup atomic.Value // stores sarama.ConsumerGroup
 
-	// 全局Worker池
-	globalWorkerPool *GlobalWorkerPool
+	// Round-Robin 轮询计数器（用于无聚合ID消息的负载均衡）
+	roundRobinCounter atomic.Uint64
 
 	// 🔥 P0修复：预订阅topic管理 - 使用 atomic.Value 存储不可变切片快照
 	allPossibleTopicsMu sync.Mutex   // 保护写入
@@ -303,7 +107,7 @@ type kafkaEventBus struct {
 	topicsSnapshot      atomic.Value // 只读快照（[]string），消费goroutine无锁读取
 
 	// 🔥 P0修复：改为 sync.Map（消息路由时无锁查找）
-	activeTopicHandlers sync.Map // key: string (topic), value: MessageHandler
+	activeTopicHandlers sync.Map // key: string (topic), value: *handlerWrapper
 
 	// 预订阅消费控制
 	consumerCtx     context.Context
@@ -332,8 +136,8 @@ type kafkaEventBus struct {
 	// 订阅管理（用于重连后恢复订阅）- 保持兼容性
 	subscriptions sync.Map // key: string (topic), value: MessageHandler
 
-	// 全局 Keyed-Worker Pool（所有 topic 共享）
-	globalKeyedPool *KeyedWorkerPool
+	// 全局 Hollywood Actor Pool（所有 topic 共享）
+	globalActorPool *HollywoodActorPool // ⭐ 全局 Hollywood Actor Pool（统一架构）
 
 	// 🔥 高频路径：改为 sync.Map（发布时无锁读取配置）
 	// 主题配置管理
@@ -574,9 +378,6 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		return nil, fmt.Errorf("failed to create kafka admin: %w", err)
 	}
 
-	// 创建全局Worker池
-	globalWorkerPool := NewGlobalWorkerPool(0, zap.NewNop()) // 0表示使用默认worker数量
-
 	// 转换健康检查配置（从 eventbus.HealthCheckConfig 转换为 config.HealthCheckConfig）
 	healthCheckConfig := convertHealthCheckConfig(cfg.Enterprise.HealthCheck)
 
@@ -589,7 +390,6 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		healthCheckConfig: healthCheckConfig,
 
 		// 🔥 P0修复：预订阅模式字段
-		globalWorkerPool:       globalWorkerPool,
 		allPossibleTopics:      make([]string, 0),
 		preSubscriptionEnabled: true,
 		maxTopicsPerGroup:      100, // 默认最大100个topic
@@ -611,13 +411,23 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 
 	// 注意：subscriptions 和 topicConfigs 是 sync.Map，零值可用，不需要初始化
 
-	// 创建全局 Keyed-Worker Pool（所有 topic 共享）
-	// 使用较大的 worker 数量以支持多个 topic 的并发处理
-	bus.globalKeyedPool = NewKeyedWorkerPool(KeyedWorkerPoolConfig{
-		WorkerCount: 256,                    // 全局 worker 数量（支持多个 topic）
-		QueueSize:   1000,                   // 每个 worker 的队列大小
-		WaitTimeout: 500 * time.Millisecond, // 等待超时
-	}, nil) // handler 将在处理消息时动态传入
+	// ⭐ 创建全局 Hollywood Actor Pool（所有 topic 共享）
+	// 创建 Prometheus 监控收集器
+	// 使用 ClientID 作为命名空间，确保每个实例的指标不冲突
+	// 注意：Prometheus 指标名称只能包含 [a-zA-Z0-9_]，需要替换 - 为 _
+	metricsNamespace := fmt.Sprintf("kafka_eventbus_%s", strings.ReplaceAll(cfg.ClientID, "-", "_"))
+	actorPoolMetrics := NewPrometheusActorPoolMetricsCollector(metricsNamespace)
+
+	bus.globalActorPool = NewHollywoodActorPool(HollywoodActorPoolConfig{
+		PoolSize:    256,  // 固定 Actor 数量
+		InboxSize:   1000, // Inbox 队列大小
+		MaxRestarts: 3,    // Supervisor 最大重启次数
+	}, actorPoolMetrics)
+
+	bus.logger.Info("Kafka EventBus using Hollywood Actor Pool",
+		zap.Int("poolSize", 256),
+		zap.Int("inboxSize", 1000),
+		zap.Int("maxRestarts", 3))
 
 	// 初始化发布端流量控制器
 	if cfg.Enterprise.Publisher.RateLimit.Enabled {
@@ -1028,49 +838,46 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 
 	// 尝试提取聚合ID（优先级：Envelope > Header > Kafka Key）
 	aggregateID, _ := ExtractAggregateID(message.Value, headersMap, message.Key, "")
-	if aggregateID != "" {
-		// 有聚合ID：使用Keyed-Worker池进行顺序处理
-		// 这种情况通常发生在：
-		// 1. SubscribeEnvelope订阅的Envelope消息
-		// 2. 手动在Header中设置了聚合ID的消息
-		// 3. Kafka Key恰好是有效的聚合ID
-		// 使用全局 Keyed-Worker 池处理
-		pool := h.eventBus.globalKeyedPool
-		if pool != nil {
-			// 使用 Keyed-Worker 池处理
-			aggMsg := &AggregateMessage{
-				Topic:       message.Topic,
-				Partition:   message.Partition,
-				Offset:      message.Offset,
-				Key:         message.Key,
-				Value:       message.Value,
-				Headers:     make(map[string][]byte),
-				Timestamp:   message.Timestamp,
-				AggregateID: aggregateID,
-				Context:     ctx,
-				Done:        make(chan error, 1),
-				Handler:     h.handler, // 携带 topic 的 handler
-			}
-			for _, header := range message.Headers {
-				aggMsg.Headers[string(header.Key)] = header.Value
-			}
-			if err := pool.ProcessMessage(ctx, aggMsg); err != nil {
-				return err
-			}
-			select {
-			case err := <-aggMsg.Done:
-				return err
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
+	
+	// 如果无法提取聚合ID，使用 Round-Robin 生成路由键
+	if aggregateID == "" {
+		index := h.eventBus.roundRobinCounter.Add(1)
+		aggregateID = fmt.Sprintf("rr-%d", index)
 	}
 
-	// 无聚合ID：直接并发处理（不使用Keyed-Worker池）
-	// 这种情况通常发生在：
-	// 1. Subscribe订阅的原始消息（如JSON、文本等）
-	// 2. 无法从消息中提取有效聚合ID的情况
-	// 3. 简单消息传递场景（通知、缓存失效等）
+	// ⭐ 统一处理：所有消息都通过 Hollywood Actor Pool 路由
+	// - 有聚合ID：使用一致性哈希路由到固定 Actor（顺序处理）
+	// - 无聚合ID：使用 Round-Robin 生成的路由键分散到不同 Actor（并发处理）
+	pool := h.eventBus.globalActorPool
+	if pool != nil {
+		aggMsg := &AggregateMessage{
+			Topic:       message.Topic,
+			Partition:   message.Partition,
+			Offset:      message.Offset,
+			Key:         message.Key,
+			Value:       message.Value,
+			Headers:     make(map[string][]byte),
+			Timestamp:   message.Timestamp,
+			AggregateID: aggregateID,
+			Context:     ctx,
+			Done:        make(chan error, 1),
+			Handler:     h.handler,
+		}
+		for _, header := range message.Headers {
+			aggMsg.Headers[string(header.Key)] = header.Value
+		}
+		if err := pool.ProcessMessage(ctx, aggMsg); err != nil {
+			return err
+		}
+		select {
+		case err := <-aggMsg.Done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	
+	// 备用方案：如果 Actor Pool 不可用，直接调用 handler
 	return h.handler(ctx, message.Value)
 }
 
@@ -1103,23 +910,24 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 			}
 
 			// 🔥 P0修复：无锁读取 handler（使用 sync.Map）
-			handlerAny, exists := h.eventBus.activeTopicHandlers.Load(message.Topic)
+			wrapperAny, exists := h.eventBus.activeTopicHandlers.Load(message.Topic)
 			if !exists {
 				// 未激活的 topic，跳过
 				session.MarkMessage(message, "")
 				continue
 			}
-			handler := handlerAny.(MessageHandler)
+			wrapper := wrapperAny.(*handlerWrapper)
 
 			if true {
 				// 优化：增强消息处理错误处理和监控
 				h.eventBus.logger.Debug("Processing message",
 					zap.String("topic", message.Topic),
 					zap.Int64("offset", message.Offset),
-					zap.Int32("partition", message.Partition))
+					zap.Int32("partition", message.Partition),
+					zap.Bool("isEnvelope", wrapper.isEnvelope))
 
-				// 关键修复：尝试使用 Keyed-Worker 池处理（确保聚合ID顺序）
-				if err := h.processMessageWithKeyedPool(ctx, message, handler, session); err != nil {
+				// 使用 Hollywood Actor Pool 处理消息（有聚合ID用哈希路由，无聚合ID用轮询路由）
+				if err := h.processMessageWithKeyedPool(ctx, message, wrapper, session); err != nil {
 					h.eventBus.logger.Error("Failed to process message",
 						zap.String("topic", message.Topic),
 						zap.Int64("offset", message.Offset),
@@ -1141,8 +949,8 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 	}
 }
 
-// processMessageWithKeyedPool 使用 Keyed-Worker 池处理消息（确保聚合ID顺序）
-func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context.Context, message *sarama.ConsumerMessage, handler MessageHandler, session sarama.ConsumerGroupSession) error {
+// processMessageWithKeyedPool 使用 Hollywood Actor Pool 处理消息（统一架构）
+func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context.Context, message *sarama.ConsumerMessage, wrapper *handlerWrapper, session sarama.ConsumerGroupSession) error {
 	// 转换 Headers 为 map
 	headersMap := make(map[string]string, len(message.Headers))
 	for _, header := range message.Headers {
@@ -1152,88 +960,71 @@ func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context
 	// 尝试提取聚合ID（优先级：Envelope > Header > Kafka Key）
 	aggregateID, _ := ExtractAggregateID(message.Value, headersMap, message.Key, "")
 
-	if aggregateID != "" {
-		// 有聚合ID：使用Keyed-Worker池进行顺序处理
-		// 使用全局 Keyed-Worker 池处理
-		pool := h.eventBus.globalKeyedPool
+	// ⭐ 核心变更：统一使用 Hollywood Actor Pool
+	// 路由策略：
+	// - 有聚合ID：使用 aggregateID 作为路由键（保持有序）
+	// - 无聚合ID：使用 Round-Robin 轮询（保持并发）
+	routingKey := aggregateID
+	if routingKey == "" {
+		// 使用轮询计数器生成路由键
+		index := h.eventBus.roundRobinCounter.Add(1)
+		routingKey = fmt.Sprintf("rr-%d", index)
+	}
 
-		if pool != nil {
-			// 使用 Keyed-Worker 池处理
-			aggMsg := &AggregateMessage{
-				Topic:       message.Topic,
-				Partition:   message.Partition,
-				Offset:      message.Offset,
-				Key:         message.Key,
-				Value:       message.Value,
-				Headers:     make(map[string][]byte),
-				Timestamp:   message.Timestamp,
-				AggregateID: aggregateID,
-				Context:     ctx,
-				Done:        make(chan error, 1),
-				Handler:     handler, // 携带 topic 的 handler
-			}
-			for _, header := range message.Headers {
-				aggMsg.Headers[string(header.Key)] = header.Value
-			}
+	pool := h.eventBus.globalActorPool
+	if pool == nil {
+		return fmt.Errorf("hollywood actor pool not initialized")
+	}
 
-			// 提交到 Keyed-Worker 池
-			if err := pool.ProcessMessage(ctx, aggMsg); err != nil {
+	aggMsg := &AggregateMessage{
+		Topic:       message.Topic,
+		Partition:   message.Partition,
+		Offset:      message.Offset,
+		Key:         message.Key,
+		Value:       message.Value,
+		Headers:     make(map[string][]byte),
+		Timestamp:   message.Timestamp,
+		AggregateID: routingKey, // ⭐ 使用 routingKey（可能是 aggregateID 或 Round-Robin 索引）
+		Context:     ctx,
+		Done:        make(chan error, 1),
+		Handler:     wrapper.handler,
+		IsEnvelope:  wrapper.isEnvelope, // ⭐ 设置 Envelope 标记
+	}
+	for _, header := range message.Headers {
+		aggMsg.Headers[string(header.Key)] = header.Value
+	}
+
+	// 提交到 Actor Pool
+	if err := pool.ProcessMessage(ctx, aggMsg); err != nil {
+		return err
+	}
+
+	// 等待处理完成
+	select {
+	case err := <-aggMsg.Done:
+		if err != nil {
+			if wrapper.isEnvelope {
+				// ⭐ Envelope 消息：不 MarkMessage，让 Kafka 重新投递（at-least-once 语义）
+				h.eventBus.logger.Warn("Envelope message processing failed, will be redelivered",
+					zap.String("topic", message.Topic),
+					zap.Int64("offset", message.Offset),
+					zap.Error(err))
+				return err
+			} else {
+				// ⭐ 普通消息：MarkMessage，避免重复投递（at-most-once 语义）
+				h.eventBus.logger.Warn("Regular message processing failed, marking as processed",
+					zap.String("topic", message.Topic),
+					zap.Int64("offset", message.Offset),
+					zap.Error(err))
+				session.MarkMessage(message, "")
 				return err
 			}
-
-			// 等待处理完成
-			select {
-			case err := <-aggMsg.Done:
-				if err != nil {
-					return err
-				}
-				// 处理成功，标记消息
-				session.MarkMessage(message, "")
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
 		}
-	}
-
-	// 无聚合ID 或 无Keyed-Worker池：使用全局Worker池处理
-	workItem := WorkItem{
-		Topic:   message.Topic,
-		Message: message,
-		Handler: handler,
-		Session: session,
-	}
-
-	// 提交到全局Worker池
-	if !h.eventBus.globalWorkerPool.SubmitWork(workItem) {
-		h.eventBus.logger.Warn("Failed to submit work to global worker pool, using direct processing",
-			zap.String("topic", message.Topic),
-			zap.Int64("offset", message.Offset))
-		// 如果Worker池满了，直接在当前goroutine处理
-		h.processMessageDirectly(ctx, message, handler, session)
-	}
-
-	return nil
-}
-
-// processMessageDirectly 直接处理消息（当Worker池满时的后备方案）
-func (h *preSubscriptionConsumerHandler) processMessageDirectly(ctx context.Context, message *sarama.ConsumerMessage, handler MessageHandler, session sarama.ConsumerGroupSession) {
-	defer func() {
-		if r := recover(); r != nil {
-			h.eventBus.logger.Error("Panic during direct message processing",
-				zap.String("topic", message.Topic),
-				zap.Any("panic", r))
-		}
-		// 标记消息已处理
+		// 成功：MarkMessage
 		session.MarkMessage(message, "")
-	}()
-
-	// 处理消息
-	err := handler(ctx, message.Value)
-	if err != nil {
-		h.eventBus.logger.Error("Direct message processing failed",
-			zap.String("topic", message.Topic),
-			zap.Error(err))
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -1496,8 +1287,12 @@ func (k *kafkaEventBus) GetWarmupInfo() (completed bool, duration time.Duration)
 
 // activateTopicHandler 激活topic处理器（预订阅模式）
 // 🔥 P0修复：使用 sync.Map 存储，无锁操作
-func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandler) {
-	k.activeTopicHandlers.Store(topic, handler)
+func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandler, isEnvelope bool) {
+	wrapper := &handlerWrapper{
+		handler:    handler,
+		isEnvelope: isEnvelope,
+	}
+	k.activeTopicHandlers.Store(topic, wrapper)
 
 	// 计算当前激活的 topic 数量
 	count := 0
@@ -1508,6 +1303,7 @@ func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandle
 
 	k.logger.Info("Topic handler activated",
 		zap.String("topic", topic),
+		zap.Bool("isEnvelope", isEnvelope),
 		zap.Int("totalActiveTopics", count))
 }
 
@@ -1617,14 +1413,14 @@ func containsString(slice []string, item string) bool {
 	return false
 }
 
-// Subscribe 订阅原始消息（不使用Keyed-Worker池）
+// Subscribe 订阅原始消息（使用 Hollywood Actor Pool + Round-Robin 轮询）
 //
 // 特点：
 // - 消息格式：原始字节数据
-// - 处理模式：直接并发处理，无顺序保证
+// - 处理模式：Round-Robin 轮询路由到 Hollywood Actor Pool，无顺序保证
 // - 性能：极致性能，微秒级延迟
 // - 聚合ID：通常无法从原始消息中提取聚合ID
-// - Keyed-Worker池：不使用（因为无聚合ID）
+// - 路由策略：Round-Robin 轮询（与原全局 Worker Pool 行为一致）
 //
 // 适用场景：
 // - 简单消息传递（通知、提醒）
@@ -1660,13 +1456,14 @@ func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler Mes
 		return fmt.Errorf("already subscribed to topic: %s", topic)
 	}
 
-	// 全局 Keyed-Worker Pool 已在初始化时创建，无需为每个 topic 创建独立池
+	// 全局 Hollywood Actor Pool 已在初始化时创建，所有 topic 共享同一个 Actor Pool
 
 	// 关键修复：添加 topic 到预订阅列表
 	k.addTopicToPreSubscription(topic)
 
 	// 激活topic处理器（立即生效）
-	k.activateTopicHandler(topic, handler)
+	// ⭐ 普通 Subscribe：isEnvelope = false（at-most-once 语义）
+	k.activateTopicHandler(topic, handler, false)
 
 	// 🔧 修复死锁：在释放锁之前记录日志，然后释放锁再启动consumer
 	k.logger.Info("Subscribed to topic via pre-subscription consumer",
@@ -1948,14 +1745,9 @@ func (k *kafkaEventBus) Close() error {
 	// 停止预订阅消费者组
 	k.stopPreSubscriptionConsumer()
 
-	// 停止全局Worker池
-	if k.globalWorkerPool != nil {
-		k.globalWorkerPool.Close()
-	}
-
-	// 关闭全局 Keyed-Worker Pool
-	if k.globalKeyedPool != nil {
-		k.globalKeyedPool.Stop()
+	// ⭐ 关闭全局 Hollywood Actor Pool
+	if k.globalActorPool != nil {
+		k.globalActorPool.Stop()
 	}
 
 	defer k.mu.Unlock()
@@ -2853,19 +2645,21 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 	}
 }
 
-// SubscribeEnvelope 订阅Envelope消息（自动使用Keyed-Worker池）
+// SubscribeEnvelope 订阅Envelope消息（使用 Hollywood Actor Pool + 智能路由）
 //
 // 特点：
 // - 消息格式：Envelope包装格式（包含聚合ID、事件类型、版本等元数据）
-// - 处理模式：按聚合ID路由到Keyed-Worker池，同聚合ID严格顺序处理
+// - 处理模式：按聚合ID路由到 Hollywood Actor Pool，同聚合ID严格顺序处理
 // - 性能：顺序保证，毫秒级延迟
 // - 聚合ID：从Envelope.AggregateID字段提取
-// - Keyed-Worker池：自动使用（基于聚合ID的一致性哈希路由）
+// - 路由策略：
+//   - 有聚合ID：一致性哈希路由到固定 Actor（保证顺序）
+//   - 无聚合ID：Round-Robin 轮询路由（保证并发）
 //
 // 核心机制：
 // 1. 消息必须是Envelope格式，包含AggregateID
 // 2. ExtractAggregateID成功提取聚合ID
-// 3. 使用一致性哈希将相同聚合ID路由到固定Worker
+// 3. 使用一致性哈希将相同聚合ID路由到固定 Actor
 // 4. 确保同一聚合的事件严格按序处理
 //
 // 适用场景：
@@ -2878,7 +2672,7 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 //
 //	bus.SubscribeEnvelope(ctx, "orders.events", func(ctx context.Context, env *Envelope) error {
 //	    // env.AggregateID = "order-123"
-//	    // 同一订单的所有事件会路由到同一个Worker，确保顺序处理
+//	    // 同一订单的所有事件会路由到同一个 Actor，确保顺序处理
 //	    return processDomainEvent(env)
 //	})
 func (k *kafkaEventBus) SubscribeEnvelope(ctx context.Context, topic string, handler EnvelopeHandler) error {
@@ -2897,8 +2691,44 @@ func (k *kafkaEventBus) SubscribeEnvelope(ctx context.Context, topic string, han
 		return handler(ctx, envelope)
 	}
 
-	// 使用现有的Subscribe方法
-	return k.Subscribe(ctx, topic, wrappedHandler)
+	// ⭐ 重要：不能直接调用 Subscribe，因为需要设置 isEnvelope = true
+	// 复制 Subscribe 的逻辑，但使用 isEnvelope = true
+	k.mu.Lock()
+
+	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
+	if k.closed.Load() {
+		k.mu.Unlock()
+		return fmt.Errorf("kafka eventbus is closed")
+	}
+
+	// ✅ 使用 sync.Map 存储订阅信息（用于重连后恢复）
+	// 使用 LoadOrStore 检查重复订阅
+	if _, loaded := k.subscriptions.LoadOrStore(topic, wrappedHandler); loaded {
+		k.mu.Unlock()
+		return fmt.Errorf("already subscribed to topic: %s", topic)
+	}
+
+	// 关键修复：添加 topic 到预订阅列表
+	k.addTopicToPreSubscription(topic)
+
+	// 激活topic处理器（立即生效）
+	// ⭐ SubscribeEnvelope：isEnvelope = true（at-least-once 语义）
+	k.activateTopicHandler(topic, wrappedHandler, true)
+
+	// 🔧 修复死锁：在释放锁之前记录日志，然后释放锁再启动consumer
+	k.logger.Info("Subscribed to envelope topic via pre-subscription consumer",
+		zap.String("topic", topic),
+		zap.String("groupID", k.config.Consumer.GroupID))
+
+	// 释放锁，避免在启动consumer时持有锁导致死锁
+	k.mu.Unlock()
+
+	// 启动预订阅消费者（如果还未启动）
+	if err := k.startPreSubscriptionConsumer(ctx); err != nil {
+		return fmt.Errorf("failed to start pre-subscription consumer: %w", err)
+	}
+
+	return nil
 }
 
 // ========== 新的分离式健康检查接口实现 ==========

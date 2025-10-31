@@ -185,32 +185,10 @@ func createKafkaTopicsWithBuilder(ctx context.Context, t *testing.T, bus eventbu
 	return actualPartitions
 }
 
-// createNATSTopicsWithPersistence 为 NATS 配置 topic 持久化
-// 🔥 重构后：使用 ConfigureTopic 为 NATS topics 配置持久化模式
-func createNATSTopicsWithPersistence(ctx context.Context, t *testing.T, bus eventbus.EventBus, topics []string) {
-	t.Logf("🔧 为 NATS Topics 配置持久化模式...")
-
-	for _, topicName := range topics {
-		// 🔥 重构后：使用 ConfigureTopic 配置 topic 持久化
-		// NATS JetStream 需要持久化到磁盘
-		options := eventbus.TopicOptions{
-			PersistenceMode: eventbus.TopicPersistent, // ✅ 持久化模式
-			RetentionTime:   1 * time.Hour,            // 保留 1 小时
-			MaxSize:         1024 * 1024 * 1024,       // 1GB
-			MaxMessages:     100000,                   // 10 万条消息
-			Description:     "NATS JetStream performance test topic with disk persistence",
-		}
-
-		err := bus.ConfigureTopic(ctx, topicName, options)
-		if err != nil {
-			t.Logf("   ⚠️  配置失败: %s - %v", topicName, err)
-		} else {
-			t.Logf("   ✅ 配置成功: %s (persistent, retention=1h)", topicName)
-		}
-	}
-
-	t.Logf("✅ 成功配置 %d 个 NATS topics (持久化模式)", len(topics))
-}
+// createNATSTopicsWithPersistence 已废弃
+// ⭐ Stream 预建立方式：在 NATSConfig 中配置统一的 Stream（subject pattern 使用通配符）
+// 这样可以避免为每个 topic 创建单独的 Stream，防止 subject 重叠错误
+// 参考：jxt-core/sdk/pkg/eventbus/README.md - Stream 预建立优化
 
 // cleanupKafka 清理 Kafka 测试数据
 func cleanupKafka(t *testing.T, topicPrefix string) {
@@ -641,9 +619,9 @@ func runNATSTest(t *testing.T, pressure string, messageCount int, timeout time.D
 		topics[i] = fmt.Sprintf("nats.perf.%s.%d.topic%d", pressureEn, timestamp, i+1)
 	}
 
-	// 🔥 重构后：为 NATS topics 配置持久化模式
-	ctx := context.Background()
-	createNATSTopicsWithPersistence(ctx, t, eb, topics)
+	// ⭐ Stream 已在配置中预建立（subject pattern: nats.perf.{pressure}.{timestamp}.>）
+	// 无需再调用 ConfigureTopic，避免 subject 重叠错误
+	t.Logf("✅ 使用预建立的 Stream: %s (subjects: %v)", streamName, subjectPattern)
 
 	// 记录 topic 信息
 	metrics.TopicCount = topicCount

@@ -175,13 +175,15 @@ func TestNATSOrderDebug(t *testing.T) {
 
 			// 串行发送该聚合ID的所有消息到同一个 topic
 			for version := int64(1); version <= int64(messagesPerAggregate); version++ {
-				envelope := &eventbus.Envelope{
-					AggregateID:  aggregateID,
-					EventType:    "TestEvent",
-					EventVersion: version,
-					Timestamp:    time.Now(),
-					Payload:      []byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
-				}
+				// 使用 NewEnvelopeWithAutoID 自动生成 EventID
+				// Payload 必须是有效的 JSON
+				payload := fmt.Sprintf(`{"aggregate":"%s","message":%d}`, aggregateID, version)
+				envelope := eventbus.NewEnvelopeWithAutoID(
+					aggregateID,
+					"TestEvent",
+					version,
+					[]byte(payload),
+				)
 
 				err := eb.PublishEnvelope(ctx, topic, envelope)
 				if err != nil {

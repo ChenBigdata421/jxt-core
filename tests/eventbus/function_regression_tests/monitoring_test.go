@@ -801,13 +801,13 @@ func TestNATSHealthCheckPublisherSubscriberIntegration(t *testing.T) {
 		},
 	}
 
-	// 创建 A 端 EventBus（发布端）- 使用共享的 clientID
-	clientIDA := sharedClientID
+	// 创建 A 端 EventBus（发布端）- 使用唯一的 clientID 避免 Prometheus 指标冲突
+	clientIDA := fmt.Sprintf("%s-a", sharedClientID)
 	busA := helper.CreateNATSEventBusWithHealthCheck(clientIDA, customHealthCheckConfig)
 	defer helper.CloseEventBus(busA)
 
-	// 创建 B 端 EventBus（订阅端）- 使用共享的 clientID
-	clientIDB := sharedClientID
+	// 创建 B 端 EventBus（订阅端）- 使用唯一的 clientID 避免 Prometheus 指标冲突
+	clientIDB := fmt.Sprintf("%s-b", sharedClientID)
 	busB := helper.CreateNATSEventBusWithHealthCheck(clientIDB, customHealthCheckConfig)
 	defer helper.CloseEventBus(busB)
 

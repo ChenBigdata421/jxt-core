@@ -128,11 +128,13 @@ func TestNATSSingleTopicOrder(t *testing.T) {
 		aggregateID := aggregateIDs[aggIndex]
 
 		for version := int64(1); version <= int64(messagesPerAggregate); version++ {
+			// Payload 必须是有效的 JSON
+			payload := fmt.Sprintf(`{"aggregate":"%s","message":%d}`, aggregateID, version)
 			envelope := eventbus.NewEnvelopeWithAutoID(
 				aggregateID,
 				"TestEvent",
 				version,
-				[]byte(fmt.Sprintf("aggregate %s message %d", aggregateID, version)),
+				[]byte(payload),
 			)
 
 			err := eb.PublishEnvelope(ctx, topic, envelope)

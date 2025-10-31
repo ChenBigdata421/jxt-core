@@ -22,6 +22,7 @@ type AggregateMessage struct {
 	Context     context.Context
 	Done        chan error
 	Handler     MessageHandler // 🔑 新增：每个消息携带自己的 handler（支持全局池）
+	IsEnvelope  bool           // ⭐ 新增：标记是否是 Envelope 消息（at-least-once 语义）
 }
 
 // KeyedWorkerPool implements Phase 1: a fixed-size keyed worker pool.
