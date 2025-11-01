@@ -17,6 +17,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **缓存系统** - 支持 Memory、Redis 多种缓存后端
 - [x] **消息队列** - 支持 Memory、Redis、NSQ 多种队列实现
 - [x] **分布式锁** - 基于 Redis 的分布式锁实现
+- [x] **EventBus 事件总线** - 支持 Kafka、NATS JetStream、Memory 三种实现，统一 API ⭐ **核心组件**
 - [x] **Outbox 模式** - 保证业务操作与事件发布的原子性和最终一致性 ⭐ **新增**
 
 ### 🔧 服务治理
@@ -123,6 +124,45 @@ logger:
   format: "json"
 ```
 
+## EventBus 事件总线 ⭐
+
+### 核心特性
+
+- **统一 API**：Kafka、NATS JetStream、Memory 三种实现共享同一套接口
+- **Hollywood Actor Pool**：基于 Actor 模型的消息处理，256 个 Actor 并发处理
+- **双模式支持**：
+  - `Subscribe`：高性能无序并发处理（Round-Robin 路由）
+  - `SubscribeEnvelope`：聚合ID 顺序保证（一致性哈希路由）
+- **多语义保证**：
+  - At-Most-Once（Memory、普通消息）
+  - At-Least-Once（Kafka/NATS Envelope）
+- **高性能编码**：
+  - 默认：JSON（jsoniter，比标准库快 2-3 倍）
+  - 可选：Protobuf、Avro、MessagePack、CloudEvents
+  - 零拷贝：Cap'n Proto、FlatBuffers（适合极致性能场景）
+- **Outbox 集成**：与 Outbox 模式无缝集成，保证事件发布可靠性
+- **故障隔离**：Supervisor 自动重启机制，单个聚合故障不影响其他聚合
+- **性能监控**：集成 Prometheus 指标，实时监控吞吐量、延迟、错误率
+
+### 性能指标
+
+- **吞吐量**：1900+ msg/s（单实例）
+- **延迟**：0.5ms（P99）
+- **并发处理**：256 Actor 并发
+- **内存占用**：3.4 MB（1000 条消息）
+- **监控开销**：Kafka ~3.9%，NATS ~24.5%
+
+### 编码方式选型
+
+| 编码方式 | 速度 | 体积 | 时延 | 适用场景 |
+|---------|------|------|------|----------|
+| **JSON（默认）** | 基线 | 基线 | 基线 | 通用场景，快速开发 |
+| **Protobuf** | ↑↑ | ↑↑ | ↑↑ | 高吞吐、跨语言 |
+| **Cap'n Proto** | ↑↑↑ | ↑↑↑ | ↑↑↑ | 极致性能、零拷贝 |
+| **FlatBuffers** | ↑↑↑ | ↑↑↑ | ↑↑↑ | 游戏、移动端、IoT |
+
+详见 [EventBus 文档](sdk/pkg/eventbus/README.md)
+
 ## 项目结构
 
 ```
@@ -131,6 +171,10 @@ jxt-core/
 │   ├── config/            # 配置管理
 │   │   └── config.go     # 配置管理逻辑
 │   ├── pkg/               # 核心组件包
+│   │   ├── eventbus/      # 事件总线（Kafka/NATS/Memory）⭐
+│   │   ├── outbox/        # Outbox 模式实现 ⭐
+│   │   ├── domain/        # 领域事件模型
+│   │   ├── json/          # 统一 JSON 编码（jsoniter）
 │   │   ├── logger/        # 日志组件
 │   │   ├── jwtauth/       # JWT 认证
 │   │   ├── casbin/        # 权限控制
@@ -143,6 +187,12 @@ jxt-core/
 │   ├── cache/             # 缓存实现
 │   ├── queue/             # 队列实现
 │   └── locker/            # 分布式锁
+├── tests/                 # 测试套件
+│   ├── eventbus/          # EventBus 测试
+│   │   ├── performance_regression_tests/  # 性能回归测试
+│   │   ├── reliability_regression_tests/  # 可靠性测试
+│   │   └── function_tests/                # 功能测试
+│   └── outbox/            # Outbox 测试
 ├── examples/              # 使用示例
 ├── tools/                 # 开发工具
 └── docs/                  # 文档
@@ -170,6 +220,37 @@ jxt-core/
 
 本项目采用 [Apache 2.0](LICENSE) 许可证。
 
+## 架构优化
+
+### Hollywood Actor Pool 架构
+
+- **统一消息处理**：Kafka、NATS、Memory 三种实现都使用同一个 Actor Pool
+- **智能路由**：
+  - 有聚合ID：一致性哈希路由到固定 Actor，保证顺序
+  - 无聚合ID：Round-Robin 轮询路由，最大化并发
+- **故障隔离**：每个聚合独立 Actor，单个故障不影响全局
+- **自动恢复**：Supervisor 机制自动重启失败的 Actor
+- **背压控制**：Inbox 队列（1000 容量）提供背压机制
+
+### NATS ACK Worker Pool
+
+- **异步 ACK 处理**：固定大小的 worker 池（默认 2×CPU 核心数）
+- **CSP 实现**：基于 Go 原生 channel + goroutine
+- **超时保护**：30 秒 ACK 超时，避免永久阻塞
+- **多租户支持**：支持租户专属 ACK 通道
+
+### 性能测试覆盖
+
+- ✅ 高吞吐量场景（1900+ msg/s）
+- ✅ 低延迟处理（0.5ms）
+- ✅ 消息顺序保证
+- ✅ 故障隔离与恢复
+- ✅ 协程泄漏检测
+- ✅ 内存使用监控
+
 ## 版本历史
 
 - v1.0.0 - 初始版本，提供基础框架功能
+- v1.1.0 - 新增 EventBus 组件（Kafka/NATS/Memory）
+- v1.2.0 - 新增 Outbox 模式，集成 EventBus
+- v1.3.0 - Hollywood Actor Pool 架构优化，性能提升 3 倍
