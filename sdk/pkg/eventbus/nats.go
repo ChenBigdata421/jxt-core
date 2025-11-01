@@ -15,188 +15,6 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// WorkItemInterface 通用工作项接口
-type WorkItemInterface interface {
-	GetTopic() string
-	Process() error
-}
-
-// NATSWorkItem NATS专用的全局Worker池工作项
-type NATSWorkItem struct {
-	Topic    string
-	Data     []byte
-	Handler  MessageHandler
-	AckFunc  func() error
-	Context  context.Context
-	EventBus *natsEventBus // 用于更新统计计数器
-}
-
-// GetTopic 实现WorkItemInterface接口
-func (w NATSWorkItem) GetTopic() string {
-	return w.Topic
-}
-
-// Process 实现WorkItemInterface接口
-func (w NATSWorkItem) Process() error {
-	// 处理消息
-	err := w.Handler(w.Context, w.Data)
-	if err != nil {
-		if w.EventBus != nil {
-			w.EventBus.errorCount.Add(1)
-		}
-		return err
-	}
-
-	// 确认消息
-	err = w.AckFunc()
-	if err != nil {
-		if w.EventBus != nil {
-			w.EventBus.errorCount.Add(1)
-		}
-		return err
-	}
-
-	// 更新消费计数器
-	if w.EventBus != nil {
-		w.EventBus.consumedMessages.Add(1)
-	}
-
-	return nil
-}
-
-// NATSGlobalWorkerPool NATS专用的全局Worker池
-type NATSGlobalWorkerPool struct {
-	workers     []*NATSWorker
-	workQueue   chan NATSWorkItem
-	workerCount int
-	queueSize   int
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	logger      *zap.Logger
-}
-
-// NATSWorker NATS专用的Worker
-type NATSWorker struct {
-	id       int
-	pool     *NATSGlobalWorkerPool
-	workChan chan NATSWorkItem
-	quit     chan bool
-}
-
-// NewNATSGlobalWorkerPool 创建NATS专用的全局Worker池
-func NewNATSGlobalWorkerPool(workerCount int, logger *zap.Logger) *NATSGlobalWorkerPool {
-	if workerCount <= 0 {
-		workerCount = 256 // 默认：256 workers（与 Kafka 和 Hollywood Actor Pool 保持一致）
-	}
-
-	queueSize := workerCount * 100 // 队列大小：worker数量 × 100
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	pool := &NATSGlobalWorkerPool{
-		workers:     make([]*NATSWorker, workerCount),
-		workQueue:   make(chan NATSWorkItem, queueSize),
-		workerCount: workerCount,
-		queueSize:   queueSize,
-		ctx:         ctx,
-		cancel:      cancel,
-		logger:      logger,
-	}
-
-	// 创建并启动workers
-	for i := 0; i < workerCount; i++ {
-		worker := &NATSWorker{
-			id:       i,
-			pool:     pool,
-			workChan: pool.workQueue,
-			quit:     make(chan bool),
-		}
-		pool.workers[i] = worker
-		pool.wg.Add(1)
-		go worker.start()
-	}
-
-	logger.Info("NATS Global Worker Pool started",
-		zap.Int("workerCount", workerCount),
-		zap.Int("queueSize", queueSize))
-
-	return pool
-}
-
-// SubmitWork 提交工作到NATS全局Worker池
-func (p *NATSGlobalWorkerPool) SubmitWork(work NATSWorkItem) bool {
-	select {
-	case p.workQueue <- work:
-		return true
-	case <-time.After(100 * time.Millisecond):
-		// 等待100ms后仍然满，记录警告但仍尝试提交
-		p.logger.Warn("NATS Global worker pool queue full, applying backpressure",
-			zap.String("topic", work.Topic))
-		// 阻塞等待，确保消息不丢失
-		p.workQueue <- work
-		return true
-	}
-}
-
-// start NATSWorker启动
-func (w *NATSWorker) start() {
-	defer w.pool.wg.Done()
-
-	for {
-		select {
-		case work := <-w.workChan:
-			w.processWork(work)
-		case <-w.quit:
-			return
-		case <-w.pool.ctx.Done():
-			return
-		}
-	}
-}
-
-// processWork 处理工作
-func (w *NATSWorker) processWork(work NATSWorkItem) {
-	defer func() {
-		if r := recover(); r != nil {
-			w.pool.logger.Error("NATS Worker panic during message processing",
-				zap.Int("workerID", w.id),
-				zap.String("topic", work.Topic),
-				zap.Any("panic", r))
-		}
-	}()
-
-	// 处理消息并确认
-	err := work.Process()
-	if err != nil {
-		w.pool.logger.Error("NATS Message processing failed",
-			zap.Int("workerID", w.id),
-			zap.String("topic", work.Topic),
-			zap.Error(err))
-	}
-}
-
-// Close 关闭NATS全局Worker池
-func (p *NATSGlobalWorkerPool) Close() {
-	p.logger.Info("Shutting down NATS global worker pool")
-
-	// 取消上下文
-	p.cancel()
-
-	// 关闭所有worker的quit通道
-	for _, worker := range p.workers {
-		close(worker.quit)
-	}
-
-	// 等待所有worker完成
-	p.wg.Wait()
-
-	// 关闭工作队列
-	close(p.workQueue)
-
-	p.logger.Info("NATS Global worker pool shut down completed")
-}
-
 // natsEventBus NATS JetStream事件总线实现
 // 企业级增强版本，专注于JetStream持久化消息
 // 支持方案A（Envelope）消息包络
@@ -1034,8 +852,10 @@ func (n *natsEventBus) Subscribe(ctx context.Context, topic string, handler Mess
 		n.logger.Error("🔥 USING CORE NATS SUBSCRIPTION",
 			zap.String("topic", topic))
 		msgHandler := func(msg *nats.Msg) {
-			n.handleMessage(ctx, topic, msg.Data, handler, func() error {
+			n.handleMessageWithWrapper(ctx, topic, msg.Data, wrapper, func() error {
 				return nil // Core NATS不需要手动确认
+			}, func() error {
+				return nil // Core NATS不支持 Nak
 			})
 		}
 
@@ -1277,12 +1097,6 @@ func (n *natsEventBus) processUnifiedPullMessages(ctx context.Context, topic str
 	}
 }
 
-// processPullMessages 处理拉取的消息（保留兼容性）
-func (n *natsEventBus) processPullMessages(ctx context.Context, topic string, sub *nats.Subscription, handler MessageHandler) {
-	// 重定向到统一处理方法
-	n.processUnifiedPullMessages(ctx, topic, sub)
-}
-
 // handleMessageWithWrapper 处理单个消息（支持 at-least-once 语义）
 // ⭐ Actor Pool 迁移：按 Topic 类型区分路由策略
 func (n *natsEventBus) handleMessageWithWrapper(ctx context.Context, topic string, data []byte, wrapper *handlerWrapper, ackFunc func() error, nakFunc func() error) {
@@ -1464,117 +1278,6 @@ func (n *natsEventBus) handleMessageWithWrapper(ctx context.Context, topic strin
 	}
 }
 
-// handleMessage 处理单个消息（支持方案A：Envelope优先级提取）
-// ⚠️ 已废弃：使用 handleMessageWithWrapper 代替
-func (n *natsEventBus) handleMessage(ctx context.Context, topic string, data []byte, handler MessageHandler, ackFunc func() error) {
-	n.logger.Error("🔥 handleMessage CALLED",
-		zap.String("topic", topic),
-		zap.Int("dataLen", len(data)))
-
-	defer func() {
-		if r := recover(); r != nil {
-			n.errorCount.Add(1)
-			n.logger.Error("Panic in NATS message handler",
-				zap.String("topic", topic),
-				zap.Any("panic", r))
-		}
-	}()
-
-	// 创建带超时的上下文
-	handlerCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	// ⭐ 智能路由决策：根据聚合ID提取结果决定处理模式
-	// 优先级：Envelope > Header > NATS Subject
-	// 注意：对于Subscribe调用，我们不从topic中提取聚合ID，保持与Kafka一致的行为
-	aggregateID, _ := ExtractAggregateID(data, nil, nil, "")
-
-	if aggregateID != "" {
-		// ✅ 有聚合ID：使用 Hollywood Actor Pool 进行顺序处理
-		// 这种情况通常发生在：
-		// 1. SubscribeEnvelope订阅的Envelope消息
-		// 2. NATS Subject中包含有效聚合ID的情况
-		// 使用 Hollywood Actor Pool 处理（与 Kafka 保持一致）
-		if n.actorPool != nil {
-			// ⭐ 使用 Hollywood Actor Pool 处理（与 Kafka 保持一致）
-			aggMsg := &AggregateMessage{
-				Topic:       topic,
-				Partition:   0, // NATS没有分区概念
-				Offset:      0, // NATS没有偏移量概念
-				Key:         []byte(aggregateID),
-				Value:       data,
-				Headers:     make(map[string][]byte),
-				Timestamp:   time.Now(),
-				AggregateID: aggregateID,
-				Context:     handlerCtx,
-				Done:        make(chan error, 1),
-				Handler:     handler, // 携带 topic 的 handler
-			}
-
-			// 路由到 Hollywood Actor Pool 处理
-			if err := n.actorPool.ProcessMessage(handlerCtx, aggMsg); err != nil {
-				n.errorCount.Add(1)
-				n.logger.Error("Failed to process message with Hollywood Actor Pool",
-					zap.String("topic", topic),
-					zap.String("aggregateID", aggregateID),
-					zap.Error(err))
-				// 不确认消息，让它重新投递
-				return
-			}
-
-			// 等待 Actor 处理完成
-			select {
-			case err := <-aggMsg.Done:
-				if err != nil {
-					n.errorCount.Add(1)
-					n.logger.Error("Failed to handle NATS message in Hollywood Actor Pool",
-						zap.String("topic", topic),
-						zap.String("aggregateID", aggregateID),
-						zap.Error(err))
-					// 不确认消息，让它重新投递
-					return
-				}
-			case <-handlerCtx.Done():
-				n.errorCount.Add(1)
-				n.logger.Error("Context cancelled while waiting for worker",
-					zap.String("topic", topic),
-					zap.String("aggregateID", aggregateID),
-					zap.Error(handlerCtx.Err()))
-				return
-			}
-
-			// Worker处理成功，确认消息
-			if err := ackFunc(); err != nil {
-				n.logger.Error("Failed to ack NATS message",
-					zap.String("topic", topic),
-					zap.String("aggregateID", aggregateID),
-					zap.Error(err))
-			} else {
-				n.consumedMessages.Add(1)
-			}
-			return
-		}
-	}
-
-	// 降级：直接处理（保持向后兼容）
-	if err := handler(handlerCtx, data); err != nil {
-		n.errorCount.Add(1)
-		n.logger.Error("Failed to handle NATS message",
-			zap.String("topic", topic),
-			zap.Error(err))
-		// 不确认消息，让它重新投递
-		return
-	}
-
-	// 确认消息
-	if err := ackFunc(); err != nil {
-		n.logger.Error("Failed to ack NATS message",
-			zap.String("topic", topic),
-			zap.Error(err))
-	} else {
-		n.consumedMessages.Add(1)
-	}
-}
 
 // healthCheck 内部健康检查（不对外暴露）
 func (n *natsEventBus) healthCheck(ctx context.Context) error {
@@ -2944,8 +2647,10 @@ func (n *natsEventBus) SubscribeEnvelope(ctx context.Context, topic string, hand
 			zap.String("topic", topic))
 		msgHandler := func(msg *nats.Msg) {
 			// Core NATS 不支持 Nak，只能使用 at-most-once 语义
-			n.handleMessage(ctx, topic, msg.Data, wrappedHandler, func() error {
+			n.handleMessageWithWrapper(ctx, topic, msg.Data, wrapper, func() error {
 				return nil // Core NATS不需要手动确认
+			}, func() error {
+				return nil // Core NATS不支持 Nak
 			})
 		}
 

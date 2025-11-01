@@ -9,15 +9,16 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 )
 
-// TestFaultIsolation 测试故障隔离（单个 Actor 故障不影响其他 Actor）
+// TestMemoryFaultIsolation 测试 Memory EventBus 故障隔离（单个 Actor 故障不影响其他 Actor）
 // ⚠️ Memory EventBus 限制：无法实现 at-least-once 语义，panic 会导致消息丢失
-func TestFaultIsolation(t *testing.T) {
+func TestMemoryFaultIsolation(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
 
-	topic := fmt.Sprintf("test.fault.isolation.%d", helper.GetTimestamp())
+	topic := fmt.Sprintf("test.memory.fault.isolation.%d", helper.GetTimestamp())
 	bus := helper.CreateMemoryEventBus()
 
 	var totalReceived int64
@@ -71,7 +72,7 @@ func TestFaultIsolation(t *testing.T) {
 				EventType:    "TestEvent",
 				EventVersion: int64(version),
 				Timestamp:    time.Now(),
-				Payload:      []byte(fmt.Sprintf(`{"aggregate":"%s","version":%d}`, aggID, version)),
+				Payload:      jxtjson.RawMessage(fmt.Sprintf(`{"aggregate":"%s","version":%d}`, aggID, version)),
 			}
 			err = bus.PublishEnvelope(ctx, topic, envelope)
 			helper.AssertNoError(err, "PublishEnvelope should not return error")
@@ -98,7 +99,7 @@ func TestFaultIsolation(t *testing.T) {
 	aggregate1Count := atomic.LoadInt64(&aggregate1Received)
 	helper.AssertEqual(int64(versionsPerAggregate-1), aggregate1Count, "aggregate-1 should receive all messages except the one that panicked (at-most-once semantics)")
 
-	t.Logf("✅ Fault isolation test passed (at-most-once semantics)")
+	t.Logf("✅ Memory Fault isolation test passed (at-most-once semantics)")
 	t.Logf("📊 aggregate-1: %d (expected %d, version=1 lost), aggregate-2: %d, aggregate-3: %d",
 		aggregate1Count,
 		versionsPerAggregate-1,
@@ -107,12 +108,97 @@ func TestFaultIsolation(t *testing.T) {
 	t.Logf("⚠️ Note: Memory EventBus uses at-most-once semantics, so panic causes message loss")
 }
 
-// TestConcurrentFaultRecovery 测试并发故障恢复
-func TestConcurrentFaultRecovery(t *testing.T) {
+// TestMemoryFaultIsolationRaw 验证 Memory Subscribe (非 Envelope) 的 at-most-once 语义
+func TestMemoryFaultIsolationRaw(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
 
-	topic := fmt.Sprintf("test.concurrent.fault.recovery.%d", helper.GetTimestamp())
+	topic := fmt.Sprintf("test.memory.fault.raw.%d", helper.GetTimestamp())
+	bus := helper.CreateMemoryEventBus()
+
+	var totalReceived int64
+	var aggregate1Received int64
+	var aggregate2Received int64
+	var aggregate3Received int64
+	var panicCount int64
+	var panicTriggered atomic.Bool
+
+	ctx := context.Background()
+
+	helper.AssertNoError(bus.Subscribe(ctx, topic, func(ctx context.Context, data []byte) error {
+		var payload struct {
+			Aggregate string `json:"aggregate"`
+			Version   int64  `json:"version"`
+		}
+
+		if err := jxtjson.Unmarshal(data, &payload); err != nil {
+			return fmt.Errorf("failed to decode payload: %w", err)
+		}
+
+		if payload.Aggregate == "aggregate-1" && payload.Version == 1 {
+			if panicTriggered.CompareAndSwap(false, true) {
+				atomic.AddInt64(&panicCount, 1)
+				t.Logf("⚠️ Panic on aggregate-1 (non-envelope)")
+				panic("simulated panic for aggregate-1 raw message")
+			}
+		}
+
+		atomic.AddInt64(&totalReceived, 1)
+		switch payload.Aggregate {
+		case "aggregate-1":
+			atomic.AddInt64(&aggregate1Received, 1)
+		case "aggregate-2":
+			atomic.AddInt64(&aggregate2Received, 1)
+		case "aggregate-3":
+			atomic.AddInt64(&aggregate3Received, 1)
+		}
+
+		t.Logf("📨 Processed raw message: AggregateID=%s, Version=%d", payload.Aggregate, payload.Version)
+		return nil
+	}), "Subscribe should not return error")
+
+	time.Sleep(100 * time.Millisecond)
+
+	aggregates := []string{"aggregate-1", "aggregate-2", "aggregate-3"}
+	versionsPerAggregate := 5
+	totalMessages := len(aggregates) * versionsPerAggregate
+
+	for version := int64(1); version <= int64(versionsPerAggregate); version++ {
+		for _, aggID := range aggregates {
+			payload := struct {
+				Aggregate string `json:"aggregate"`
+				Version   int64  `json:"version"`
+			}{
+				Aggregate: aggID,
+				Version:   version,
+			}
+			bytes, err := jxtjson.Marshal(payload)
+			helper.AssertNoError(err, "Marshal raw payload should not fail")
+			helper.AssertNoError(bus.Publish(ctx, topic, bytes), "Publish should not fail")
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	expectedMessages := int64(totalMessages - 1)
+	success := helper.WaitForMessages(&totalReceived, expectedMessages, 10*time.Second)
+	helper.AssertTrue(success, "Should receive all raw messages except the one that panicked")
+
+	actualReceived := atomic.LoadInt64(&totalReceived)
+	helper.AssertEqual(expectedMessages, actualReceived, "Total raw messages should match at-most-once expectation")
+	helper.AssertEqual(int64(1), atomic.LoadInt64(&panicCount), "Raw handler should panic exactly once")
+	helper.AssertEqual(int64(versionsPerAggregate-1), atomic.LoadInt64(&aggregate1Received), "aggregate-1 should miss the first raw message")
+	helper.AssertEqual(int64(versionsPerAggregate), atomic.LoadInt64(&aggregate2Received), "aggregate-2 raw messages should all arrive")
+	helper.AssertEqual(int64(versionsPerAggregate), atomic.LoadInt64(&aggregate3Received), "aggregate-3 raw messages should all arrive")
+
+	t.Logf("✅ Memory raw fault isolation test passed (at-most-once semantics)")
+}
+
+// TestMemoryConcurrentFaultRecovery 测试 Memory EventBus 并发故障恢复
+func TestMemoryConcurrentFaultRecovery(t *testing.T) {
+	helper := NewTestHelper(t)
+	defer helper.Cleanup()
+
+	topic := fmt.Sprintf("test.memory.concurrent.fault.recovery.%d", helper.GetTimestamp())
 	bus := helper.CreateMemoryEventBus()
 
 	var totalReceived int64
@@ -163,7 +249,7 @@ func TestConcurrentFaultRecovery(t *testing.T) {
 					EventType:    "TestEvent",
 					EventVersion: int64(version),
 					Timestamp:    time.Now(),
-					Payload:      []byte(fmt.Sprintf(`{"aggregate":"aggregate-%d","version":%d}`, id, version)),
+					Payload:      jxtjson.RawMessage(fmt.Sprintf(`{"aggregate":"aggregate-%d","version":%d}`, id, version)),
 				}
 				err := bus.PublishEnvelope(ctx, topic, envelope)
 				if err != nil {
@@ -184,16 +270,16 @@ func TestConcurrentFaultRecovery(t *testing.T) {
 	helper.AssertEqual(int64(totalMessages), atomic.LoadInt64(&totalReceived), "Should receive all messages")
 	helper.AssertEqual(int64(aggregateCount), atomic.LoadInt64(&panicCount), "Should panic once per aggregate")
 
-	t.Logf("✅ Concurrent fault recovery test passed")
+	t.Logf("✅ Memory Concurrent fault recovery test passed")
 	t.Logf("📊 Total messages: %d, Panic count: %d", atomic.LoadInt64(&totalReceived), atomic.LoadInt64(&panicCount))
 }
 
-// TestFaultIsolationWithHighLoad 测试高负载下的故障隔离
-func TestFaultIsolationWithHighLoad(t *testing.T) {
+// TestMemoryFaultIsolationWithHighLoad 测试 Memory EventBus 高负载下的故障隔离
+func TestMemoryFaultIsolationWithHighLoad(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
 
-	topic := fmt.Sprintf("test.fault.isolation.high.load.%d", helper.GetTimestamp())
+	topic := fmt.Sprintf("test.memory.fault.isolation.high.load.%d", helper.GetTimestamp())
 	bus := helper.CreateMemoryEventBus()
 
 	var totalReceived int64
@@ -246,7 +332,7 @@ func TestFaultIsolationWithHighLoad(t *testing.T) {
 				EventType:    "TestEvent",
 				EventVersion: int64(version),
 				Timestamp:    time.Now(),
-				Payload:      []byte(fmt.Sprintf(`{"aggregate":"aggregate-fault","version":%d}`, version)),
+				Payload:      jxtjson.RawMessage(fmt.Sprintf(`{"aggregate":"aggregate-fault","version":%d}`, version)),
 			}
 			_ = bus.PublishEnvelope(ctx, topic, envelope)
 		}
@@ -264,7 +350,7 @@ func TestFaultIsolationWithHighLoad(t *testing.T) {
 					EventType:    "TestEvent",
 					EventVersion: int64(version),
 					Timestamp:    time.Now(),
-					Payload:      []byte(fmt.Sprintf(`{"aggregate":"aggregate-normal-%d","version":%d}`, id, version)),
+					Payload:      jxtjson.RawMessage(fmt.Sprintf(`{"aggregate":"aggregate-normal-%d","version":%d}`, id, version)),
 				}
 				_ = bus.PublishEnvelope(ctx, topic, envelope)
 			}
@@ -274,19 +360,27 @@ func TestFaultIsolationWithHighLoad(t *testing.T) {
 	wg.Wait()
 
 	// 等待所有消息处理完成
+	// ⭐ 注意：Memory EventBus 的 at-most-once 语义意味着：
+	// - panic 消息会被接收和处理（计数）
+	// - 但不会被重新投递
+	// - 所以应该接收所有消息（包括 panic 的那条）
 	success := helper.WaitForMessages(&totalReceived, int64(totalMessages), 30*time.Second)
 	helper.AssertTrue(success, "Should receive all messages under high load")
 
 	// 验证结果
-	helper.AssertEqual(int64(totalMessages), atomic.LoadInt64(&totalReceived), "Should receive all messages")
+	helper.AssertEqual(int64(totalMessages), atomic.LoadInt64(&totalReceived), "Total messages should match (at-most-once: no redelivery)")
 	helper.AssertEqual(int64(1), atomic.LoadInt64(&panicCount), "Should panic exactly once")
 
 	// 验证故障隔离：正常聚合应该收到所有消息
 	expectedNormalMessages := int64(normalAggregateCount * normalAggregateVersions)
-	helper.AssertEqual(expectedNormalMessages, atomic.LoadInt64(&normalAggregatesReceived), "Normal aggregates should receive all messages")
+	helper.AssertEqual(expectedNormalMessages, atomic.LoadInt64(&normalAggregatesReceived), "Normal aggregates should receive all messages under high load")
+	// ⭐ panic 消息被计数为 totalReceived，但不被计数为 faultyAggregateReceived
+	// 因为 panic 发生在故障聚合计数之前
+	helper.AssertEqual(int64(faultyAggregateVersions-1), atomic.LoadInt64(&faultyAggregateReceived), "Faulty aggregate should lose the first message under high load")
 
-	t.Logf("✅ Fault isolation with high load test passed")
-	t.Logf("📊 Total: %d, Faulty: %d, Normal: %d, Panic: %d",
+	t.Logf("✅ Memory Fault isolation with high load test passed (at-most-once semantics)")
+	t.Logf("📊 Total: expected %d, received %d; Faulty received: %d, Normal received: %d, Panic: %d",
+		int64(totalMessages),
 		atomic.LoadInt64(&totalReceived),
 		atomic.LoadInt64(&faultyAggregateReceived),
 		atomic.LoadInt64(&normalAggregatesReceived),

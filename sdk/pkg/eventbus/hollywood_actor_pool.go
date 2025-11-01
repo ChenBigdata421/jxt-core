@@ -279,21 +279,32 @@ func (amm *ActorMetricsMiddleware) WithMetrics() func(actor.ReceiveFunc) actor.R
 			// ⭐ 捕获 panic（根据消息类型决定处理策略）
 			defer func() {
 				if r := recover(); r != nil {
-					// 检查是否是 Envelope 消息
-					if domainMsg, ok := c.Message().(*DomainEventMessage); ok && domainMsg.IsEnvelope {
-						// ⭐ Envelope 消息：发送错误到 Done 通道（at-least-once 语义）
-						// 不重新 panic，让 Actor 继续运行，消息会被重新投递
+					// 检查是否是 DomainEventMessage
+					if domainMsg, ok := c.Message().(*DomainEventMessage); ok {
 						err := fmt.Errorf("handler panicked: %v", r)
+
+						// ⭐ 关键修复：无论是否Envelope，都发送错误到Done channel
+						// 这样可以避免Done channel死锁导致消息处理协程永久阻塞
 						select {
 						case domainMsg.Done <- err:
 						default:
 						}
-						// 记录 panic（注意：这不是真正的重启，只是记录 panic 事件）
+
+						// 记录 panic 事件
 						amm.collector.RecordActorRestarted(amm.actorID)
-						return
+
+						if domainMsg.IsEnvelope {
+							// ⭐ Envelope 消息：不重新panic，让消息重投递（at-least-once 语义）
+							return
+						} else {
+							// ⭐ 普通消息：也不重新panic，避免Done channel死锁
+							// 消息会被ACK并丢失（at-most-once语义）
+							// 这是正确的行为：普通消息失败后应该被丢弃，而不是阻塞整个消息流
+							return
+						}
 					}
 
-					// ⭐ 普通消息：继续 panic，让 Supervisor 重启 Actor（at-most-once 语义）
+					// ⭐ 非DomainEventMessage才重新panic（系统消息等）
 					panic(r)
 				}
 			}()

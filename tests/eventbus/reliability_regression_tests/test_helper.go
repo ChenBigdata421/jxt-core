@@ -9,6 +9,7 @@ import (
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
+	"github.com/nats-io/nats.go"
 )
 
 // TestHelper 测试辅助工具
@@ -86,6 +87,13 @@ func (h *TestHelper) AssertTrue(condition bool, message string) {
 func (h *TestHelper) AssertGreaterThan(actual, threshold int64, message string) {
 	if actual <= threshold {
 		h.t.Errorf("❌ %s: expected > %d, got %d", message, threshold, actual)
+	}
+}
+
+// AssertGreaterThanOrEqual 断言大于等于
+func (h *TestHelper) AssertGreaterThanOrEqual(actual, threshold int64, message string) {
+	if actual < threshold {
+		h.t.Errorf("❌ %s: expected >= %d, got %d", message, threshold, actual)
 	}
 }
 
@@ -237,15 +245,126 @@ func (h *TestHelper) CreateMemoryEventBus() eventbus.EventBus {
 	return bus
 }
 
+// CreateNATSEventBus 创建 NATS JetStream EventBus，并在测试结束后清理 Stream
+func (h *TestHelper) CreateNATSEventBus(clientID, streamName string, subjects []string, durableName string) eventbus.EventBus {
+	if len(subjects) == 0 {
+		h.t.Fatalf("subjects cannot be empty when creating NATS EventBus")
+	}
+
+	natsConfig := &eventbus.NATSConfig{
+		URLs:                []string{"nats://localhost:4223"},
+		ClientID:            clientID,
+		MaxReconnects:       10,
+		ReconnectWait:       1 * time.Second,
+		ConnectionTimeout:   30 * time.Second,
+		HealthCheckInterval: 60 * time.Second,
+		JetStream: eventbus.JetStreamConfig{
+			Enabled:        true,
+			PublishTimeout: 10 * time.Second,
+			AckWait:        15 * time.Second,
+			MaxDeliver:     3,
+			Stream: eventbus.StreamConfig{
+				Name:      streamName,
+				Subjects:  subjects,
+				Storage:   "memory",
+				Retention: "limits",
+				MaxAge:    1 * time.Hour,
+				MaxBytes:  1024 * 1024 * 1024,
+				MaxMsgs:   100000,
+				Replicas:  1,
+				Discard:   "old",
+			},
+			Consumer: eventbus.NATSConsumerConfig{
+				DurableName:   durableName,
+				DeliverPolicy: "all",
+				AckPolicy:     "explicit",
+				ReplayPolicy:  "instant",
+				MaxAckPending: 1000,
+				MaxWaiting:    500,
+				MaxDeliver:    3,
+			},
+		},
+	}
+
+	bus, err := eventbus.NewNATSEventBus(natsConfig)
+	if err != nil {
+		h.AssertNoError(err, "NewNATSEventBus should not return error")
+		return nil
+	}
+
+	// 清理 NATS Stream（在关闭 EventBus 之后执行）
+	h.AddCleanup(func() {
+		nc, err := nats.Connect("nats://localhost:4223")
+		if err != nil {
+			h.t.Logf("⚠️ Failed to connect NATS for cleanup: %v", err)
+			return
+		}
+		defer nc.Close()
+		js, err := nc.JetStream()
+		if err != nil {
+			h.t.Logf("⚠️ Failed to get JetStream context for cleanup: %v", err)
+			return
+		}
+		if err := js.DeleteStream(streamName); err != nil {
+			h.t.Logf("⚠️ Failed to delete NATS stream %s: %v", streamName, err)
+		}
+	})
+
+	h.AddCleanup(func() {
+		if err := bus.Close(); err != nil {
+			h.t.Logf("⚠️ Failed to close NATS EventBus: %v", err)
+		}
+	})
+
+	return bus
+}
+
 // CreateKafkaEventBus 创建 Kafka EventBus
 func (h *TestHelper) CreateKafkaEventBus(clientID string) eventbus.EventBus {
 	cfg := &eventbus.KafkaConfig{
-		Brokers:  []string{"localhost:9092"},
+		Brokers:  []string{"localhost:29094"},
 		ClientID: clientID,
+		Producer: eventbus.ProducerConfig{
+			RequiredAcks:    -1,
+			FlushFrequency:  10 * time.Millisecond,
+			FlushMessages:   100,
+			Timeout:         30 * time.Second,
+			FlushBytes:      1024 * 1024,
+			RetryMax:        3,
+			BatchSize:       16 * 1024,
+			BufferSize:      32 * 1024 * 1024,
+			Idempotent:      true,
+			MaxMessageBytes: 1 * 1024 * 1024,
+			PartitionerType: "hash",
+			LingerMs:        5 * time.Millisecond,
+			MaxInFlight:     1,
+		},
+		Consumer: eventbus.ConsumerConfig{
+			GroupID:            fmt.Sprintf("%s-group", clientID),
+			AutoOffsetReset:    "earliest",
+			SessionTimeout:     30 * time.Second,
+			HeartbeatInterval:  3 * time.Second,
+			MaxProcessingTime:  30 * time.Second,
+			FetchMinBytes:      1024,
+			FetchMaxBytes:      50 * 1024 * 1024,
+			FetchMaxWait:       500 * time.Millisecond,
+			MaxPollRecords:     500,
+			EnableAutoCommit:   false,
+			AutoCommitInterval: 5 * time.Second,
+			IsolationLevel:     "read_committed",
+			RebalanceStrategy:  "range",
+		},
+		HealthCheckInterval:  30 * time.Second,
+		MetadataRefreshFreq:  10 * time.Minute,
+		MetadataRetryMax:     3,
+		MetadataRetryBackoff: 250 * time.Millisecond,
 	}
 
 	bus, err := eventbus.NewKafkaEventBus(cfg)
-	h.AssertNoError(err, "NewKafkaEventBus should not return error")
+	if err != nil {
+		h.AssertNoError(err, "NewKafkaEventBus should not return error")
+		return nil
+	}
 
 	h.AddCleanup(func() {
 		if err := bus.Close(); err != nil {

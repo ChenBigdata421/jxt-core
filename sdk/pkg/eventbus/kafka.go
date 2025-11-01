@@ -838,7 +838,7 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 
 	// 尝试提取聚合ID（优先级：Envelope > Header > Kafka Key）
 	aggregateID, _ := ExtractAggregateID(message.Value, headersMap, message.Key, "")
-	
+
 	// 如果无法提取聚合ID，使用 Round-Robin 生成路由键
 	if aggregateID == "" {
 		index := h.eventBus.roundRobinCounter.Add(1)
@@ -876,7 +876,7 @@ func (h *kafkaConsumerHandler) processMessage(ctx context.Context, message *sara
 			return ctx.Err()
 		}
 	}
-	
+
 	// 备用方案：如果 Actor Pool 不可用，直接调用 handler
 	return h.handler(ctx, message.Value)
 }
@@ -932,8 +932,26 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 						zap.String("topic", message.Topic),
 						zap.Int64("offset", message.Offset),
 						zap.Error(err))
-					// 处理失败，仍然标记消息（避免阻塞）
-					session.MarkMessage(message, "")
+
+					// ⭐ 关键修复：Envelope消息失败时立即重试
+					if wrapper.isEnvelope {
+						// at-least-once语义：重试处理失败的消息
+						h.eventBus.logger.Warn("Retrying failed Envelope message",
+							zap.String("topic", message.Topic),
+							zap.Int64("offset", message.Offset))
+
+						// 立即重试一次
+						if retryErr := h.processMessageWithKeyedPool(ctx, message, wrapper, session); retryErr != nil {
+							h.eventBus.logger.Error("Retry failed for Envelope message",
+								zap.String("topic", message.Topic),
+								zap.Int64("offset", message.Offset),
+								zap.Error(retryErr))
+							// 重试失败：不MarkMessage，让Kafka在下次poll时重投递
+							// 注意：这可能导致消息被跳过，因为Kafka会继续处理后续消息
+						}
+						// 如果重试成功，消息会在processMessageWithKeyedPool中被MarkMessage
+					}
+					// 普通消息：已经在processMessageWithKeyedPool中MarkMessage了
 				}
 			} else {
 				// 未激活的topic，直接标记为已处理（预订阅模式的优势）

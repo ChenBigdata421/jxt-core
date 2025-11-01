@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,11 +69,12 @@ func TestNATSFetchOrder(t *testing.T) {
 
 	for version := int64(1); version <= int64(messageCount); version++ {
 		envelope := &eventbus.Envelope{
+			EventID:      fmt.Sprintf("event-%d-%d", timestamp, version),
 			AggregateID:  aggregateID,
 			EventType:    "TestEvent",
 			EventVersion: version,
 			Timestamp:    time.Now(),
-			Payload:      []byte(fmt.Sprintf("message %d", version)),
+			Payload:      jxtjson.RawMessage(fmt.Sprintf(`{"message":"message %d"}`, version)),
 		}
 
 		err := eb.PublishEnvelope(ctx, topic, envelope)
