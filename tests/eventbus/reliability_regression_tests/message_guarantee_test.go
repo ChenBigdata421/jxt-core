@@ -12,6 +12,32 @@ import (
 )
 
 // TestMessageBufferGuarantee 测试消息缓冲区保证（Actor 重启期间消息不丢失）
+//
+// 🎯 测试目的:
+//   验证 Actor Inbox 缓冲区机制：在 Actor 重启期间，发送到该 Actor 的消息应该被缓存，
+//   而不是丢失，重启后能够继续处理缓冲区中的消息。
+//
+// 📋 测试逻辑:
+//   1. 创建 Memory EventBus 并订阅 topic
+//   2. Handler 在处理第 1 条消息时触发 panic
+//   3. 快速连续发送 5 条消息（不等待，模拟 Actor 重启期间的消息堆积）
+//   4. 等待所有消息处理完成
+//
+// ✅ 检查项:
+//   - 所有 5 条消息都应该被接收（received = 5）
+//   - panic 应该只发生 1 次（panicCount = 1）
+//   - 除了第一条触发 panic 的消息，其他 4 条消息都应该被正确接收
+//   - 消息顺序应该保持（除了第一条）
+//   - 测试应该在 10 秒内完成
+//
+// 🔍 验证点:
+//   - Actor Inbox 的缓冲能力（默认 1000 条消息）
+//   - Actor 重启后能够继续处理缓冲区中的消息
+//   - Memory EventBus 的 at-most-once 语义：panic 消息被计数但不重投
+//
+// 📊 缓冲区配置:
+//   - Inbox 大小: 1000
+//   - 测试消息数: 5（远小于缓冲区大小）
 func TestMessageBufferGuarantee(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
@@ -75,7 +101,36 @@ func TestMessageBufferGuarantee(t *testing.T) {
 }
 
 // TestMessageOrderingAfterRecovery 测试恢复后的消息顺序保证
-// ⚠️ Memory EventBus 限制：无法实现 at-least-once 语义，panic 会导致消息丢失
+//
+// 🎯 测试目的:
+//   验证 Actor 在 panic 恢复后，能够继续按照正确的顺序处理同一聚合 ID 的后续消息，
+//   确保事件溯源场景下的顺序性保证。
+//
+// ⚠️ Memory EventBus 限制:
+//   Memory EventBus 使用 at-most-once 语义，panic 会导致消息丢失（不重投）。
+//   这与 Kafka/NATS 的 at-least-once 语义不同。
+//
+// 📋 测试逻辑:
+//   1. 创建 Memory EventBus 并订阅 Envelope topic
+//   2. Handler 在处理 aggregate-1 的 version=1 时触发 panic（panic 前不计数）
+//   3. 快速发送 aggregate-1 的 10 个版本（v1-v10）
+//   4. 等待消息处理完成（预期接收 9 条，v1 丢失）
+//
+// ✅ 检查项:
+//   - 应该接收 9 条消息（received = 9，v1 丢失）
+//   - panic 应该只发生 1 次（panicCount = 1）
+//   - 接收到的版本号应该是 v2-v10，按顺序排列
+//   - 版本号应该递增，但跳过 v1
+//   - 测试应该在 10 秒内完成
+//
+// 🔍 验证点:
+//   - Actor 恢复后继续处理同一聚合的后续版本
+//   - 版本号顺序保持正确（v2, v3, v4, ...）
+//   - Memory EventBus 的 at-most-once 语义：v1 丢失不重投
+//
+// 📊 语义对比:
+//   - Memory: at-most-once（panic 消息丢失）
+//   - Kafka/NATS Envelope: at-least-once（panic 消息重投）
 func TestMessageOrderingAfterRecovery(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
@@ -159,6 +214,33 @@ func TestMessageOrderingAfterRecovery(t *testing.T) {
 }
 
 // TestHighThroughputWithRecovery 测试高吞吐量下的恢复
+//
+// 🎯 测试目的:
+//   验证在高吞吐量场景下，Actor 发生 panic 后能够快速恢复并继续处理大量消息，
+//   确保系统在高负载下的稳定性和容错能力。
+//
+// 📋 测试逻辑:
+//   1. 创建 Memory EventBus 并订阅 topic
+//   2. Handler 在处理第 100 条消息时触发 panic
+//   3. 快速连续发送 1000 条消息（不等待）
+//   4. 等待所有消息处理完成
+//
+// ✅ 检查项:
+//   - 所有 1000 条消息都应该被接收（received = 1000）
+//   - panic 应该只发生 1 次（panicCount = 1）
+//   - Actor 应该在 panic 后快速恢复并继续处理剩余 900 条消息
+//   - 测试应该在 30 秒内完成
+//
+// 🔍 验证点:
+//   - Actor 在高吞吐量下的稳定性
+//   - Supervisor 在高负载下的恢复能力
+//   - Inbox 缓冲区在高吞吐量下的表现
+//   - Memory EventBus 的 at-most-once 语义在高负载下的正确性
+//
+// 📊 性能指标:
+//   - 消息总数: 1000
+//   - Panic 位置: 第 100 条
+//   - 预期完成时间: < 30s
 func TestHighThroughputWithRecovery(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
@@ -209,7 +291,39 @@ func TestHighThroughputWithRecovery(t *testing.T) {
 }
 
 // TestMessageGuaranteeWithMultipleAggregates 测试多聚合的消息保证
-// ⚠️ Memory EventBus 限制：无法实现 at-least-once 语义，panic 会导致消息丢失
+//
+// 🎯 测试目的:
+//   验证在多个聚合 ID 并发处理的场景下，一个聚合的 panic 不会影响其他聚合，
+//   并且每个聚合的消息顺序都能得到保证。
+//
+// ⚠️ Memory EventBus 限制:
+//   Memory EventBus 使用 at-most-once 语义，panic 会导致消息丢失（不重投）。
+//
+// 📋 测试逻辑:
+//   1. 创建 Memory EventBus 并订阅 Envelope topic
+//   2. Handler 在处理 aggregate-2 的 version=3 时触发 panic（panic 前不计数）
+//   3. 快速发送 3 个聚合（aggregate-1/2/3）各 10 个版本（共 30 条）
+//   4. 等待消息处理完成（预期接收 29 条，aggregate-2 的 v3 丢失）
+//
+// ✅ 检查项:
+//   - 应该接收 29 条消息（totalReceived = 29，aggregate-2 的 v3 丢失）
+//   - panic 应该只发生 1 次（panicCount = 1）
+//   - aggregate-1 和 aggregate-3 应该接收所有 10 个版本
+//   - aggregate-2 应该接收 9 个版本（v1,v2,v4-v10，跳过 v3）
+//   - 每个聚合的版本号都应该按顺序排列
+//   - 测试应该在 15 秒内完成
+//
+// 🔍 验证点:
+//   - Actor Pool 的故障隔离：aggregate-2 的 panic 不影响其他聚合
+//   - 每个聚合使用独立的 Actor（通过一致性哈希路由）
+//   - 同一聚合的消息顺序保证（版本号递增）
+//   - Memory EventBus 的 at-most-once 语义：aggregate-2 的 v3 丢失不重投
+//
+// 📊 测试规模:
+//   - 聚合数量: 3
+//   - 每个聚合版本数: 10
+//   - 总消息数: 30
+//   - 预期接收: 29（aggregate-2 的 v3 丢失）
 func TestMessageGuaranteeWithMultipleAggregates(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()

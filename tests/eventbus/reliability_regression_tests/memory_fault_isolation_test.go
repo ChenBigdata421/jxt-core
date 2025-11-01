@@ -13,7 +13,37 @@ import (
 )
 
 // TestMemoryFaultIsolation 测试 Memory EventBus 故障隔离（单个 Actor 故障不影响其他 Actor）
-// ⚠️ Memory EventBus 限制：无法实现 at-least-once 语义，panic 会导致消息丢失
+//
+// 🎯 测试目的:
+//   验证 Memory EventBus 的 Actor Pool 故障隔离能力：当一个聚合 ID 的 Actor 发生 panic 时，
+//   不应该影响其他聚合 ID 的消息处理。
+//
+// ⚠️ Memory EventBus 限制:
+//   Memory EventBus 使用 at-most-once 语义，panic 会导致消息丢失（不重投）。
+//
+// 📋 测试逻辑:
+//   1. 创建 Memory EventBus 并订阅 Envelope topic
+//   2. Handler 在处理 aggregate-1 的 version=1 时触发 panic（panic 前不计数）
+//   3. 交错发送 3 个聚合（aggregate-1/2/3）各 5 个版本（共 15 条）
+//   4. 等待消息处理完成
+//
+// ✅ 检查项:
+//   - 应该接收 14 条消息（totalReceived = 14，aggregate-1 的 v1 丢失）
+//   - panic 应该只发生 1 次（panicCount = 1）
+//   - aggregate-2 和 aggregate-3 应该接收所有 5 个版本
+//   - aggregate-1 应该接收 4 个版本（v2-v5，v1 丢失）
+//   - 测试应该在 10 秒内完成
+//
+// 🔍 验证点:
+//   - Actor Pool 的故障隔离：aggregate-1 的 panic 不影响其他聚合
+//   - Memory 的 at-most-once 语义：panic 消息丢失不重投
+//   - 每个聚合使用独立的 Actor（通过一致性哈希路由）
+//
+// 📊 测试规模:
+//   - 聚合数量: 3
+//   - 每个聚合版本数: 5
+//   - 总消息数: 15
+//   - 预期接收: 14（aggregate-1 的 v1 丢失）
 func TestMemoryFaultIsolation(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
@@ -109,6 +139,33 @@ func TestMemoryFaultIsolation(t *testing.T) {
 }
 
 // TestMemoryFaultIsolationRaw 验证 Memory Subscribe (非 Envelope) 的 at-most-once 语义
+//
+// 🎯 测试目的:
+//   验证 Memory 的 Subscribe 方法（非 Envelope）使用 at-most-once 语义，
+//   当 Handler 发生 panic 时，消息不会被重投递，而是直接丢失。
+//
+// 📋 测试逻辑:
+//   1. 创建 Memory EventBus 并订阅 topic（使用 Subscribe，非 Envelope）
+//   2. Handler 在处理 aggregate-1 的 version=1 时触发 panic（panic 前不计数）
+//   3. 发送 3 个聚合各 5 个版本的原始消息（共 15 条）
+//   4. 等待消息处理完成
+//
+// ✅ 检查项:
+//   - 应该接收 14 条消息（totalReceived = 14，aggregate-1 的 v1 丢失）
+//   - panic 应该只发生 1 次（panicCount = 1）
+//   - panic 的消息不会被重投递
+//   - 测试应该在 10 秒内完成
+//
+// 🔍 验证点:
+//   - Memory Subscribe（非 Envelope）的 at-most-once 语义
+//   - panic 消息被丢失，不重投
+//   - 与 SubscribeEnvelope 的行为一致（Memory 都是 at-most-once）
+//
+// 📊 测试规模:
+//   - 聚合数量: 3
+//   - 每个聚合版本数: 5
+//   - 总消息数: 15
+//   - 预期接收: 14（aggregate-1 的 v1 丢失）
 func TestMemoryFaultIsolationRaw(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
@@ -194,6 +251,35 @@ func TestMemoryFaultIsolationRaw(t *testing.T) {
 }
 
 // TestMemoryConcurrentFaultRecovery 测试 Memory EventBus 并发故障恢复
+//
+// 🎯 测试目的:
+//   验证多个聚合 ID 并发发生 panic 时，每个聚合的 Actor 都能独立恢复，
+//   但由于 at-most-once 语义，每个聚合的 v1 消息会丢失。
+//
+// 📋 测试逻辑:
+//   1. 创建 Memory EventBus 并订阅 Envelope topic
+//   2. Handler 在处理每个聚合的 version=1 时都触发 panic（计数后 panic）
+//   3. 并发发送 5 个聚合各 3 个版本的消息（共 15 条）
+//   4. 等待消息处理完成
+//
+// ✅ 检查项:
+//   - 应该接收 15 条消息（totalReceived = 15，panic 消息先计数再 panic）
+//   - panic 应该发生 5 次（每个聚合 1 次）
+//   - 每个聚合应该接收 3 个版本（v1, v2, v3，v1 被计数但触发 panic）
+//   - 测试应该在合理时间内完成
+//
+// 🔍 验证点:
+//   - 多个 Actor 并发 panic 后都能恢复
+//   - 每个聚合使用独立的 Actor（故障隔离）
+//   - Memory 的特殊性：panic 发生在计数之后，消息被计数但不重投
+//   - 并发场景下的 Supervisor 稳定性
+//
+// 📊 测试规模:
+//   - 聚合数量: 5
+//   - 每个聚合版本数: 3
+//   - 总消息数: 15
+//   - 预期接收: 15（所有消息，panic 消息先计数再 panic）
+//   - 预期 panic 次数: 5
 func TestMemoryConcurrentFaultRecovery(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
@@ -275,6 +361,40 @@ func TestMemoryConcurrentFaultRecovery(t *testing.T) {
 }
 
 // TestMemoryFaultIsolationWithHighLoad 测试 Memory EventBus 高负载下的故障隔离
+//
+// 🎯 测试目的:
+//   验证在高负载场景下（100个聚合，1000条消息），单个聚合的 panic 不会影响其他 99 个聚合的处理。
+//
+// ⚠️ 特殊性:
+//   Memory EventBus 的 panic 发生在计数之后，因此 panic 消息会被计数但不重投。
+//
+// 📋 测试逻辄:
+//   1. 创建 Memory EventBus 并订阅 Envelope topic
+//   2. Handler 在处理 aggregate-fault 的 version=1 时触发 panic（计数后 panic）
+//   3. 发送 100 个聚合各 10 个版本的消息（共 1000 条）
+//   4. 等待消息处理完成
+//
+// ✅ 检查项:
+//   - 应该接收 1000 条消息（totalReceived = 1000，panic 消息被计数）
+//   - panic 应该发生 1 次（panicCount = 1）
+//   - 其他 99 个聚合不受影响
+//   - aggregate-fault 应该接收所有 10 个版本（包括 v1）
+//   - 测试应该在 30 秒内完成
+//
+// 🔍 验证点:
+//   - 高负载下的故障隔离能力
+//   - 单个 Actor 的 panic 不影响其他 99 个 Actor
+//   - Memory 的特殊性：panic 发生在计数之后
+//   - Actor Pool 在高并发下的稳定性
+//   - Supervisor 在高负载下的恢复能力
+//
+// 📊 测试规模:
+//   - 聚合数量: 100（1 个故障 + 99 个正常）
+//   - 每个聚合版本数: 10
+//   - 总消息数: 1000
+//   - 预期接收: 1000（panic 消息被计数）
+//   - 故障聚合: aggregate-fault
+//   - 正常聚合: aggregate-0 到 aggregate-98
 func TestMemoryFaultIsolationWithHighLoad(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()

@@ -13,7 +13,37 @@ import (
 )
 
 // TestNATSFaultIsolation 测试 NATS JetStream EventBus 故障隔离（单个 Actor 故障不影响其他 Actor）
-// ✅ NATS JetStream 支持 at-least-once 语义，panic 后会重投递消息
+//
+// 🎯 测试目的:
+//   验证 NATS JetStream EventBus 的 Actor Pool 故障隔离能力：当一个聚合 ID 的 Actor 发生 panic 时，
+//   不应该影响其他聚合 ID 的消息处理，并且 panic 的消息应该被重投递。
+//
+// ✅ NATS JetStream 语义:
+//   NATS JetStream 支持 at-least-once 语义，panic 后会重投递消息。
+//
+// 📋 测试逻辑:
+//   1. 创建 NATS EventBus 并订阅 Envelope topic
+//   2. Handler 在处理 aggregate-1 的 version=1 时触发 panic（只触发一次）
+//   3. 交错发送 3 个聚合（aggregate-1/2/3）各 5 个版本（共 15 条）
+//   4. 等待所有消息处理完成
+//
+// ✅ 检查项:
+//   - 所有 15 条消息都应该被接收（totalReceived = 15）
+//   - panic 应该发生至少 1 次（panicCount >= 1）
+//   - aggregate-2 和 aggregate-3 应该接收所有 5 个版本
+//   - aggregate-1 应该接收所有 5 个版本（包括重投递的 v1）
+//   - 测试应该在 30 秒内完成
+//
+// 🔍 验证点:
+//   - Actor Pool 的故障隔离：aggregate-1 的 panic 不影响其他聚合
+//   - NATS 的 at-least-once 语义：panic 消息被重投递
+//   - 每个聚合使用独立的 Actor（通过一致性哈希路由）
+//
+// 📊 测试规模:
+//   - 聚合数量: 3
+//   - 每个聚合版本数: 5
+//   - 总消息数: 15
+//   - 预期接收: 15（所有消息，包括重投递）
 func TestNATSFaultIsolation(t *testing.T) {
 	helper := NewTestHelper(t)
 	defer helper.Cleanup()
