@@ -21,8 +21,9 @@ type Config struct {
 	EventBus       *EventBusConfig       `mapstructure:"eventBus"`
 	Locker         *Locker               `mapstructure:"locker"`
 	Tenants        *Tenants              `mapstructure:"tenants"`
-	Storage        *StorageConfig        `mapstructure:"storage"`        // 共享存储配置（HTTP/FTP）
+	Storage        *StorageConfig        `mapstructure:"storage"`         // 共享存储配置（HTTP/FTP）
 	DuplicateCheck *DuplicateCheckConfig `mapstructure:"duplicate_check"` // 共享去重配置
+	FTP            *FTPConfig            `mapstructure:"ftp"`             // FTP 服务器配置
 }
 
 var AppConfig = &Config{
@@ -40,6 +41,7 @@ var AppConfig = &Config{
 	Tenants:        TenantsConfig,
 	Storage:        StorageConfigInstance,
 	DuplicateCheck: DuplicateCheckConfigInstance,
+	FTP:            FTPConfigInstance,
 }
 
 func Setup(configYml string) error {
