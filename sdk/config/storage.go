@@ -16,9 +16,11 @@ func (s *StorageConfig) GetStorageSiteNo() string {
 }
 
 // GetRootPath 获取根存储路径，有默认值
+// 这是 HTTP 和 FTP 共享的基础存储路径
+// FTP 上传会在此基础上加 /ftp 子目录
 func (s *StorageConfig) GetRootPath() string {
 	if s == nil || s.RootPath == "" {
-		return "./uploads/ftp"
+		return "./uploads"
 	}
 	return s.RootPath
 }

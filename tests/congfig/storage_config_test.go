@@ -49,12 +49,12 @@ func TestStorageConfig_GetRootPath(t *testing.T) {
 		{
 			name:     "nil 配置返回默认值",
 			config:   nil,
-			expected: "./uploads/ftp",
+			expected: "./uploads",
 		},
 		{
 			name:     "空字符串返回默认值",
 			config:   &config.StorageConfig{RootPath: ""},
-			expected: "./uploads/ftp",
+			expected: "./uploads",
 		},
 		{
 			name:     "返回配置的值",
