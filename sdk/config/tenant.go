@@ -1,14 +1,16 @@
 package config
 
+import (
+	"fmt"
+)
+
 var TenantsConfig = new(Tenants)
 
 // Tenants 统一的多租户配置
 type Tenants struct {
-	Enabled  bool                  `mapstructure:"enabled" yaml:"enabled"`   // 是否启用多租户模式
 	Resolver ResolverConfig        `mapstructure:"resolver" yaml:"resolver"` // 租户识别配置
 	Storage  *TenantsStorageConfig `mapstructure:"storage" yaml:"storage"`   // 多租户存储配置
-	Database *TenantsDatabaseConfig `mapstructure:"database" yaml:"database"` // 多租户数据库默认配置
-	List     []TenantConfig        `mapstructure:"list" yaml:"list"`         // 租户列表
+	Default  *DefaultTenantConfig  `mapstructure:"default" yaml:"default"`   // 默认租户配置
 }
 
 // ResolverConfig 租户识别配置（区分 HTTP 和 FTP）
@@ -32,144 +34,134 @@ type FTPResolverConfig struct {
 
 // TenantsStorageConfig 多租户存储配置
 type TenantsStorageConfig struct {
-	Directory            string                     `mapstructure:"directory" yaml:"directory"`                           // 租户存储目录名（默认: tenants）
-	CacheRefreshInterval int                        `mapstructure:"cache_refresh_interval" yaml:"cache_refresh_interval"` // 缓存刷新间隔（秒）
-	CreateOnLogin        bool                       `mapstructure:"create_on_login" yaml:"create_on_login"`               // 登录时自动创建目录
-	Defaults             StorageMultiTenantDefaults `mapstructure:"defaults" yaml:"defaults"`                             // 存储默认配置
+	Directory string `mapstructure:"directory" yaml:"directory"` // 租户存储目录名（默认: tenants）
 }
 
-// StorageMultiTenantDefaults 多租户存储默认配置
-type StorageMultiTenantDefaults struct {
+// DefaultTenantConfig 默认租户配置
+type DefaultTenantConfig struct {
+	Database *TenantDatabaseDetailConfig `mapstructure:"database" yaml:"database"` // 数据库配置
+	Domain   *TenantDomainConfig         `mapstructure:"domain" yaml:"domain"`     // 域名配置
+	FTP      *TenantFTPDetailConfig      `mapstructure:"ftp" yaml:"ftp"`           // FTP 配置
+	Storage  *TenantStorageDetailConfig  `mapstructure:"storage" yaml:"storage"`   // 存储配置
+}
+
+// TenantDatabaseDetailConfig 详细的数据库配置
+type TenantDatabaseDetailConfig struct {
+	Driver          string `mapstructure:"driver" yaml:"driver"`                         // 数据库驱动: postgres | mysql
+	Host            string `mapstructure:"host" yaml:"host"`                             // 数据库主机
+	Port            int    `mapstructure:"port" yaml:"port"`                             // 数据库端口
+	Database        string `mapstructure:"database" yaml:"database"`                     // 数据库名称
+	Username        string `mapstructure:"username" yaml:"username"`                     // 数据库用户
+	Password        string `mapstructure:"password" yaml:"password"`                     // 数据库密码
+	SSLMode         string `mapstructure:"sslmode" yaml:"sslmode"`                       // SSL 模式: disable | require | verify-ca | verify-full
+	MaxOpenConns    int    `mapstructure:"max_open_conns" yaml:"max_open_conns"`         // 最大打开连接数
+	MaxIdleConns    int    `mapstructure:"max_idle_conns" yaml:"max_idle_conns"`         // 最大空闲连接数
+	ConnMaxIdleTime int    `mapstructure:"conn_max_idle_time" yaml:"conn_max_idle_time"` // 连接最大空闲时间（秒）
+	ConnMaxLifeTime int    `mapstructure:"conn_max_life_time" yaml:"conn_max_life_time"` // 连接最大生命周期（秒）
+	ConnectTimeout  int    `mapstructure:"connect_timeout" yaml:"connect_timeout"`       // 连接超时（秒）
+	ReadTimeout     int    `mapstructure:"read_timeout" yaml:"read_timeout"`             // 读超时（秒）
+	WriteTimeout    int    `mapstructure:"write_timeout" yaml:"write_timeout"`           // 写超时（秒）
+}
+
+// TenantDomainConfig 域名配置
+type TenantDomainConfig struct {
+	Primary  string   `mapstructure:"primary" yaml:"primary"`   // 主域名（必填）
+	Aliases  []string `mapstructure:"aliases" yaml:"aliases"`   // 备用域名（可选）
+	Internal string   `mapstructure:"internal" yaml:"internal"` // 内部调用域名（可选）
+}
+
+// TenantFTPDetailConfig 详细的 FTP 配置
+type TenantFTPDetailConfig struct {
+	Username        string `mapstructure:"username" yaml:"username"`                 // FTP 用户名
+	InitialPassword string `mapstructure:"initial_password" yaml:"initial_password"` // 初始密码（首次创建时使用）
+}
+
+// TenantStorageDetailConfig 详细的存储配置
+type TenantStorageDetailConfig struct {
 	UploadQuotaGB        int `mapstructure:"upload_quota_gb" yaml:"upload_quota_gb"`               // 上传配额（GB）
 	MaxFileSizeMB        int `mapstructure:"max_file_size_mb" yaml:"max_file_size_mb"`             // 单文件最大大小（MB）
 	MaxConcurrentUploads int `mapstructure:"max_concurrent_uploads" yaml:"max_concurrent_uploads"` // 最大并发上传数
-}
-
-// TenantsDatabaseConfig 多租户数据库默认配置
-type TenantsDatabaseConfig struct {
-	Defaults DatabaseDefaults `mapstructure:"defaults" yaml:"defaults"` // 数据库连接默认配置
-}
-
-// DatabaseDefaults 数据库连接默认值
-type DatabaseDefaults struct {
-	Driver          string `mapstructure:"driver" yaml:"driver"`
-	MaxOpenConns    int    `mapstructure:"maxOpenConns" yaml:"maxOpenConns"`
-	MaxIdleConns    int    `mapstructure:"maxIdleConns" yaml:"maxIdleConns"`
-	ConnMaxIdleTime int    `mapstructure:"connMaxIdleTime" yaml:"connMaxIdleTime"` // 秒
-	ConnMaxLifeTime int    `mapstructure:"connMaxLifeTime" yaml:"connMaxLifeTime"` // 秒
-}
-
-// TenantConfig 单个租户配置
-type TenantConfig struct {
-	ID       string               `mapstructure:"id" yaml:"id"`             // 租户 ID，唯一标识
-	Name     string               `mapstructure:"name" yaml:"name"`         // 租户名称
-	Active   bool                 `mapstructure:"active" yaml:"active"`     // 是否激活
-	HTTP     TenantHTTPConfig     `mapstructure:"http" yaml:"http"`         // HTTP 识别配置
-	FTP      TenantFTPConfig      `mapstructure:"ftp" yaml:"ftp"`           // FTP 识别配置
-	Database *TenantDatabaseConfig `mapstructure:"database" yaml:"database"` // 数据库配置（可选）
-	Storage  *TenantStorageConfig `mapstructure:"storage" yaml:"storage"`   // 存储配置（可选）
-}
-
-// TenantHTTPConfig 租户 HTTP 识别配置
-type TenantHTTPConfig struct {
-	PrimaryDomain  string   `mapstructure:"primary_domain" yaml:"primary_domain"`   // 主域名
-	AllowedDomains []string `mapstructure:"allowed_domains" yaml:"allowed_domains"` // 允许的域名列表
-}
-
-// TenantFTPConfig 租户 FTP 识别配置
-type TenantFTPConfig struct {
-	Username     string `mapstructure:"username" yaml:"username"`          // FTP 用户名
-	PasswordHash string `mapstructure:"password_hash" yaml:"password_hash"` // FTP 密码哈希
-}
-
-// TenantDatabaseConfig 租户特定的数据库配置
-type TenantDatabaseConfig struct {
-	Driver          string `mapstructure:"driver" yaml:"driver"`
-	Source          string `mapstructure:"source" yaml:"source"`
-	MaxOpenConns    int    `mapstructure:"maxOpenConns" yaml:"maxOpenConns"`
-	MaxIdleConns    int    `mapstructure:"maxIdleConns" yaml:"maxIdleConns"`
-	ConnMaxIdleTime int    `mapstructure:"connMaxIdleTime" yaml:"connMaxIdleTime"`
-	ConnMaxLifeTime int    `mapstructure:"connMaxLifeTime" yaml:"connMaxLifeTime"`
-}
-
-// TenantStorageConfig 租户特定的存储配置
-type TenantStorageConfig struct {
-	UploadQuotaGB        int `mapstructure:"upload_quota_gb" yaml:"upload_quota_gb"`
-	MaxFileSizeMB        int `mapstructure:"max_file_size_mb" yaml:"max_file_size_mb"`
-	MaxConcurrentUploads int `mapstructure:"max_concurrent_uploads" yaml:"max_concurrent_uploads"`
 }
 
 // ============================================================
 // 辅助方法
 // ============================================================
 
+// GetResolver 获取租户识别配置
+func (tc *Tenants) GetResolver() *ResolverConfig {
+	if tc == nil {
+		return nil
+	}
+	return &tc.Resolver
+}
+
+// GetDefault 获取默认租户配置
+func (tc *Tenants) GetDefault() *DefaultTenantConfig {
+	return tc.GetDefaultTenantConfig()
+}
+
+// GetHTTP 获取 HTTP 租户识别配置
+func (rc *ResolverConfig) GetHTTP() *HTTPResolverConfig {
+	if rc == nil {
+		return nil
+	}
+	return &rc.HTTP
+}
+
+// GetFTP 获取 FTP 租户识别配置
+func (rc *ResolverConfig) GetFTP() *FTPResolverConfig {
+	if rc == nil {
+		return nil
+	}
+	return &rc.FTP
+}
+
+// GetType 获取 HTTP 租户识别方式
+func (hrc *HTTPResolverConfig) GetType() string {
+	if hrc == nil {
+		return ""
+	}
+	return hrc.Type
+}
+
+// GetHeaderName 获取 Header 名称（当 type 为 header 时使用）
+func (hrc *HTTPResolverConfig) GetHeaderName() string {
+	if hrc == nil {
+		return ""
+	}
+	return hrc.HeaderName
+}
+
+// GetQueryParam 获取查询参数名（当 type 为 query 时使用）
+func (hrc *HTTPResolverConfig) GetQueryParam() string {
+	if hrc == nil {
+		return ""
+	}
+	return hrc.QueryParam
+}
+
+// GetPathIndex 获取路径索引（当 type 为 path 时使用）
+func (hrc *HTTPResolverConfig) GetPathIndex() int {
+	if hrc == nil {
+		return 0
+	}
+	return hrc.PathIndex
+}
+
+// GetType 获取 FTP 租户识别方式
+func (frc *FTPResolverConfig) GetType() string {
+	if frc == nil {
+		return ""
+	}
+	return frc.Type
+}
+
 // GetTenantsStorageConfig 获取多租户存储配置
 func (tc *Tenants) GetTenantsStorageConfig() *TenantsStorageConfig {
-	if tc == nil || !tc.Enabled || tc.Storage == nil {
+	if tc == nil || tc.Storage == nil {
 		return nil
 	}
 	return tc.Storage
-}
-
-// GetTenantByID 根据 ID 获取租户配置
-func (tc *Tenants) GetTenantByID(id string) *TenantConfig {
-	if tc == nil {
-		return nil
-	}
-	for i := range tc.List {
-		if tc.List[i].ID == id {
-			return &tc.List[i]
-		}
-	}
-	return nil
-}
-
-// GetTenantByDomain 根据域名获取租户配置
-func (tc *Tenants) GetTenantByDomain(domain string) *TenantConfig {
-	if tc == nil {
-		return nil
-	}
-	for i := range tc.List {
-		t := &tc.List[i]
-		// 检查主域名
-		if t.HTTP.PrimaryDomain == domain {
-			return t
-		}
-		// 检查允许的域名列表
-		for _, d := range t.HTTP.AllowedDomains {
-			if d == domain {
-				return t
-			}
-		}
-	}
-	return nil
-}
-
-// GetTenantByFtpUsername 根据 FTP 用户名获取租户配置
-func (tc *Tenants) GetTenantByFtpUsername(username string) *TenantConfig {
-	if tc == nil {
-		return nil
-	}
-	for i := range tc.List {
-		if tc.List[i].FTP.Username == username {
-			return &tc.List[i]
-		}
-	}
-	return nil
-}
-
-// GetActiveTenants 获取所有激活的租户
-func (tc *Tenants) GetActiveTenants() []TenantConfig {
-	if tc == nil {
-		return nil
-	}
-	var active []TenantConfig
-	for _, t := range tc.List {
-		if t.Active {
-			active = append(active, t)
-		}
-	}
-	return active
 }
 
 // GetStorageDirectory 获取租户存储目录名，默认 "tenants"
@@ -180,46 +172,251 @@ func (tc *TenantsStorageConfig) GetStorageDirectory() string {
 	return tc.Directory
 }
 
-// GetCacheRefreshInterval 获取缓存刷新间隔，默认 300 秒
-func (tc *TenantsStorageConfig) GetCacheRefreshInterval() int {
-	if tc == nil || tc.CacheRefreshInterval <= 0 {
-		return 300
+// GetDefaultTenantConfig 获取默认租户配置
+func (tc *Tenants) GetDefaultTenantConfig() *DefaultTenantConfig {
+	if tc == nil || tc.Default == nil {
+		return nil
 	}
-	return tc.CacheRefreshInterval
+	return tc.Default
 }
 
-// GetDefaultUploadQuotaGB 获取默认上传配额，默认 100 GB
-func (tc *TenantsStorageConfig) GetDefaultUploadQuotaGB() int {
-	if tc == nil || tc.Defaults.UploadQuotaGB <= 0 {
-		return 100
+// GetDefaultTenantDatabase 获取默认租户数据库配置
+func (dtc *DefaultTenantConfig) GetDefaultTenantDatabase() *TenantDatabaseDetailConfig {
+	if dtc == nil || dtc.Database == nil {
+		return nil
 	}
-	return tc.Defaults.UploadQuotaGB
+	return dtc.Database
 }
 
-// GetDefaultMaxFileSizeMB 获取默认单文件最大大小，默认 500 MB
-func (tc *TenantsStorageConfig) GetDefaultMaxFileSizeMB() int {
-	if tc == nil || tc.Defaults.MaxFileSizeMB <= 0 {
-		return 500
+// GetDefaultTenantDomain 获取默认租户域名配置
+func (dtc *DefaultTenantConfig) GetDefaultTenantDomain() *TenantDomainConfig {
+	if dtc == nil || dtc.Domain == nil {
+		return nil
 	}
-	return tc.Defaults.MaxFileSizeMB
+	return dtc.Domain
 }
 
-// GetDefaultMaxConcurrentUploads 获取默认最大并发上传数，默认 10
-func (tc *TenantsStorageConfig) GetDefaultMaxConcurrentUploads() int {
-	if tc == nil || tc.Defaults.MaxConcurrentUploads <= 0 {
-		return 10
+// GetDefaultTenantFTP 获取默认租户 FTP 配置
+func (dtc *DefaultTenantConfig) GetDefaultTenantFTP() *TenantFTPDetailConfig {
+	if dtc == nil || dtc.FTP == nil {
+		return nil
 	}
-	return tc.Defaults.MaxConcurrentUploads
+	return dtc.FTP
 }
 
-// GetAllDomains 获取租户的所有域名（主域名 + 允许的域名）
-func (t *TenantConfig) GetAllDomains() []string {
+// GetDefaultTenantStorage 获取默认租户存储配置
+func (dtc *DefaultTenantConfig) GetDefaultTenantStorage() *TenantStorageDetailConfig {
+	if dtc == nil || dtc.Storage == nil {
+		return nil
+	}
+	return dtc.Storage
+}
+
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseConnectionString() string {
+	if dbConfig == nil {
+		return ""
+	}
+
+	portStr := fmt.Sprintf("%d", dbConfig.Port)
+
+	if dbConfig.Driver == "postgres" {
+		return "postgres://" + dbConfig.Username + ":" + dbConfig.Password + "@" +
+			dbConfig.Host + ":" + portStr + "/" + dbConfig.Database +
+			"?sslmode=" + dbConfig.SSLMode
+	}
+
+	// MySQL 连接字符串
+	return dbConfig.Username + ":" + dbConfig.Password + "@tcp(" + dbConfig.Host + ":" +
+		portStr + ")/" + dbConfig.Database
+}
+
+// GetDatabaseDriver 获取数据库驱动
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseDriver() string {
+	if dbConfig == nil {
+		return ""
+	}
+	return dbConfig.Driver
+}
+
+// GetDatabaseMaxOpenConns 获取最大连接数
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseMaxOpenConns() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.MaxOpenConns
+}
+
+// GetDatabaseMaxIdleConns 获取最大空闲连接数
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseMaxIdleConns() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.MaxIdleConns
+}
+
+// GetDatabaseConnMaxIdleTime 获取连接最大空闲时间（秒）
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseConnMaxIdleTime() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.ConnMaxIdleTime
+}
+
+// GetDatabaseConnMaxLifeTime 获取连接最大存活时间（秒）
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseConnMaxLifeTime() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.ConnMaxLifeTime
+}
+
+// GetDatabaseConnectTimeout 获取连接超时（秒）
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseConnectTimeout() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.ConnectTimeout
+}
+
+// GetDatabaseReadTimeout 获取读超时（秒）
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseReadTimeout() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.ReadTimeout
+}
+
+// GetDatabaseWriteTimeout 获取写超时（秒）
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseWriteTimeout() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.WriteTimeout
+}
+
+// GetDatabaseHost 获取数据库主机
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseHost() string {
+	if dbConfig == nil {
+		return ""
+	}
+	return dbConfig.Host
+}
+
+// GetDatabasePort 获取数据库端口
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabasePort() int {
+	if dbConfig == nil {
+		return 0
+	}
+	return dbConfig.Port
+}
+
+// GetDatabaseName 获取数据库名称
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseName() string {
+	if dbConfig == nil {
+		return ""
+	}
+	return dbConfig.Database
+}
+
+// GetDatabaseUsername 获取数据库用户名
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseUsername() string {
+	if dbConfig == nil {
+		return ""
+	}
+	return dbConfig.Username
+}
+
+// GetDatabasePassword 获取数据库密码
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabasePassword() string {
+	if dbConfig == nil {
+		return ""
+	}
+	return dbConfig.Password
+}
+
+// GetDatabaseSSLMode 获取 SSL 模式
+func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseSSLMode() string {
+	if dbConfig == nil {
+		return ""
+	}
+	return dbConfig.SSLMode
+}
+
+// GetPrimaryDomain 获取主域名
+func (domainConfig *TenantDomainConfig) GetPrimaryDomain() string {
+	if domainConfig == nil || domainConfig.Primary == "" {
+		return ""
+	}
+	return domainConfig.Primary
+}
+
+// GetAliases 获取域名别名列表
+func (domainConfig *TenantDomainConfig) GetAliases() []string {
+	if domainConfig == nil {
+		return nil
+	}
+	return domainConfig.Aliases
+}
+
+// GetAllDomainAliases 获取所有域名别名（包括主域名）
+func (domainConfig *TenantDomainConfig) GetAllDomainAliases() []string {
+	if domainConfig == nil {
+		return nil
+	}
 	domains := make([]string, 0)
-	if t.HTTP.PrimaryDomain != "" {
-		domains = append(domains, t.HTTP.PrimaryDomain)
+	if domainConfig.Primary != "" {
+		domains = append(domains, domainConfig.Primary)
 	}
-	domains = append(domains, t.HTTP.AllowedDomains...)
+	domains = append(domains, domainConfig.Aliases...)
 	return domains
+}
+
+// GetInternalDomain 获取内部调用域名
+func (domainConfig *TenantDomainConfig) GetInternalDomain() string {
+	if domainConfig == nil || domainConfig.Internal == "" {
+		return ""
+	}
+	return domainConfig.Internal
+}
+
+// GetFTPUsername 获取 FTP 用户名
+func (ftpConfig *TenantFTPDetailConfig) GetFTPUsername() string {
+	if ftpConfig == nil || ftpConfig.Username == "" {
+		return ""
+	}
+	return ftpConfig.Username
+}
+
+// GetFTPInitialPassword 获取 FTP 初始密码
+func (ftpConfig *TenantFTPDetailConfig) GetFTPInitialPassword() string {
+	if ftpConfig == nil || ftpConfig.InitialPassword == "" {
+		return ""
+	}
+	return ftpConfig.InitialPassword
+}
+
+// GetStorageUploadQuotaGB 获取上传配额（GB）
+func (storageConfig *TenantStorageDetailConfig) GetStorageUploadQuotaGB() int {
+	if storageConfig == nil || storageConfig.UploadQuotaGB <= 0 {
+		return 1000
+	}
+	return storageConfig.UploadQuotaGB
+}
+
+// GetStorageMaxFileSizeMB 获取单文件最大大小（MB）
+func (storageConfig *TenantStorageDetailConfig) GetStorageMaxFileSizeMB() int {
+	if storageConfig == nil || storageConfig.MaxFileSizeMB <= 0 {
+		return 2048
+	}
+	return storageConfig.MaxFileSizeMB
+}
+
+// GetStorageMaxConcurrentUploads 获取最大并发上传数
+func (storageConfig *TenantStorageDetailConfig) GetStorageMaxConcurrentUploads() int {
+	if storageConfig == nil || storageConfig.MaxConcurrentUploads <= 0 {
+		return 20
+	}
+	return storageConfig.MaxConcurrentUploads
 }
 
 // 配置举例
@@ -242,84 +439,42 @@ tenants:
   # 多租户存储配置
   storage:
     directory: "tenants"  # 租户存储目录名（实际路径：./uploads/tenants/<tenant_id>）
-    cache_refresh_interval: 300  # 缓存刷新间隔（秒）
-    create_on_login: true  # 登录时自动创建租户目录
-    defaults:
-      upload_quota_gb: 100  # 默认上传配额（GB）
-      max_file_size_mb: 500  # 默认单文件最大大小（MB）
-      max_concurrent_uploads: 10  # 默认最大并发上传数
 
-  # 多租户数据库默认配置
-  database:
-    defaults:
-      driver: "mysql"
-      maxOpenConns: 10
-      maxIdleConns: 5
-      connMaxIdleTime: 60  # 秒
-      connMaxLifeTime: 3600  # 秒
+  # 默认租户配置
+  default:
+    # 数据库配置 - 默认租户的专属数据库
+    database:
+      driver: "postgres"
+      host: "postgres-tenant-service"
+      port: 5432
+      database: "tenant-servicedb"
+      username: "tenant"
+      password: "password123"
+      sslmode: "disable"
+      max_open_conns: 50
+      max_idle_conns: 10
+      conn_max_idle_time: 300  # 秒
+      conn_max_life_time: 3600  # 秒
+      connect_timeout: 10  # 秒
+      read_timeout: 30  # 秒
+      write_timeout: 30  # 秒
 
-  # 租户列表
-  list:
-    # 租户 1：主租户
-    - id: "tenant_primary"
-      name: "Primary Organization"
-      active: true
-      http:
-        primary_domain: "app.example.com"
-        allowed_domains:
-          - "www.example.com"
-          - "api.example.com"
-      ftp:
-        username: "ftp_primary"
-        password_hash: "$2b$12$..."
-      database:
-        driver: "mysql"
-        source: "user:password@tcp(db.example.com:3306)/primary_db"
-        maxOpenConns: 15
-      storage:
-        upload_quota_gb: 200
-        max_file_size_mb: 1000
-        max_concurrent_uploads: 20
+    # 域名配置 - 统一域名方案
+    domain:
+      primary: "app.example.com"  # 主域名（必填）
+      aliases:  # 备用域名（可选）
+        - "www.example.com"
+      internal: "app.internal"  # 内部调用域名（可选）
 
-    # 租户 2：次租户
-    - id: "tenant_secondary"
-      name: "Secondary Business Unit"
-      active: true
-      http:
-        primary_domain: "secondary.example.com"
-        allowed_domains:
-          - "secondary-api.example.com"
-      ftp:
-        username: "ftp_secondary"
-        password_hash: "$2b$12$..."
-      database:
-        driver: "mysql"
-        source: "user:password@tcp(db.example.com:3306)/secondary_db"
-      storage:
-        upload_quota_gb: 150
+    # FTP 配置 - 默认租户的 FTP 账号
+    ftp:
+      username: "default_ftp"  # FTP 用户名
+      initial_password: "Default@123456"  # 初始密码（首次创建时使用）
 
-    # 租户 3：特殊租户（使用 PostgreSQL）
-    - id: "tenant_special"
-      name: "Special Division"
-      active: true
-      http:
-        primary_domain: "special.example.com"
-      ftp:
-        username: "ftp_special"
-        password_hash: "$2b$12$..."
-      database:
-        driver: "postgres"
-        source: "postgres://user:password@db.example.com:5432/special_db"
+    # 存储配置 - 默认租户的存储限制
+    storage:
+      upload_quota_gb: 1000  # 上传配额（GB）
+      max_file_size_mb: 2048  # 单文件最大大小（MB）
+      max_concurrent_uploads: 20  # 最大并发上传数
 
-    # 租户 4：禁用的租户
-    - id: "tenant_inactive"
-      name: "Inactive Customer"
-      active: false
-      http:
-        primary_domain: "inactive.example.com"
-      ftp:
-        username: "ftp_inactive"
-        password_hash: "$2b$12$..."
-      database:
-        source: "user:password@tcp(db.example.com:3306)/inactive_db"
 */

@@ -1,0 +1,237 @@
+# ============================================
+# 租户服务配置文件
+# ============================================
+# 说明：
+# 1. 系统采用多租户架构设计
+# 2. 当只有默认租户(default)存在时,等同于单租户模式
+# 3. 租户的业务元数据(名称、状态、配额等)存储在数据库中
+# 4. 环境相关的配置(数据库连接、域名等)通过本文件管理
+# 5. 支持环境变量覆盖，格式: ${ENV_VAR:default_value}
+# ============================================
+
+# ============================================
+# 多租户配置
+# ============================================
+tenants:
+  # ============================================
+  # 租户识别配置
+  # ============================================
+  resolver:
+    # HTTP请求租户识别方式
+    http:
+      type: "host"                    # 识别类型: host, header, query, path
+      headerName: "X-Tenant-ID"       # type=header 时使用
+      queryParam: "tenant"            # type=query 时使用
+      pathIndex: 0                    # type=path 时使用
+    
+    # FTP请求租户识别方式
+    ftp:
+      type: "username"                # 识别类型: username, password
+
+  # ============================================
+  # 多租户存储配置
+  # ============================================
+  storage:
+    directory: "tenants"              # 租户存储目录 (实际路径: ./uploads/tenants/<tenant_id>)
+    
+  # ============================================
+  # 默认租户配置 (系统内置租户)
+  # ============================================
+  # 说明：
+  # - 默认租户是系统内置的特殊租户,标记为系统租户
+  # - 当只有默认租户存在时,系统运行在"单租户模式"
+  # - 默认租户的配置可以覆盖上面的 defaults 配置
+  # ============================================
+  default:
+    # 租户基本信息
+    # code: "default"  # 在租户元数据中初始化，而非配置文件
+    # name: "默认租户"  # 在租户元数据中初始化，而非配置文件
+    # is_system: true  # 系统租户标识,禁止删除，直接在租户元数据中初始化
+    
+    # ============================================
+    # 数据库配置 - 默认租户的专属数据库
+    # ============================================
+    database:
+      # 数据库驱动: postgres | mysql
+      driver: ${DEFAULT_TENANT_DB_DRIVER:postgres}
+      
+      # 数据库连接信息(拆分字段便于管理)
+      host: ${DEFAULT_TENANT_DB_HOST:postgres-tenant-service}
+      port: ${DEFAULT_TENANT_DB_PORT:5432}
+      database: ${DEFAULT_TENANT_DB_NAME:tenant-servicedb}
+      username: ${DEFAULT_TENANT_DB_USER:tenant}
+      password: ${DEFAULT_TENANT_DB_PASSWORD}                    # 生产环境必须通过环境变量注入,不设置默认值
+      
+      # SSL/TLS配置
+      sslmode: ${DEFAULT_TENANT_DB_SSLMODE:disable}             # disable | require | verify-ca | verify-full
+      
+      # 连接池配置，必须显式（框架默认值常翻车）
+      max_open_conns: ${DEFAULT_TENANT_DB_MAX_OPEN_CONNS:50}
+      max_idle_conns: ${DEFAULT_TENANT_DB_MAX_IDLE_CONNS:10}
+      conn_max_idle_time: ${DEFAULT_TENANT_DB_CONN_MAX_IDLE_TIME:300}  # 秒
+      conn_max_life_time: ${DEFAULT_TENANT_DB_CONN_MAX_LIFE_TIME:3600} # 秒
+      
+      # 连接超时配置
+      connect_timeout: ${DEFAULT_TENANT_DB_CONNECT_TIMEOUT:10}  # 秒
+      read_timeout: ${DEFAULT_TENANT_DB_READ_TIMEOUT:30}        # 秒
+      write_timeout: ${DEFAULT_TENANT_DB_WRITE_TIMEOUT:30}      # 秒
+
+    # ============================================
+    # 域名配置 - 统一域名方案
+    # ============================================
+    # 说明：
+    # 1. 推荐使用统一域名方案(前后端共用一个域名)
+    # 2. 通过Nginx路由区分: / → 前端, /api/* → 后端API
+    # 3. 优势: 无需CORS、Cookie管理简单、SSL证书成本低
+    # ============================================
+    domain:
+      primary: ${TENANT_DOMAIN:app.example.com}           # 主域名(必填)
+      aliases:                                             # 备用域名(可选,需在SSL证书中包含)
+        - ${TENANT_DOMAIN_ALIAS:www.example.com}
+      internal: ${TENANT_INTERNAL_DOMAIN:app.internal}    # 内部调用域名(不走公网)
+
+    # ============================================
+    # FTP配置 - 默认租户的FTP账号
+    # ============================================
+    ftp:
+      username: ${DEFAULT_TENANT_FTP_USERNAME:default_ftp}              # FTP用户名
+      initial_password: ${DEFAULT_TENANT_FTP_PASSWORD:Default@123456}   # 初始密码(首次创建时使用)
+      # 注意: 生产环境建议使用强密码,并通过环境变量注入
+      # server_host: ${FTP_SERVER_HOST:ftp.example.com}                # FTP服务器地址(可选)
+      # server_port: ${FTP_SERVER_PORT:21}                              # FTP服务器端口(可选)
+
+    # ============================================
+    # 存储配置 - 默认租户的存储限制
+    # ============================================
+    # 注意: 这些配置会在初始化时写入数据库,后续可通过API动态调整
+    # 默认租户的配额覆盖了上面 tenants.storage.defaults 的配置
+    # 这个配置有点矛盾，是直接初始化数据库就写入，还是读配置文件写入数据库更合适？
+    storage:
+      upload_quota_gb: ${DEFAULT_TENANT_STORAGE_QUOTA:1000}             # 上传配额(GB)
+      max_file_size_mb: ${DEFAULT_TENANT_MAX_FILE_SIZE:2048}            # 单文件最大大小(MB)
+      max_concurrent_uploads: ${DEFAULT_TENANT_MAX_CONCURRENT_UPLOADS:20}  # 最大并发上传数
+
+
+
+# ============================================
+# 环境变量配置示例
+# ============================================
+
+# 开发环境 (.env.development):
+#   # 数据库配置
+#   DEFAULT_TENANT_DB_DRIVER=postgres
+#   DEFAULT_TENANT_DB_HOST=localhost
+#   DEFAULT_TENANT_DB_PORT=5432
+#   DEFAULT_TENANT_DB_NAME=tenant-servicedb
+#   DEFAULT_TENANT_DB_USER=tenant
+#   DEFAULT_TENANT_DB_PASSWORD=dev123456
+#   DEFAULT_TENANT_DB_SSLMODE=disable
+#   DEFAULT_TENANT_DB_MAX_OPEN_CONNS=10
+#   DEFAULT_TENANT_DB_MAX_IDLE_CONNS=2
+#   DEFAULT_TENANT_DB_CONNECT_TIMEOUT=10
+#   DEFAULT_TENANT_DB_READ_TIMEOUT=30
+#   DEFAULT_TENANT_DB_WRITE_TIMEOUT=30
+#
+#   # 域名配置
+#   TENANT_DOMAIN=localhost
+#   TENANT_API_DOMAIN=localhost/api
+#   TENANT_INTERNAL_DOMAIN=app.internal
+#
+#   # FTP配置
+#   DEFAULT_TENANT_FTP_USERNAME=default_ftp
+#   DEFAULT_TENANT_FTP_PASSWORD=DevPassword@123
+#
+#   # 存储配置
+#   DEFAULT_TENANT_STORAGE_QUOTA=100
+#   DEFAULT_TENANT_MAX_FILE_SIZE=512
+#   DEFAULT_TENANT_MAX_CONCURRENT_UPLOADS=5
+
+# 测试环境 (.env.test):
+#   # 数据库配置
+#   DEFAULT_TENANT_DB_DRIVER=postgres
+#   DEFAULT_TENANT_DB_HOST=postgres-test
+#   DEFAULT_TENANT_DB_PORT=5432
+#   DEFAULT_TENANT_DB_NAME=tenant-servicedb-test
+#   DEFAULT_TENANT_DB_USER=tenant
+#   DEFAULT_TENANT_DB_PASSWORD=test123456
+#   DEFAULT_TENANT_DB_SSLMODE=disable
+#   DEFAULT_TENANT_DB_MAX_OPEN_CONNS=50
+#   DEFAULT_TENANT_DB_MAX_IDLE_CONNS=10
+#
+#   # 域名配置
+#   TENANT_DOMAIN=test.example.com
+#   TENANT_DOMAIN_ALIAS=www-test.example.com
+#   TENANT_API_DOMAIN=test.example.com/api
+#   TENANT_INTERNAL_DOMAIN=app-test.internal
+#
+#   # FTP配置
+#   DEFAULT_TENANT_FTP_USERNAME=test_ftp
+#   DEFAULT_TENANT_FTP_PASSWORD=TestPassword@123
+#
+#   # 存储配置
+#   DEFAULT_TENANT_STORAGE_QUOTA=500
+#   DEFAULT_TENANT_MAX_FILE_SIZE=1024
+#   DEFAULT_TENANT_MAX_CONCURRENT_UPLOADS=10
+
+# 生产环境 (.env.production):
+#   # 数据库配置 - 敏感信息必须通过密钥管理系统注入
+#   DEFAULT_TENANT_DB_DRIVER=postgres
+#   DEFAULT_TENANT_DB_HOST=postgres-prod.internal.example.com
+#   DEFAULT_TENANT_DB_PORT=5432
+#   DEFAULT_TENANT_DB_NAME=tenant-servicedb-prod
+#   DEFAULT_TENANT_DB_USER=tenant_prod
+#   DEFAULT_TENANT_DB_PASSWORD=${SECRET_DB_PASSWORD}              # 从密钥管理系统获取
+#   DEFAULT_TENANT_DB_SSLMODE=require
+#   DEFAULT_TENANT_DB_MAX_OPEN_CONNS=100
+#   DEFAULT_TENANT_DB_MAX_IDLE_CONNS=20
+#   DEFAULT_TENANT_DB_CONNECT_TIMEOUT=10
+#   DEFAULT_TENANT_DB_READ_TIMEOUT=30
+#   DEFAULT_TENANT_DB_WRITE_TIMEOUT=30
+#
+#   # 域名配置
+#   TENANT_DOMAIN=app.example.com
+#   TENANT_DOMAIN_ALIAS=www.example.com
+#   TENANT_API_DOMAIN=app.example.com/api
+#   TENANT_INTERNAL_DOMAIN=app.internal                           # 内部服务间调用
+#
+#   # FTP配置 - 敏感信息必须通过密钥管理系统注入
+#   DEFAULT_TENANT_FTP_USERNAME=prod_default_ftp
+#   DEFAULT_TENANT_FTP_PASSWORD=${SECRET_FTP_PASSWORD}            # 从密钥管理系统获取
+#
+#   # 存储配置
+#   DEFAULT_TENANT_STORAGE_QUOTA=5000
+#   DEFAULT_TENANT_MAX_FILE_SIZE=5120
+#   DEFAULT_TENANT_MAX_CONCURRENT_UPLOADS=50
+
+# ============================================
+# 环境变量说明
+# ============================================
+# 数据库相关:
+#   DEFAULT_TENANT_DB_DRIVER       - 数据库驱动(postgres|mysql)
+#   DEFAULT_TENANT_DB_HOST         - 数据库主机
+#   DEFAULT_TENANT_DB_PORT         - 数据库端口
+#   DEFAULT_TENANT_DB_NAME         - 数据库名称
+#   DEFAULT_TENANT_DB_USER         - 数据库用户
+#   DEFAULT_TENANT_DB_PASSWORD     - 数据库密码(生产环境必须设置)
+#   DEFAULT_TENANT_DB_SSLMODE      - SSL模式(disable|require|verify-ca|verify-full)
+#   DEFAULT_TENANT_DB_MAX_OPEN_CONNS    - 最大打开连接数
+#   DEFAULT_TENANT_DB_MAX_IDLE_CONNS    - 最大空闲连接数
+#   DEFAULT_TENANT_DB_CONNECT_TIMEOUT   - 连接超时(秒)
+#   DEFAULT_TENANT_DB_READ_TIMEOUT      - 读超时(秒)
+#   DEFAULT_TENANT_DB_WRITE_TIMEOUT     - 写超时(秒)
+#
+# 域名相关:
+#   TENANT_DOMAIN              - 主域名(必填)
+#   TENANT_DOMAIN_ALIAS        - 备用域名(可选)
+#   TENANT_API_DOMAIN          - API域名或路径(可选,默认为${TENANT_DOMAIN}/api)
+#   TENANT_INTERNAL_DOMAIN     - 内部调用域名(可选,用于服务间通信)
+#
+# FTP相关:
+#   DEFAULT_TENANT_FTP_USERNAME       - FTP用户名
+#   DEFAULT_TENANT_FTP_PASSWORD       - FTP初始密码(生产环境必须设置)
+#
+# 存储相关:
+#   DEFAULT_TENANT_STORAGE_QUOTA      - 上传配额(GB)
+#   DEFAULT_TENANT_MAX_FILE_SIZE      - 单文件最大大小(MB)
+#   DEFAULT_TENANT_MAX_CONCURRENT_UPLOADS - 最大并发上传数
+# ============================================
