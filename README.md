@@ -122,7 +122,65 @@ cache:
 logger:
   level: "info"
   format: "json"
+
+### 多租户配置（Tenants）
+
+框架内置统一的多租户配置，结构定义见 `sdk/config/tenant.go`。核心能力包括：
+
+- `resolver`：支持 HTTP（host/header/query/path 四种模式）与 FTP（username/password）双通道识别；
+- `storage`：配置多租户租户目录名（默认 `tenants`，最终路径为 `./uploads/<directory>/<tenant_id>`）；
+- `default`：提供默认租户的数据库、域名、FTP 与存储限额等完整初始化信息，首次创建租户时可直接写入数据库。
+
+示例配置：
+
+```yaml
+tenants:
+  resolver:
+    http:
+      type: host               # host/header/query/path
+      headerName: X-Tenant-ID   # type=header 时的 Header 名
+      queryParam: tenant        # type=query 时的 Query Key
+      pathIndex: 0              # type=path 时的路径索引
+    ftp:
+      type: username            # username/password
+
+  storage:
+    directory: tenants
+
+  default:
+    database:
+      driver: postgres
+      host: postgres-tenant
+      port: 5432
+      database: tenant-servicedb
+      username: tenant
+      password: password123
+      sslmode: disable
+      max_open_conns: 50
+      max_idle_conns: 10
+      conn_max_idle_time: 300
+      conn_max_life_time: 3600
+      connect_timeout: 10
+      read_timeout: 30
+      write_timeout: 30
+
+    domain:
+      primary: app.example.com
+      aliases:
+        - www.example.com
+      internal: app.internal
+
+    ftp:
+      username: default_ftp
+      initial_password: Default@123456
+
+    storage:
+      upload_quota_gb: 1000
+      max_file_size_mb: 2048
+      max_concurrent_uploads: 20
 ```
+
+> 更详细的字段含义与环境变量映射，请参考 `docs/tenant.yml`。
 
 ## EventBus 事件总线 ⭐
 
