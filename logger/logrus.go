@@ -218,13 +218,39 @@ func (l *logrusAdapter) getEntryWithCaller(skip int) *logrus.Entry {
 	return l.entry
 }
 
-// formatCaller 格式化调用者信息为简洁格式
+// formatCaller 格式化调用者信息为相对路径格式
 func formatCaller(frame runtime.Frame) string {
-	// 提取文件名（不含完整路径）
 	file := frame.File
-	if idx := strings.LastIndex(file, "/"); idx >= 0 {
-		file = file[idx+1:]
+	
+	// 尝试提取项目相对路径（保留更多上下文信息）
+	// 查找常见的项目根目录标识：go-admin-core/, whitelist-api/, app/, common/ 等
+	markers := []string{
+		"/go-admin-core/",
+		"/whitelist-api/",
+		"/whitelist-antd/",
+		"/app/",
+		"/common/",
+		"/pkg/",
+		"/cmd/",
+		"/internal/",
 	}
+	
+	for _, marker := range markers {
+		if idx := strings.LastIndex(file, marker); idx >= 0 {
+			// 保留从标识符之后的路径
+			file = file[idx+len(marker):]
+			return fmt.Sprintf("%s:%d", file, frame.Line)
+		}
+	}
+	
+	// 如果没找到标识符，至少保留最后两级目录
+	parts := strings.Split(file, "/")
+	if len(parts) >= 3 {
+		file = strings.Join(parts[len(parts)-3:], "/")
+	} else if len(parts) >= 2 {
+		file = strings.Join(parts[len(parts)-2:], "/")
+	}
+	
 	return fmt.Sprintf("%s:%d", file, frame.Line)
 }
 
