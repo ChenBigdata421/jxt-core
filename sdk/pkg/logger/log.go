@@ -4,9 +4,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/go-admin-team/go-admin-core/debug/writer"
 	"github.com/go-admin-team/go-admin-core/logger"
-	"github.com/go-admin-team/go-admin-core/plugins/logger/zap"
+	"github.com/go-admin-team/go-admin-core/logger/plugins/zap"
+	"github.com/go-admin-team/go-admin-core/logger/writer"
 	"github.com/go-admin-team/go-admin-core/sdk/pkg"
 
 	log "github.com/go-admin-team/go-admin-core/logger"
@@ -44,16 +44,24 @@ func SetupLogger(opts ...Option) logger.Logger {
 		log.Fatalf("get logger level error, %s", err.Error())
 	}
 
+	// 初始化日志实现
 	switch op.driver {
 	case "zap":
-		log.DefaultLogger, err = zap.NewLogger(logger.WithLevel(level), zap.WithOutput(output), zap.WithCallerSkip(2))
+		// 使用 Zap 高性能日志库
+		log.DefaultLogger, err = zap.NewLogger(
+			logger.WithLevel(level),
+			zap.WithOutput(output),
+			zap.WithCallerSkip(2),
+		)
 		if err != nil {
 			log.Fatalf("new zap logger error, %s", err.Error())
 		}
-	//case "logrus":
-	//	setLogger = logrus.NewLogger(logger.WithLevel(level), logger.WithOutput(output), logrus.ReportCaller())
 	default:
-		log.DefaultLogger = logger.NewLogger(logger.WithLevel(level), logger.WithOutput(output))
+		// 使用默认日志实现
+		log.DefaultLogger = logger.NewLogger(
+			logger.WithLevel(level),
+			logger.WithOutput(output),
+		)
 	}
 	return log.DefaultLogger
 }

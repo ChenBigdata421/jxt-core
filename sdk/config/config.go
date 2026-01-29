@@ -97,3 +97,12 @@ func handleError(err error, msg string) {
 		log.Fatal(fmt.Sprintf("%s: %s", msg, err.Error()))
 	}
 }
+
+// GetConfig 获取配置对象
+// 返回当前加载的框架配置，如果未初始化则返回 nil
+func GetConfig() *Config {
+	if _cfg == nil {
+		return nil
+	}
+	return &_cfg.Settings
+}
