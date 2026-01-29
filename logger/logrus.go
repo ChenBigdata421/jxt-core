@@ -2,9 +2,12 @@ package logger
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -37,8 +40,13 @@ func NewLogrusLogger(opts ...Option) Logger {
 	// 设置输出
 	writers := []io.Writer{}
 	
+	// 自定义输出（用于测试或特殊场景）
+	if options.Out != nil {
+		writers = append(writers, options.Out)
+	}
+	
 	// 控制台输出
-	if options.Stdout {
+	if options.Stdout && options.Out == nil {
 		writers = append(writers, os.Stdout)
 	}
 	
@@ -61,6 +69,9 @@ func NewLogrusLogger(opts ...Option) Logger {
 	
 	if len(writers) > 0 {
 		log.SetOutput(io.MultiWriter(writers...))
+	} else {
+		// 默认输出到 os.Stderr
+		log.SetOutput(os.Stderr)
 	}
 
 	// 设置格式化器
@@ -86,8 +97,8 @@ func NewLogrusLogger(opts ...Option) Logger {
 		})
 	}
 
-	// 启用调用者信息
-	log.SetReportCaller(true)
+	// 禁用 Logrus 内置的 ReportCaller（我们在 getEntryWithCaller 中手动处理）
+	log.SetReportCaller(false)
 
 	// 创建 Entry（带默认字段）
 	entry := log.WithFields(logrus.Fields{})
@@ -132,33 +143,89 @@ func (l *logrusAdapter) Fields(fields map[string]interface{}) Logger {
 }
 
 func (l *logrusAdapter) Log(level Level, v ...interface{}) {
+	// 获取真实调用者位置（跳过 logger 包装层）
+	entry := l.getEntryWithCaller(2)
+	
 	switch level {
 	case TraceLevel, DebugLevel:
-		l.entry.Debug(v...)
+		entry.Debug(v...)
 	case InfoLevel:
-		l.entry.Info(v...)
+		entry.Info(v...)
 	case WarnLevel:
-		l.entry.Warn(v...)
+		entry.Warn(v...)
 	case ErrorLevel:
-		l.entry.Error(v...)
+		entry.Error(v...)
 	case FatalLevel:
-		l.entry.Fatal(v...)
+		entry.Fatal(v...)
 	}
 }
 
 func (l *logrusAdapter) Logf(level Level, format string, v ...interface{}) {
+	// 获取真实调用者位置（跳过 logger 包装层）
+	entry := l.getEntryWithCaller(2)
+	
 	switch level {
 	case TraceLevel, DebugLevel:
-		l.entry.Debugf(format, v...)
+		entry.Debugf(format, v...)
 	case InfoLevel:
-		l.entry.Infof(format, v...)
+		entry.Infof(format, v...)
 	case WarnLevel:
-		l.entry.Warnf(format, v...)
+		entry.Warnf(format, v...)
 	case ErrorLevel:
-		l.entry.Errorf(format, v...)
+		entry.Errorf(format, v...)
 	case FatalLevel:
-		l.entry.Fatalf(format, v...)
+		entry.Fatalf(format, v...)
 	}
+}
+
+// getEntryWithCaller 获取带有正确 Caller 信息的 Entry
+func (l *logrusAdapter) getEntryWithCaller(skip int) *logrus.Entry {
+	// 查找调用栈中第一个非 logger 包的位置
+	pcs := make([]uintptr, 30)
+	depth := runtime.Callers(0, pcs)
+	frames := runtime.CallersFrames(pcs[:depth])
+	
+	for {
+		frame, more := frames.Next()
+		file := frame.File
+		fn := frame.Function
+		
+		// 跳过以下文件：
+		// 1. logger 包内部实现文件（logrus.go, zap.go, default.go, factory.go 等）
+		// 2. logrus 库内部文件（entry.go 等）
+		// 3. testing 框架（testing.go, run.go 等）
+		// 4. runtime 包
+		
+		// 只检查文件名，不检查函数名（避免误判测试函数）
+		isLoggerImpl := strings.Contains(file, "/logger/logrus.go") ||
+		                strings.Contains(file, "/logger/zap.go") ||
+		                strings.Contains(file, "/logger/default.go") ||
+		                strings.Contains(file, "/logger/factory.go") ||
+		                strings.Contains(file, "/logger/sampling.go")
+		isLogrus := strings.Contains(file, "/logrus@")
+		isTesting := strings.Contains(file, "/testing/") || strings.Contains(fn, "testing.tRunner")
+		isRuntime := strings.Contains(file, "/runtime/")
+		
+		// 找到第一个业务代码（或测试代码）
+		if !isLoggerImpl && !isLogrus && !isTesting && !isRuntime {
+			return l.entry.WithField("caller", formatCaller(frame))
+		}
+		if !more {
+			break
+		}
+	}
+	
+	return l.entry
+}
+
+// formatCaller 格式化调用者信息为简洁格式
+func formatCaller(frame runtime.Frame) string {
+	// 提取文件名（不含完整路径）
+	file := frame.File
+	if idx := strings.LastIndex(file, "/"); idx >= 0 {
+		file = file[idx+1:]
+	}
+	return fmt.Sprintf("%s:%d", file, frame.Line)
 }
 
 func (l *logrusAdapter) String() string {
@@ -328,6 +395,57 @@ func (h *ElasticsearchHook) Levels() []logrus.Level {
 func (h *ElasticsearchHook) Fire(entry *logrus.Entry) error {
 	// TODO: 将日志发送到 Elasticsearch
 	// h.client.Index(h.index, entry)
+	return nil
+}
+
+// CallerHook 修正调用者信息的 Hook（跳过 logger 包装层）
+type CallerHook struct {
+	skip int
+}
+
+func NewCallerHook(skip int) *CallerHook {
+	return &CallerHook{skip: skip}
+}
+
+func (h *CallerHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (h *CallerHook) Fire(entry *logrus.Entry) error {
+	// 获取真实的调用者信息
+	// 从调用栈中查找第一个非 logger 包的调用者
+	pcs := make([]uintptr, 30)
+	depth := runtime.Callers(0, pcs)
+	frames := runtime.CallersFrames(pcs[:depth])
+	
+	for {
+		frame, more := frames.Next()
+		// 跳过以下文件：
+		// 1. logger 包内部文件（logrus.go, zap.go, default.go 等）
+		// 2. logrus 库内部文件（entry.go, logger.go 等）
+		// 3. runtime 包文件
+		// 4. testing 包文件（仅在 Go test 运行时）
+		if !strings.Contains(frame.File, "/logger/") &&
+		   !strings.Contains(frame.File, "/logrus@") &&
+		   !strings.Contains(frame.File, "/runtime/") &&
+		   !strings.Contains(frame.File, "/testing/") &&
+		   !strings.Contains(frame.Function, "github.com/go-admin-team/go-admin-core/logger") &&
+		   !strings.Contains(frame.Function, "github.com/sirupsen/logrus") &&
+		   !strings.Contains(frame.Function, "runtime.") &&
+		   !strings.Contains(frame.Function, "testing.") {
+			// 找到第一个业务代码调用位置
+			entry.Caller = &runtime.Frame{
+				PC:       frame.PC,
+				File:     frame.File,
+				Line:     frame.Line,
+				Function: frame.Function,
+			}
+			break
+		}
+		if !more {
+			break
+		}
+	}
 	return nil
 }
 
