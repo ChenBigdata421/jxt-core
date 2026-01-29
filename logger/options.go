@@ -31,6 +31,24 @@ type Options struct {
 	// Name is the logger name
 	// Name 是日志记录器的名称
 	Name string
+	// Path is the log file path (optional)
+	// Path 是日志文件路径（可选）
+	Path string
+	// Stdout enables console output
+	// Stdout 启用控制台输出
+	Stdout bool
+	
+	// --- 日志轮转配置 ---
+	// MaxSize 单个文件最大大小（MB），默认 100
+	MaxSize int
+	// MaxAge 文件最大保留天数，默认 30
+	MaxAge int
+	// MaxBackups 最大备份数量，默认 7
+	MaxBackups int
+	// Compress 是否压缩旧日志，默认 true
+	Compress bool
+	// LocalTime 使用本地时间（而非 UTC），默认 true
+	LocalTime bool
 }
 
 // WithFields sets default fields for the logger
@@ -84,6 +102,22 @@ func SetOption(k, v interface{}) Option {
 	}
 }
 
+// WithStdout sets whether to enable console output
+// WithStdout 设置是否启用控制台输出
+func WithStdout(enabled bool) Option {
+	return func(args *Options) {
+		args.Stdout = enabled
+	}
+}
+
+// WithPath sets the log file path
+// WithPath 设置日志文件路径
+func WithPath(path string) Option {
+	return func(args *Options) {
+		args.Path = path
+	}
+}
+
 // DefaultOptions returns default options
 // DefaultOptions 返回默认选项
 func DefaultOptions() Options {
@@ -94,5 +128,10 @@ func DefaultOptions() Options {
 		CallerSkipCount: 3,
 		Context:         context.Background(),
 		Name:            "",
+		MaxSize:         100,
+		MaxAge:          30,
+		MaxBackups:      7,
+		Compress:        true,
+		LocalTime:       true,
 	}
 }
