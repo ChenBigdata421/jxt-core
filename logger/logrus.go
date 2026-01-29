@@ -193,8 +193,9 @@ func (l *logrusAdapter) getEntryWithCaller(skip int) *logrus.Entry {
 		// 跳过以下文件：
 		// 1. logger 包内部实现文件（logrus.go, zap.go, default.go, factory.go 等）
 		// 2. logrus 库内部文件（entry.go 等）
-		// 3. testing 框架（testing.go, run.go 等）
-		// 4. runtime 包
+		// 3. gorm logger 适配器（tools/gorm/gormlog/logger.go 等）
+		// 4. testing 框架（testing.go, run.go 等）
+		// 5. runtime 包
 		
 		// 只检查文件名，不检查函数名（避免误判测试函数）
 		isLoggerImpl := strings.Contains(file, "/logger/logrus.go") ||
@@ -202,12 +203,15 @@ func (l *logrusAdapter) getEntryWithCaller(skip int) *logrus.Entry {
 		                strings.Contains(file, "/logger/default.go") ||
 		                strings.Contains(file, "/logger/factory.go") ||
 		                strings.Contains(file, "/logger/sampling.go")
+		isGormLogger := strings.Contains(file, "/gorm/gormlog/") || 
+		                strings.Contains(file, "/tools/gorm/") ||
+		                strings.Contains(file, "/gorm@")
 		isLogrus := strings.Contains(file, "/logrus@")
 		isTesting := strings.Contains(file, "/testing/") || strings.Contains(fn, "testing.tRunner")
 		isRuntime := strings.Contains(file, "/runtime/")
 		
 		// 找到第一个业务代码（或测试代码）
-		if !isLoggerImpl && !isLogrus && !isTesting && !isRuntime {
+		if !isLoggerImpl && !isGormLogger && !isLogrus && !isTesting && !isRuntime {
 			return l.entry.WithField("caller", formatCaller(frame))
 		}
 		if !more {
