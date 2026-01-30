@@ -19,6 +19,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **分布式锁** - 基于 Redis 的分布式锁实现
 - [x] **EventBus 事件总线** - 支持 Kafka、NATS JetStream、Memory 三种实现，统一 API ⭐ **核心组件**
 - [x] **Outbox 模式** - 保证业务操作与事件发布的原子性和最终一致性 ⭐ **新增**
+- [x] **多租户 Provider** - 基于 ETCD 的多租户配置管理，支持实时监听 ⭐ **新增**
 
 ### 🔧 服务治理
 - [x] **服务发现** - 基于 ETCD 的服务注册与发现
@@ -61,7 +62,8 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - Go 1.23+ 
 - Redis 6.0+ (可选)
 - MySQL 8.0+ / PostgreSQL 12+ (可选)
-- ETCD 3.5+ (用于服务发现，可选)
+- ETCD 3.5+ (用于服务发现和多租户配置，可选)
+- Ginkgo/Gomega (测试框架，可选)
 
 ### 安装
 
@@ -238,7 +240,13 @@ jxt-core/
 │   │   ├── casbin/        # 权限控制
 │   │   ├── captcha/       # 验证码
 │   │   ├── ws/            # WebSocket
-│   │   └── cronjob/       # 定时任务
+│   │   ├── cronjob/       # 定时任务
+│   │   ├── tenant/        # 多租户组件 ⭐
+│   │   │   ├── provider/  # ETCD 配置 Provider
+│   │   │   ├── database/  # 数据库配置缓存
+│   │   │   ├── ftp/       # FTP 配置缓存
+│   │   │   ├── storage/   # 存储配置缓存
+│   │   │   └── middleware/ # 租户 ID 提取中间件
 │   ├── middleware/        # 中间件
 │   └── service/           # 服务层
 ├── storage/               # 存储层
@@ -297,6 +305,40 @@ jxt-core/
 - **超时保护**：30 秒 ACK 超时，避免永久阻塞
 - **多租户支持**：支持租户专属 ACK 通道
 
+### 多租户 Provider 架构
+
+- **ETCD 配置中心**：基于 ETCD 存储租户配置，支持实时监听变更
+- **三类配置支持**：Database、FTP、Storage 配置独立管理
+- **原子更新**：使用 `atomic.Value` 保证配置读取的线程安全
+- **Watch 机制**：自动监听 ETCD 变更，实时同步配置
+- **Gin 中间件**：`ExtractTenantID` 中间件自动提取租户 ID
+
+```go
+// 创建 ETCD 客户端
+client, _ := clientv3.New(clientv3.Config{
+    Endpoints: []string{"localhost:2379"},
+})
+
+// 创建 Provider
+p := provider.NewProvider(client,
+    provider.WithNamespace("jxt/"),
+    provider.WithConfigTypes(
+        provider.ConfigTypeDatabase,
+        provider.ConfigTypeFtp,
+        provider.ConfigTypeStorage,
+    ),
+)
+
+// 加载所有租户配置
+p.LoadAll(ctx)
+
+// 启动 Watch 监听变更
+p.StartWatch(ctx)
+
+// 获取租户数据库配置
+dbConfig := p.GetDatabaseConfig(tenantID)
+```
+
 ### 性能测试覆盖
 
 - ✅ 高吞吐量场景（1900+ msg/s）
@@ -312,3 +354,4 @@ jxt-core/
 - v1.1.0 - 新增 EventBus 组件（Kafka/NATS/Memory）
 - v1.2.0 - 新增 Outbox 模式，集成 EventBus
 - v1.3.0 - Hollywood Actor Pool 架构优化，性能提升 3 倍
+- v1.4.0 - 新增 ETCD 多租户 Provider，支持 Database/FTP/Storage 配置实时同步
