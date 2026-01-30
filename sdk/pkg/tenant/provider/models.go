@@ -1,5 +1,19 @@
 package provider
 
+// TenantMeta represents tenant metadata from ETCD
+type TenantMeta struct {
+	TenantID    int    `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`      // active, inactive, suspended
+	BillingPlan string `json:"billingPlan"` // optional
+}
+
+// IsEnabled returns true if tenant status is active
+func (m *TenantMeta) IsEnabled() bool {
+	return m.Status == "active"
+}
+
 // DatabaseConfig represents tenant database configuration
 type DatabaseConfig struct {
 	TenantID  int    `json:"tenantId"`
