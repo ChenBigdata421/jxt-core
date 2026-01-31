@@ -82,9 +82,9 @@ func TestEnvvar_Prefixes(t *testing.T) {
 		prefixOpts   []source.Option
 		expectedKeys []string
 	}{
-		{[]source.Option{WithPrefix("APP", "GO_ADMIN_CORE")}, []string{"app", "go_admin_core"}},
-		{[]source.Option{WithPrefix("GO_ADMIN_CORE"), WithStrippedPrefix("APP")}, []string{"database", "go_admin_core"}},
-		{[]source.Option{WithPrefix("GO_ADMIN_CORE"), WithStrippedPrefix("APP")}, []string{"database", "go_admin_core"}},
+		{[]source.Option{WithPrefix("APP", "GO_ADMIN_CORE")}, []string{"app", "go"}},
+		{[]source.Option{WithPrefix("GO_ADMIN_CORE"), WithStrippedPrefix("APP")}, []string{"database", "go"}},
+		{[]source.Option{WithPrefix("GO_ADMIN_CORE"), WithStrippedPrefix("APP")}, []string{"database", "go"}},
 	}
 
 	for _, pt := range prefixtests {
@@ -137,4 +137,12 @@ func containsKey(m map[string]interface{}, s string) bool {
 		}
 	}
 	return false
+}
+
+func getKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

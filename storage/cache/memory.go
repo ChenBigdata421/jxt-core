@@ -53,8 +53,8 @@ func (m *Memory) getItem(key string) (*item, error) {
 		if item.Expired.Before(time.Now()) {
 			//过期
 			_ = m.del(key)
-			//过期后删除
-			return nil, nil
+			//过期后删除，返回错误表示 key 不存在
+			return nil, fmt.Errorf("key %s expired", key)
 		}
 		return item, nil
 	default:

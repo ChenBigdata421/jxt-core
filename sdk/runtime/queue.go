@@ -1,12 +1,19 @@
 package runtime
 
-import "github.com/go-admin-team/go-admin-core/storage"
+import (
+	"github.com/go-admin-team/go-admin-core/storage"
+	"github.com/go-admin-team/go-admin-core/storage/queue"
+)
 
 // NewQueue 创建对应上下文队列
-func NewQueue(prefix string, queue storage.AdapterQueue) storage.AdapterQueue {
+func NewQueue(prefix string, q storage.AdapterQueue) storage.AdapterQueue {
+	// 如果传入 nil，创建默认的内存队列
+	if q == nil {
+		q = queue.NewMemory(100)
+	}
 	return &Queue{
 		prefix: prefix,
-		queue:  queue,
+		queue:  q,
 	}
 }
 

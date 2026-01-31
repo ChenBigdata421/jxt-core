@@ -13,6 +13,30 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+var (
+	// loggerSourceDir go-admin-core/logger 包的源码目录（参考 GORM 的 gormSourceDir）
+	// 用于在跳过调用栈时准确识别 logger 内部文件
+	// 采用 HasPrefix 匹配，完美支持 -trimpath 编译
+	loggerSourceDir string
+)
+
+func init() {
+	// 获取当前文件（logrus.go）所在目录的绝对路径
+	// 此操作在编译时执行，不受 -trimpath 影响
+	_, file, _, _ := runtime.Caller(0)
+	// 使用 sourceDir 函数计算包根目录（与 GORM 一致）
+	loggerSourceDir = sourceDir(file)
+}
+
+// sourceDir 计算源码目录（参考 GORM 的实现）
+// 输入：/path/to/go-admin-core/logger/logrus.go
+// 输出：/path/to/go-admin-core/logger/
+func sourceDir(file string) string {
+	dir := filepath.Dir(file) // /path/to/go-admin-core/logger
+	// 直接返回 logger 包目录，统一使用 / 并加上结尾斜杠
+	return filepath.ToSlash(dir) + "/"
+}
+
 // logrusAdapter Logrus 适配器（生态丰富，插件多）
 type logrusAdapter struct {
 	logger *logrus.Logger
@@ -87,13 +111,10 @@ func NewLogrusLogger(opts ...Option) Logger {
 			},
 		})
 	} else {
-		// 控制台输出使用友好格式
-		log.SetFormatter(&logrus.TextFormatter{
+		// 控制台输出使用自定义简洁格式
+		log.SetFormatter(&ConsoleFormatter{
 			TimestampFormat: "2006-01-02 15:04:05.000",
-			FullTimestamp:   true,
 			ForceColors:     true,
-			DisableColors:   false,
-			PadLevelText:    true,
 		})
 	}
 
@@ -109,11 +130,38 @@ func NewLogrusLogger(opts ...Option) Logger {
 		entry = entry.WithFields(logrus.Fields(options.Fields))
 	}
 
-	return &logrusAdapter{
+	// 创建基础 logger
+	baseLogger := &logrusAdapter{
 		logger: log,
 		entry:  entry,
 		opts:   options,
 	}
+	
+	// 应用高级功能（采样、异步、脱敏）
+	var finalLogger Logger = baseLogger
+	
+	// 1. 脱敏（最内层）- 在字段传入时立即脱敏
+	if options.Context != nil {
+		if config, ok := options.Context.Value("sanitizer").(SanitizerConfig); ok && config.Enabled {
+			finalLogger = NewSanitizerLogger(finalLogger, config)
+		}
+	}
+	
+	// 2. 采样（中间层）- 在脱敏后决定是否记录
+	if options.Context != nil {
+		if config, ok := options.Context.Value("sampling").(SamplingConfig); ok && config.Tick > 0 {
+			finalLogger = NewSamplingLogger(finalLogger, config)
+		}
+	}
+	
+	// 3. 异步（最外层）- 在采样决策后异步写入
+	if options.Context != nil {
+		if config, ok := options.Context.Value("async").(AsyncConfig); ok && config.BufferSize > 0 {
+			finalLogger = NewAsyncLogger(finalLogger, config)
+		}
+	}
+	
+	return finalLogger
 }
 
 func (l *logrusAdapter) Init(opts ...Option) error {
@@ -178,84 +226,77 @@ func (l *logrusAdapter) Logf(level Level, format string, v ...interface{}) {
 	}
 }
 
-// getEntryWithCaller 获取带有正确 Caller 信息的 Entry
-func (l *logrusAdapter) getEntryWithCaller(skip int) *logrus.Entry {
-	// 查找调用栈中第一个非 logger 包的位置
-	pcs := make([]uintptr, 30)
-	depth := runtime.Callers(0, pcs)
-	frames := runtime.CallersFrames(pcs[:depth])
+// shouldSkipFrame 判断是否应该跳过该调用栈帧（参考 GORM 的跳过逻辑）
+// 返回 true = 跳过（logger 包或第三方库），false = 业务代码
+// 判断逻辑：
+// 1. logger 包内部文件：使用 HasPrefix（不受 -trimpath 影响）
+// 2. 第三方库：检查 /go/pkg/mod/（业务代码使用 -trimpath 后是相对路径）
+// 3. 标准库：runtime、testing 等
+func shouldSkipFrame(file string) bool {
+	// 0. 测试文件不跳过（即使在 logger 包内）
+	if strings.HasSuffix(file, "_test.go") {
+		return false
+	}
 	
-	for {
-		frame, more := frames.Next()
-		file := frame.File
-		fn := frame.Function
+	// 1. logger 包内部文件（使用 HasPrefix，不受 -trimpath 影响）
+	if strings.HasPrefix(file, loggerSourceDir) {
+		return true
+	}
+	
+	// 2. 第三方库：检查是否在 go/pkg/mod 目录下
+	//    业务代码使用 -trimpath 编译后是相对路径，不会包含此路径
+	if strings.Contains(file, "/go/pkg/mod/") {
+		return true
+	}
+	
+	// 3. runtime 和 testing 包（Go 标准库）
+	if strings.Contains(file, "/runtime/") || strings.Contains(file, "/testing/") {
+		return true
+	}
+	
+	// 其他都是业务代码
+	return false
+}
+
+// getEntryWithCaller 获取带有正确 Caller 信息的 Entry（完全参考 GORM 的 FileWithLineNum 实现）
+// 性能优化：
+// - 使用固定数组 [13]uintptr 避免堆分配
+// - 从第 3 层开始（跳过 runtime.Callers、getEntryWithCaller、Log/Logf）
+// - 找到第一个业务代码即停止遍历
+func (l *logrusAdapter) getEntryWithCaller(skip int) *logrus.Entry {
+	pcs := [13]uintptr{} // 固定数组，栈分配，高性能
+	// 从第 3 层开始（跳过 runtime.Callers 本身、getEntryWithCaller、Log/Logf）
+	length := runtime.Callers(3, pcs[:])
+	frames := runtime.CallersFrames(pcs[:length])
+	
+	for i := 0; i < length; i++ {
+		frame, _ := frames.Next()
 		
-		// 跳过以下文件：
-		// 1. logger 包内部实现文件（logrus.go, zap.go, default.go, factory.go 等）
-		// 2. logrus 库内部文件（entry.go 等）
-		// 3. gorm logger 适配器（tools/gorm/gormlog/logger.go 等）
-		// 4. testing 框架（testing.go, run.go 等）
-		// 5. runtime 包
-		
-		// 只检查文件名，不检查函数名（避免误判测试函数）
-		isLoggerImpl := strings.Contains(file, "/logger/logrus.go") ||
-		                strings.Contains(file, "/logger/zap.go") ||
-		                strings.Contains(file, "/logger/default.go") ||
-		                strings.Contains(file, "/logger/factory.go") ||
-		                strings.Contains(file, "/logger/sampling.go")
-		isGormLogger := strings.Contains(file, "/gorm/gormlog/") || 
-		                strings.Contains(file, "/tools/gorm/") ||
-		                strings.Contains(file, "/gorm@")
-		isLogrus := strings.Contains(file, "/logrus@")
-		isTesting := strings.Contains(file, "/testing/") || strings.Contains(fn, "testing.tRunner")
-		isRuntime := strings.Contains(file, "/runtime/")
-		
-		// 找到第一个业务代码（或测试代码）
-		if !isLoggerImpl && !isGormLogger && !isLogrus && !isTesting && !isRuntime {
-			return l.entry.WithField("caller", formatCaller(frame))
+		// 调试：打印调用栈（仅在开发环境）
+		if os.Getenv("DEBUG_CALLER") == "1" {
+			skip := shouldSkipFrame(frame.File)
+			fmt.Fprintf(os.Stderr, "[CALLER] %s:%d | skip=%v\n", frame.File, frame.Line, skip)
 		}
-		if !more {
-			break
+		
+		// 找到第一个业务代码（参考 GORM：!HasPrefix && !Contains）
+		if !shouldSkipFrame(frame.File) {
+			if os.Getenv("DEBUG_CALLER") == "1" {
+				fmt.Fprintf(os.Stderr, "[CALLER] ✅ Found: %s:%d\n", frame.File, frame.Line)
+			}
+			return l.entry.WithField("caller", formatCaller(frame))
 		}
 	}
 	
+	if os.Getenv("DEBUG_CALLER") == "1" {
+		fmt.Fprintf(os.Stderr, "[CALLER] ❌ No business code found\n")
+	}
 	return l.entry
 }
 
-// formatCaller 格式化调用者信息为相对路径格式
+// formatCaller 格式化调用者信息（保留绝对路径，与 GORM 一致）
 func formatCaller(frame runtime.Frame) string {
-	file := frame.File
-	
-	// 尝试提取项目相对路径（保留更多上下文信息）
-	// 查找常见的项目根目录标识：go-admin-core/, whitelist-api/, app/, common/ 等
-	markers := []string{
-		"/go-admin-core/",
-		"/whitelist-api/",
-		"/whitelist-antd/",
-		"/app/",
-		"/common/",
-		"/pkg/",
-		"/cmd/",
-		"/internal/",
-	}
-	
-	for _, marker := range markers {
-		if idx := strings.LastIndex(file, marker); idx >= 0 {
-			// 保留从标识符之后的路径
-			file = file[idx+len(marker):]
-			return fmt.Sprintf("%s:%d", file, frame.Line)
-		}
-	}
-	
-	// 如果没找到标识符，至少保留最后两级目录
-	parts := strings.Split(file, "/")
-	if len(parts) >= 3 {
-		file = strings.Join(parts[len(parts)-3:], "/")
-	} else if len(parts) >= 2 {
-		file = strings.Join(parts[len(parts)-2:], "/")
-	}
-	
-	return fmt.Sprintf("%s:%d", file, frame.Line)
+	// 直接返回绝对路径 + 行号，与 GORM 的 utils.FileWithLineNum() 格式一致
+	return fmt.Sprintf("%s:%d", frame.File, frame.Line)
 }
 
 func (l *logrusAdapter) String() string {

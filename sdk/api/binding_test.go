@@ -38,7 +38,7 @@ func TestResolve(t *testing.T) {
 	// Only pass t into top-level Convey calls
 	Convey("Given some integer with a starting value", t, func() {
 
-		d := SysUserSearch{}
+		d := &SysUserSearch{}
 
 		list := constructor.GetBindingForGin(d)
 		for _, binding := range list {

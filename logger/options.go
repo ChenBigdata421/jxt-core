@@ -118,6 +118,30 @@ func WithPath(path string) Option {
 	}
 }
 
+// WithSampling sets sampling configuration for the logger
+// WithSampling 设置日志采样配置
+func WithSampling(config SamplingConfig) Option {
+	return func(o *Options) {
+		SetOption("sampling", config)(o)
+	}
+}
+
+// WithAsync sets async configuration for the logger
+// WithAsync 设置异步日志配置
+func WithAsync(config AsyncConfig) Option {
+	return func(o *Options) {
+		SetOption("async", config)(o)
+	}
+}
+
+// WithSanitizer sets sanitizer configuration for the logger
+// WithSanitizer 设置脱敏配置
+func WithSanitizer(config SanitizerConfig) Option {
+	return func(o *Options) {
+		SetOption("sanitizer", config)(o)
+	}
+}
+
 // DefaultOptions returns default options
 // DefaultOptions 返回默认选项
 func DefaultOptions() Options {

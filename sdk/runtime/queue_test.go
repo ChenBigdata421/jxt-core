@@ -3,7 +3,6 @@ package runtime
 import (
 	"github.com/go-admin-team/go-admin-core/storage"
 	"github.com/go-admin-team/go-admin-core/storage/queue"
-	"reflect"
 	"testing"
 )
 
@@ -28,7 +27,9 @@ func TestNewMemoryQueue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewQueue(tt.args.prefix, tt.args.queue); !reflect.DeepEqual(got, tt.want) {
+			got := NewQueue(tt.args.prefix, tt.args.queue)
+			// 比较字符串表示（类型），而不是 DeepEqual（因为是不同的实例）
+			if got.String() != tt.want.String() {
 				t.Errorf("NewQueue() = %v, want %v", got, tt.want)
 			}
 		})

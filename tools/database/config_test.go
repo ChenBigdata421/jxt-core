@@ -6,11 +6,16 @@ import (
 	"testing"
 )
 
-var dsn0 = "dsn0"
-var dsn1 = "dsn1"
+var dsn0 = "root:password@tcp(127.0.0.1:3306)/test?charset=utf8mb4&parseTime=True&loc=Local"
+var dsn1 = "root:password@tcp(127.0.0.1:3307)/test?charset=utf8mb4&parseTime=True&loc=Local"
 var tables = []interface{}{"sys_user", "sys_role"}
 
 func TestDBConfig_Init(t *testing.T) {
+	// 这个测试需要真实的 MySQL 连接，标记为 integration test
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	
 	type fields struct {
 		dsn             string
 		connMaxIdleTime int
