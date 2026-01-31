@@ -7,16 +7,16 @@ import (
 func TestProvider_processMetaKey(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
-		metas:    make(map[int]*TenantMeta),
-		databases: make(map[int]*DatabaseConfig),
-		ftps:      make(map[int]*FtpConfig),
-		storages:  make(map[int]*StorageConfig),
+		Metas:    make(map[int]*TenantMeta),
+		Databases: make(map[int]*DatabaseConfig),
+		Ftps:      make(map[int]*FtpConfig),
+		Storages:  make(map[int]*StorageConfig),
 	}
 
 	metaJSON := `{"id":123,"code":"test_tenant","name":"Test Tenant","status":"active","billingPlan":"premium"}`
 	p.processMetaKey(123, metaJSON, data)
 
-	if meta, ok := data.metas[123]; !ok {
+	if meta, ok := data.Metas[123]; !ok {
 		t.Fatal("meta not stored")
 	} else {
 		if meta.TenantID != 123 {
@@ -40,8 +40,8 @@ func TestProvider_processMetaKey(t *testing.T) {
 func TestProvider_processDatabaseKey(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
-		metas:    make(map[int]*TenantMeta),
-		databases: make(map[int]*DatabaseConfig),
+		Metas:    make(map[int]*TenantMeta),
+		Databases: make(map[int]*DatabaseConfig),
 	}
 
 	// First, add meta
@@ -52,7 +52,7 @@ func TestProvider_processDatabaseKey(t *testing.T) {
 	dbJSON := `{"tenantId":456,"driver":"postgres","databaseName":"testdb","host":"localhost","port":5432,"maxOpenConns":50,"maxIdleConns":10}`
 	p.processDatabaseKey(456, dbJSON, data)
 
-	if db, ok := data.databases[456]; !ok {
+	if db, ok := data.Databases[456]; !ok {
 		t.Fatal("database config not stored")
 	} else {
 		if db.TenantID != 456 {
@@ -76,8 +76,8 @@ func TestProvider_processDatabaseKey(t *testing.T) {
 func TestProvider_processFtpKey(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
-		metas: make(map[int]*TenantMeta),
-		ftps:   make(map[int]*FtpConfig),
+		Metas: make(map[int]*TenantMeta),
+		Ftps:   make(map[int]*FtpConfig),
 	}
 
 	// First, add meta
@@ -88,7 +88,7 @@ func TestProvider_processFtpKey(t *testing.T) {
 	ftpJSON := `{"tenantId":789,"username":"ftp_user","passwordHash":"$2a$10$..."}`
 	p.processFtpKey(789, ftpJSON, data)
 
-	if ftp, ok := data.ftps[789]; !ok {
+	if ftp, ok := data.Ftps[789]; !ok {
 		t.Fatal("FTP config not stored")
 	} else {
 		if ftp.TenantID != 789 {
@@ -106,8 +106,8 @@ func TestProvider_processFtpKey(t *testing.T) {
 func TestProvider_processStorageKey(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
-		metas:    make(map[int]*TenantMeta),
-		storages: make(map[int]*StorageConfig),
+		Metas:    make(map[int]*TenantMeta),
+		Storages: make(map[int]*StorageConfig),
 	}
 
 	// First, add meta
@@ -118,7 +118,7 @@ func TestProvider_processStorageKey(t *testing.T) {
 	storageJSON := `{"tenantId":999,"uploadQuotaGb":100,"maxFileSizeMb":500,"maxConcurrentUploads":20}`
 	p.processStorageKey(999, storageJSON, data)
 
-	if storage, ok := data.storages[999]; !ok {
+	if storage, ok := data.Storages[999]; !ok {
 		t.Fatal("Storage config not stored")
 	} else {
 		if storage.TenantID != 999 {

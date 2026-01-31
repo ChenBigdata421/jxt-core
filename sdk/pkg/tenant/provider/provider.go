@@ -18,6 +18,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,6 +60,7 @@ type Provider struct {
 	namespace   string
 	configTypes []ConfigType
 	data        atomic.Value // *tenantData
+	cache       FileCache    // 持久化缓存（可选）
 
 	mu         sync.RWMutex
 	watchCtx   context.Context
@@ -66,10 +69,10 @@ type Provider struct {
 }
 
 type tenantData struct {
-	metas    map[int]*TenantMeta
-	databases map[int]*DatabaseConfig
-	ftps      map[int]*FtpConfig
-	storages  map[int]*StorageConfig
+	Metas    map[int]*TenantMeta    `json:"metas"`
+	Databases map[int]*DatabaseConfig `json:"databases"`
+	Ftps      map[int]*FtpConfig      `json:"ftps"`
+	Storages  map[int]*StorageConfig  `json:"storages"`
 }
 
 // Option configures Provider
@@ -89,6 +92,108 @@ func WithNamespace(ns string) Option {
 	}
 }
 
+// FileCache defines the interface for persistent cache operations.
+type FileCache interface {
+	Load() (*tenantData, error)
+	Save(data *tenantData) error
+	IsAvailable() bool
+}
+
+// fileCacheAdapter adapts cache.FileCache to provider.FileCache interface
+type fileCacheAdapter struct {
+	inner *innerFileCache
+}
+
+// innerFileCache is the actual cache implementation
+type innerFileCache struct {
+	filePath string
+	mu       sync.RWMutex
+}
+
+// newInnerFileCache creates a new inner file cache
+func newInnerFileCache() *innerFileCache {
+	cachePath := os.Getenv("TENANT_CACHE_PATH")
+	if cachePath == "" {
+		cachePath = "./cache"
+	}
+	return &innerFileCache{
+		filePath: filepath.Join(cachePath, "tenant_metadata.json"),
+	}
+}
+
+func (a *fileCacheAdapter) Load() (*tenantData, error) {
+	bytes, err := a.inner.loadBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	var data tenantData
+	if err := json.Unmarshal(bytes, &data); err != nil {
+		return nil, fmt.Errorf("failed to decode cache: %w", err)
+	}
+	return &data, nil
+}
+
+func (a *fileCacheAdapter) Save(data *tenantData) error {
+	bytes, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode cache: %w", err)
+	}
+	return a.inner.saveBytes(bytes)
+}
+
+func (a *fileCacheAdapter) IsAvailable() bool {
+	return a.inner.isAvailable()
+}
+
+func (i *innerFileCache) loadBytes() ([]byte, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return os.ReadFile(i.filePath)
+}
+
+func (i *innerFileCache) saveBytes(bytes []byte) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(i.filePath), 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory: %w", err)
+	}
+
+	tmpPath := i.filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, bytes, 0644); err != nil {
+		return fmt.Errorf("failed to write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, i.filePath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to rename cache file: %w", err)
+	}
+	return nil
+}
+
+func (i *innerFileCache) isAvailable() bool {
+	_, err := os.ReadFile(i.filePath)
+	return err == nil
+}
+
+// WithCache configures Provider to use persistent file cache as fallback.
+func WithCache(cache FileCache) Option {
+	return func(p *Provider) {
+		p.cache = cache
+	}
+}
+
+// NewFileCache creates a new file cache for provider use.
+func NewFileCache() FileCache {
+	return &fileCacheAdapter{inner: newInnerFileCache()}
+}
+
+// NewFileCacheWithPath creates a cache with a specific file path.
+func NewFileCacheWithPath(path string) FileCache {
+	return &fileCacheAdapter{inner: &innerFileCache{filePath: path}}
+}
+
 // NewProvider creates a new ETCD tenant provider
 func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 	p := &Provider{
@@ -98,10 +203,10 @@ func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 		data:        atomic.Value{},
 	}
 	p.data.Store(&tenantData{
-		metas:    make(map[int]*TenantMeta),
-		databases: make(map[int]*DatabaseConfig),
-		ftps:      make(map[int]*FtpConfig),
-		storages:  make(map[int]*StorageConfig),
+		Metas:    make(map[int]*TenantMeta),
+		Databases: make(map[int]*DatabaseConfig),
+		Ftps:      make(map[int]*FtpConfig),
+		Storages:  make(map[int]*StorageConfig),
 	})
 	for _, opt := range opts {
 		opt(p)
@@ -109,20 +214,32 @@ func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 	return p
 }
 
-// LoadAll loads all tenant data from ETCD
+// LoadAll loads all tenant data from ETCD, with cache fallback.
 func (p *Provider) LoadAll(ctx context.Context) error {
 	prefix := p.namespace + "tenants/"
 
 	resp, err := p.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
-		return err
+		// 尝试从缓存降级
+		if p.cache != nil && p.cache.IsAvailable() {
+			logger.Warnf("tenant provider: ETCD unavailable, loading from cache")
+			cachedData, cacheErr := p.cache.Load()
+			if cacheErr == nil {
+				p.data.Store(cachedData)
+				logger.Infof("tenant provider: loaded from cache")
+				return nil
+			}
+			logger.Errorf("tenant provider: cache load failed: %v", cacheErr)
+		}
+		return fmt.Errorf("ETCD Get failed: %w", err)
 	}
 
+	// 正常从 ETCD 加载
 	newData := &tenantData{
-		metas:    make(map[int]*TenantMeta),
-		databases: make(map[int]*DatabaseConfig),
-		ftps:      make(map[int]*FtpConfig),
-		storages:  make(map[int]*StorageConfig),
+		Metas:    make(map[int]*TenantMeta),
+		Databases: make(map[int]*DatabaseConfig),
+		Ftps:      make(map[int]*FtpConfig),
+		Storages:  make(map[int]*StorageConfig),
 	}
 
 	for _, kv := range resp.Kvs {
@@ -130,6 +247,17 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 	}
 
 	p.data.Store(newData)
+	logger.Infof("tenant provider: loaded %d tenants from ETCD", len(newData.Databases))
+
+	// 同步到缓存
+	if p.cache != nil {
+		go func() {
+			if err := p.cache.Save(newData); err != nil {
+				logger.Errorf("tenant provider: failed to save cache: %v", err)
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -189,7 +317,7 @@ func (p *Provider) processMetaKey(tenantID int, value string, data *tenantData) 
 	}
 	// Ensure TenantID matches the key
 	meta.TenantID = tenantID
-	data.metas[tenantID] = &meta
+	data.Metas[tenantID] = &meta
 }
 
 // processDatabaseKey processes database configuration from ETCD
@@ -227,12 +355,12 @@ func (p *Provider) processDatabaseKey(tenantID int, value string, data *tenantDa
 	}
 
 	// Merge meta information if available
-	if meta, ok := data.metas[tenantID]; ok {
+	if meta, ok := data.Metas[tenantID]; ok {
 		dbConfig.Code = meta.Code
 		dbConfig.Name = meta.Name
 	}
 
-	data.databases[tenantID] = &dbConfig
+	data.Databases[tenantID] = &dbConfig
 }
 
 // processFtpKey processes FTP configuration from ETCD
@@ -243,13 +371,13 @@ func (p *Provider) processFtpKey(tenantID int, value string, data *tenantData) {
 	}
 
 	// Merge meta information if available
-	if meta, ok := data.metas[tenantID]; ok {
+	if meta, ok := data.Metas[tenantID]; ok {
 		ftpConfig.Code = meta.Code
 		ftpConfig.Name = meta.Name
 	}
 
 	ftpConfig.TenantID = tenantID
-	data.ftps[tenantID] = &ftpConfig
+	data.Ftps[tenantID] = &ftpConfig
 }
 
 // processStorageKey processes storage configuration from ETCD
@@ -274,12 +402,12 @@ func (p *Provider) processStorageKey(tenantID int, value string, data *tenantDat
 	}
 
 	// Merge meta information if available
-	if meta, ok := data.metas[tenantID]; ok {
+	if meta, ok := data.Metas[tenantID]; ok {
 		storageConfig.Code = meta.Code
 		storageConfig.Name = meta.Name
 	}
 
-	data.storages[tenantID] = &storageConfig
+	data.Storages[tenantID] = &storageConfig
 }
 
 // StartWatch begins watching ETCD for changes
@@ -371,27 +499,36 @@ func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
 	}
 
 	p.data.Store(newData)
+
+	// 同步到缓存
+	if p.cache != nil {
+		go func() {
+			if err := p.cache.Save(newData); err != nil {
+				logger.Errorf("tenant provider: failed to sync cache: %v", err)
+			}
+		}()
+	}
 }
 
 func (p *Provider) copyTenantData(src *tenantData) *tenantData {
 	dst := &tenantData{
-		metas:    make(map[int]*TenantMeta),
-		databases: make(map[int]*DatabaseConfig),
-		ftps:      make(map[int]*FtpConfig),
-		storages:  make(map[int]*StorageConfig),
+		Metas:    make(map[int]*TenantMeta),
+		Databases: make(map[int]*DatabaseConfig),
+		Ftps:      make(map[int]*FtpConfig),
+		Storages:  make(map[int]*StorageConfig),
 	}
 
-	for k, v := range src.metas {
-		dst.metas[k] = v
+	for k, v := range src.Metas {
+		dst.Metas[k] = v
 	}
-	for k, v := range src.databases {
-		dst.databases[k] = v
+	for k, v := range src.Databases {
+		dst.Databases[k] = v
 	}
-	for k, v := range src.ftps {
-		dst.ftps[k] = v
+	for k, v := range src.Ftps {
+		dst.Ftps[k] = v
 	}
-	for k, v := range src.storages {
-		dst.storages[k] = v
+	for k, v := range src.Storages {
+		dst.Storages[k] = v
 	}
 
 	return dst
@@ -431,13 +568,13 @@ func (p *Provider) handleDeleteKey(key string, data *tenantData) {
 
 	switch category {
 	case "meta":
-		delete(data.metas, tenantID)
+		delete(data.Metas, tenantID)
 	case "database":
-		delete(data.databases, tenantID)
+		delete(data.Databases, tenantID)
 	case "ftp":
-		delete(data.ftps, tenantID)
+		delete(data.Ftps, tenantID)
 	case "storage":
-		delete(data.storages, tenantID)
+		delete(data.Storages, tenantID)
 	}
 }
 
@@ -447,7 +584,7 @@ func (p *Provider) GetDatabaseConfig(tenantID int) (*DatabaseConfig, bool) {
 	if data == nil {
 		return nil, false
 	}
-	cfg, ok := data.databases[tenantID]
+	cfg, ok := data.Databases[tenantID]
 	return cfg, ok
 }
 
@@ -457,7 +594,7 @@ func (p *Provider) GetFtpConfig(tenantID int) (*FtpConfig, bool) {
 	if data == nil {
 		return nil, false
 	}
-	cfg, ok := data.ftps[tenantID]
+	cfg, ok := data.Ftps[tenantID]
 	return cfg, ok
 }
 
@@ -467,7 +604,7 @@ func (p *Provider) GetStorageConfig(tenantID int) (*StorageConfig, bool) {
 	if data == nil {
 		return nil, false
 	}
-	cfg, ok := data.storages[tenantID]
+	cfg, ok := data.Storages[tenantID]
 	return cfg, ok
 }
 
@@ -477,7 +614,7 @@ func (p *Provider) GetTenantMeta(tenantID int) (*TenantMeta, bool) {
 	if data == nil {
 		return nil, false
 	}
-	meta, ok := data.metas[tenantID]
+	meta, ok := data.Metas[tenantID]
 	return meta, ok
 }
 
