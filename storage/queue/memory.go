@@ -24,6 +24,7 @@ type Memory struct {
 	wait    sync.WaitGroup
 	mutex   sync.RWMutex
 	PoolNum uint
+	running bool // 标记队列是否已启动
 }
 
 func (*Memory) String() string {
@@ -102,10 +103,25 @@ func (m *Memory) Register(name string, f storage.ConsumerFunc) {
 }
 
 func (m *Memory) Run() {
+	m.mutex.Lock()
+	if m.running {
+		m.mutex.Unlock()
+		return // 避免重复运行
+	}
+	m.running = true
+	m.mutex.Unlock()
+	
 	m.wait.Add(1)
 	m.wait.Wait()
 }
 
 func (m *Memory) Shutdown() {
-	m.wait.Done()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	
+	// 只有在运行状态才调用 Done()
+	if m.running {
+		m.running = false
+		m.wait.Done()
+	}
 }

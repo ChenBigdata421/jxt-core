@@ -3,8 +3,8 @@ package mycasbin
 import (
 	"sync"
 
-	"github.com/casbin/casbin/v2"
-	"github.com/casbin/casbin/v2/model"
+	"github.com/casbin/casbin/v3"
+	"github.com/casbin/casbin/v3/model"
 	gormAdapter "github.com/casbin/gorm-adapter/v3"
 	"github.com/go-admin-team/go-admin-core/logger"
 	"github.com/go-admin-team/go-admin-core/sdk"
@@ -51,7 +51,7 @@ func Setup(db *gorm.DB, _ string) *casbin.SyncedEnforcer {
 			panic(err)
 		}
 
-		enforcer.EnableLog(true)
+		// Casbin v3: 日志默认已启用，无需 EnableLog()
 	})
 
 	return enforcer
