@@ -83,3 +83,46 @@ func TestProvider_parseTenantID(t *testing.T) {
 		})
 	}
 }
+
+func TestNewProviderWithRetry(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	client, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{"localhost:2379"},
+		DialTimeout: 0,
+	})
+	if err != nil {
+		t.Skip("ETCD not available:", err)
+	}
+	defer client.Close()
+
+	// Should succeed even if ETCD is slow
+	p, err := NewProviderWithRetry(client,
+		WithNamespace("test-retry/"),
+		WithConfigTypes(ConfigTypeDatabase),
+	)
+	if err != nil {
+		t.Logf("NewProviderWithRetry failed: %v", err)
+	}
+
+	if p == nil {
+		t.Fatal("expected provider to be created")
+	}
+
+	defer p.StopWatch()
+
+	// Test StartWatchWithRetry
+	if err := p.StartWatchWithRetry(client.Ctx()); err != nil {
+		t.Logf("StartWatchWithRetry failed: %v", err)
+	}
+
+	// Verify provider is running
+	if !p.running.Load() {
+		t.Error("expected provider to be running")
+	}
+
+	p.StopWatch()
+}
+

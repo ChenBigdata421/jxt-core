@@ -8,11 +8,32 @@ package provider
 //   - Backoff resets to 1s after successful event processing
 //   - All reconnection events are logged for monitoring
 //
+// Initialization with Retry:
+//   - Use NewProviderWithRetry() for automatic retry on LoadAll failures
+//   - Retry strategy: 5 attempts, 1s→16s exponential backoff
+//   - Total timeout: ~31 seconds
+//
+// Cache Fallback:
+//   - Configure WithCache() to enable persistent file cache
+//   - On ETCD failure, automatically loads from local cache
+//   - Cache is synced on every ETCD update
+//
 // Usage:
 //
-//	provider := NewProvider(etcdClient, WithNamespace("jxt/"))
-//	provider.LoadAll(ctx)
-//	provider.StartWatch(ctx)
+//	// With retry and cache
+//	provider, err := provider.NewProviderWithRetry(etcdClient,
+//	    provider.WithNamespace("jxt/"),
+//	    provider.WithConfigTypes(provider.ConfigTypeDatabase),
+//	    provider.WithCache(provider.NewFileCache()),
+//	)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Start watch with retry
+//	if err := provider.StartWatchWithRetry(ctx); err != nil {
+//	    log.Fatal(err)
+//	}
 //	defer provider.StopWatch()
 import (
 	"context"
@@ -29,6 +50,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger" // Used for watch reconnection logging
+	retryv4 "github.com/avast/retry-go/v4"
 )
 
 // ConfigType defines which configuration types to load
@@ -212,6 +234,30 @@ func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 		opt(p)
 	}
 	return p
+}
+
+// NewProviderWithRetry creates a Provider and initializes it with retry.
+func NewProviderWithRetry(client *clientv3.Client, opts ...Option) (*Provider, error) {
+	p := NewProvider(client, opts...)
+
+	// Retry LoadAll with exponential backoff
+	if err := retryv4.Do(
+		func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return p.LoadAll(ctx)
+		},
+		retryv4.Attempts(5),
+		retryv4.Delay(time.Second),
+		retryv4.MaxDelay(16*time.Second),
+		retryv4.DelayType(retryv4.BackOffDelay),
+		retryv4.LastErrorOnly(true),
+	); err != nil {
+		return nil, fmt.Errorf("failed to load tenant data after retries: %w", err)
+	}
+
+	logger.Infof("tenant provider: initialized successfully")
+	return p, nil
 }
 
 // LoadAll loads all tenant data from ETCD, with cache fallback.
@@ -549,6 +595,19 @@ func (p *Provider) StopWatch() {
 	p.running.Store(false)
 
 	logger.Info("tenant provider: ETCD watch stopped")
+}
+
+// StartWatchWithRetry starts ETCD watch with retry on failure.
+func (p *Provider) StartWatchWithRetry(ctx context.Context) error {
+	return retryv4.Do(
+		func() error {
+			return p.StartWatch(ctx)
+		},
+		retryv4.Attempts(3),
+		retryv4.Delay(time.Second),
+		retryv4.MaxDelay(5*time.Second),
+		retryv4.DelayType(retryv4.BackOffDelay),
+	)
 }
 
 // handleDeleteKey handles delete events

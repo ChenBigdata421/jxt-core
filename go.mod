@@ -37,7 +37,7 @@ require (
 	github.com/smartystreets/goconvey v1.6.4
 	github.com/spf13/cast v1.7.1
 	github.com/spf13/viper v1.20.1
-	github.com/stretchr/testify v1.11.0
+	github.com/stretchr/testify v1.11.1
 	github.com/xuri/excelize/v2 v2.6.1
 	go.etcd.io/etcd/client/v3 v3.5.17
 	go.uber.org/atomic v1.9.0
@@ -56,6 +56,7 @@ require (
 require (
 	github.com/DataDog/gostackparse v0.7.0 // indirect
 	github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible // indirect
+	github.com/avast/retry-go/v4 v4.7.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/casbin/redis-watcher/v2 v2.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
