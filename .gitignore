@@ -32,3 +32,9 @@ PHASE*.md
 DEPENDENCY_*.md
 UPDATE_NOTES.md
 CLAUDE.md
+
+# Temporary files
+logger/test.log
+*.log
+upgrade-deps.sh
+RELEASE_NOTES.md
