@@ -20,6 +20,7 @@
 package middleware
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -91,12 +92,12 @@ func defaultConfig() *Config {
 }
 
 // ExtractTenantID creates a middleware that extracts tenant ID from the request
-// and stores it in the Gin context under the key "tenant_id".
+// and stores it in the Gin context under the key "tenant_id" as an integer.
 //
 // By default, it extracts from the "X-Tenant-ID" header.
 // Use options to customize the extraction strategy.
 //
-// The middleware returns HTTP 400 if tenant ID cannot be extracted.
+// The middleware returns HTTP 400 if tenant ID cannot be extracted or is not numeric.
 func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 	cfg := defaultConfig()
 	for _, opt := range opts {
@@ -104,16 +105,41 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		tenantID, ok := extractTenantID(c, cfg)
+		tenantIDStr, ok := extractTenantID(c, cfg)
 		if !ok {
 			c.JSON(400, gin.H{
-				"error":      "tenant ID missing or invalid",
-				"resolver":   string(cfg.resolverType),
+				"error":        "tenant ID missing or invalid",
+				"resolver":     string(cfg.resolverType),
 				"resolver_type": string(cfg.resolverType),
 			})
 			c.Abort()
 			return
 		}
+
+		// Convert string to int
+		tenantID, err := strconv.Atoi(tenantIDStr)
+		if err != nil {
+			c.JSON(400, gin.H{
+				"error":        "tenant ID must be numeric",
+				"resolver":     string(cfg.resolverType),
+				"resolver_type": string(cfg.resolverType),
+			})
+			c.Abort()
+			return
+		}
+
+		// Validate tenantID (0 means invalid/not found)
+		if tenantID == 0 {
+			c.JSON(400, gin.H{
+				"error":        "tenant ID cannot be 0",
+				"resolver":     string(cfg.resolverType),
+				"resolver_type": string(cfg.resolverType),
+			})
+			c.Abort()
+			return
+		}
+
+		// Store as int in context
 		c.Set("tenant_id", tenantID)
 		c.Set("tenant_resolver_type", string(cfg.resolverType))
 		c.Next()
@@ -199,25 +225,31 @@ func extractFromPath(c *gin.Context, pathIndex int) (string, bool) {
 	return tenantID, tenantID != ""
 }
 
-// GetTenantID retrieves the tenant ID from the Gin context
-// Returns empty string if not found
-func GetTenantID(c *gin.Context) string {
-	return c.GetString("tenant_id")
-}
-
-// GetTenantIDAsInt retrieves the tenant ID from the Gin context as an integer
-// Returns 0 and an error if the tenant ID is not a valid integer
-func GetTenantIDAsInt(c *gin.Context) (int, error) {
-	tenantID := c.GetString("tenant_id")
-	return strconv.Atoi(tenantID)
-}
-
-// MustGetTenantID retrieves the tenant ID from the Gin context
-// Panics if not found (useful for handlers that require tenant ID)
-func MustGetTenantID(c *gin.Context) string {
-	tenantID, exists := c.Get("tenant_id")
-	if !exists {
-		panic("tenant_id not found in context")
+// GetTenantID retrieves the tenant ID from the Gin context as int
+// Returns 0 if not found
+func GetTenantID(c *gin.Context) int {
+	if id, exists := c.Get("tenant_id"); exists {
+		return id.(int)
 	}
-	return tenantID.(string)
+	return 0
+}
+
+// GetTenantIDAsInt retrieves tenant ID with error
+// Returns error if tenant ID is 0 (not found)
+func GetTenantIDAsInt(c *gin.Context) (int, error) {
+	id := GetTenantID(c)
+	if id == 0 {
+		return 0, errors.New("tenant ID not found in context")
+	}
+	return id, nil
+}
+
+// MustGetTenantID retrieves tenant ID or panics
+// Panics if not found (useful for handlers that require tenant ID)
+func MustGetTenantID(c *gin.Context) int {
+	id := GetTenantID(c)
+	if id == 0 {
+		panic("tenant ID not found in context")
+	}
+	return id
 }

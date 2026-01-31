@@ -13,7 +13,7 @@ func TestExtractTenantID_Header_Default(t *testing.T) {
 	router := gin.New()
 	router.Use(ExtractTenantID())
 	router.GET("/test", func(c *gin.Context) {
-		tenantID := c.GetString("tenant_id")
+		tenantID := GetTenantID(c)
 		c.JSON(200, gin.H{"tenant_id": tenantID})
 	})
 
@@ -23,7 +23,7 @@ func TestExtractTenantID_Header_Default(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name:           "Valid X-Tenant-ID header",
+			name:           "Valid numeric X-Tenant-ID header",
 			headerValue:    "123",
 			expectedStatus: http.StatusOK,
 		},
@@ -33,8 +33,13 @@ func TestExtractTenantID_Header_Default(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:           "Missing X-Tenant-ID header",
-			headerValue:    "",
+			name:           "Non-numeric X-Tenant-ID header",
+			headerValue:    "abc",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Zero X-Tenant-ID header",
+			headerValue:    "0",
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
@@ -42,7 +47,7 @@ func TestExtractTenantID_Header_Default(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/test", nil)
-			if tt.headerValue != "" || tt.name != "Missing X-Tenant-ID header" {
+			if tt.headerValue != "" {
 				req.Header.Set("X-Tenant-ID", tt.headerValue)
 			}
 			w := httptest.NewRecorder()
@@ -60,13 +65,13 @@ func TestExtractTenantID_Header_CustomName(t *testing.T) {
 	router := gin.New()
 	router.Use(ExtractTenantID(WithHeaderName("Custom-Tenant-Header")))
 	router.GET("/test", func(c *gin.Context) {
-		tenantID := c.GetString("tenant_id")
+		tenantID := GetTenantID(c)
 		c.JSON(200, gin.H{"tenant_id": tenantID})
 	})
 
-	t.Run("Valid custom header", func(t *testing.T) {
+	t.Run("Valid custom header with numeric ID", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("Custom-Tenant-Header", "tenant-456")
+		req.Header.Set("Custom-Tenant-Header", "456")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -91,7 +96,7 @@ func TestExtractTenantID_Query(t *testing.T) {
 	router := gin.New()
 	router.Use(ExtractTenantID(WithResolverType("query")))
 	router.GET("/test", func(c *gin.Context) {
-		tenantID := c.GetString("tenant_id")
+		tenantID := GetTenantID(c)
 		c.JSON(200, gin.H{"tenant_id": tenantID})
 	})
 
@@ -101,8 +106,8 @@ func TestExtractTenantID_Query(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name:           "Valid query parameter",
-			url:            "/test?tenant=tenant-123",
+			name:           "Valid numeric query parameter",
+			url:            "/test?tenant=123",
 			expectedStatus: http.StatusOK,
 		},
 		{
@@ -113,6 +118,11 @@ func TestExtractTenantID_Query(t *testing.T) {
 		{
 			name:           "Empty query parameter",
 			url:            "/test?tenant=",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Non-numeric query parameter",
+			url:            "/test?tenant=abc",
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
@@ -138,7 +148,7 @@ func TestExtractTenantID_Query_CustomParam(t *testing.T) {
 		WithQueryParam("tenant_id"),
 	))
 	router.GET("/test", func(c *gin.Context) {
-		tenantID := c.GetString("tenant_id")
+		tenantID := GetTenantID(c)
 		c.JSON(200, gin.H{"tenant_id": tenantID})
 	})
 
@@ -158,7 +168,7 @@ func TestExtractTenantID_Path(t *testing.T) {
 	router := gin.New()
 	router.Use(ExtractTenantID(WithResolverType("path"), WithPathIndex(0)))
 	router.GET("/:tenant_id/users", func(c *gin.Context) {
-		tenantID := c.GetString("tenant_id")
+		tenantID := GetTenantID(c)
 		c.JSON(200, gin.H{"tenant_id": tenantID})
 	})
 
@@ -168,14 +178,14 @@ func TestExtractTenantID_Path(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name:           "Valid path segment at index 0",
-			url:            "/tenant-abc/users",
+			name:           "Valid numeric path segment at index 0",
+			url:            "/12345/users",
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "Path segment with numeric ID",
-			url:            "/12345/users",
-			expectedStatus: http.StatusOK,
+			name:           "Non-numeric path segment",
+			url:            "/tenant-abc/users",
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "Empty path",
@@ -202,12 +212,12 @@ func TestExtractTenantID_Path_CustomIndex(t *testing.T) {
 	router := gin.New()
 	router.Use(ExtractTenantID(WithResolverType("path"), WithPathIndex(1)))
 	router.GET("/api/:tenant_id/users", func(c *gin.Context) {
-		tenantID := c.GetString("tenant_id")
+		tenantID := GetTenantID(c)
 		c.JSON(200, gin.H{"tenant_id": tenantID})
 	})
 
-	t.Run("Valid path segment at index 1", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/tenant-xyz/users", nil)
+	t.Run("Valid numeric path segment at index 1", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/999/users", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -222,7 +232,7 @@ func TestExtractTenantID_Host(t *testing.T) {
 	router := gin.New()
 	router.Use(ExtractTenantID(WithResolverType("host")))
 	router.GET("/test", func(c *gin.Context) {
-		tenantID := c.GetString("tenant_id")
+		tenantID := GetTenantID(c)
 		c.JSON(200, gin.H{"tenant_id": tenantID})
 	})
 
@@ -233,23 +243,19 @@ func TestExtractTenantID_Host(t *testing.T) {
 		validateID     func(t *testing.T, body string)
 	}{
 		{
-			name:           "Valid subdomain",
-			host:           "tenant1.example.com",
+			name:           "Valid numeric subdomain",
+			host:           "123.example.com",
 			expectedStatus: http.StatusOK,
-			validateID: func(t *testing.T, body string) {
-				// Should extract "tenant1" from subdomain
-				// Body validation would require parsing JSON
-			},
+		},
+		{
+			name:           "Non-numeric subdomain (should fail)",
+			host:           "tenant1.example.com",
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "Subdomain with port",
-			host:           "tenant2.example.com:8080",
+			host:           "456.example.com:8080",
 			expectedStatus: http.StatusOK,
-		},
-		{
-			name:           "WWW subdomain (should be rejected)",
-			host:           "www.example.com",
-			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "Single part domain (no dot)",
@@ -287,8 +293,8 @@ func TestGetTenantID(t *testing.T) {
 	router.Use(ExtractTenantID())
 	router.GET("/test", func(c *gin.Context) {
 		tenantID := GetTenantID(c)
-		if tenantID == "" {
-			c.JSON(500, gin.H{"error": "tenant_id is empty"})
+		if tenantID == 0 {
+			c.JSON(500, gin.H{"error": "tenant_id is 0"})
 			return
 		}
 		c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -296,7 +302,7 @@ func TestGetTenantID(t *testing.T) {
 
 	t.Run("Get tenant ID from context", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.Header.Set("X-Tenant-ID", "test-tenant")
+		req.Header.Set("X-Tenant-ID", "123")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -311,7 +317,7 @@ func TestGetTenantIDAsInt(t *testing.T) {
 
 	t.Run("Valid numeric tenant ID", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set("tenant_id", "12345")
+		c.Set("tenant_id", 12345)
 
 		tenantID, err := GetTenantIDAsInt(c)
 		if err != nil {
@@ -322,13 +328,13 @@ func TestGetTenantIDAsInt(t *testing.T) {
 		}
 	})
 
-	t.Run("Invalid numeric tenant ID", func(t *testing.T) {
+	t.Run("Missing tenant ID returns error", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set("tenant_id", "not-a-number")
+		// Don't set tenant_id
 
 		_, err := GetTenantIDAsInt(c)
 		if err == nil {
-			t.Error("expected error for non-numeric tenant ID")
+			t.Error("expected error when tenant_id is missing")
 		}
 	})
 }
@@ -338,11 +344,11 @@ func TestMustGetTenantID(t *testing.T) {
 
 	t.Run("Valid tenant ID", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set("tenant_id", "test-tenant")
+		c.Set("tenant_id", 999)
 
 		tenantID := MustGetTenantID(c)
-		if tenantID != "test-tenant" {
-			t.Errorf("expected 'test-tenant', got '%s'", tenantID)
+		if tenantID != 999 {
+			t.Errorf("expected 999, got %d", tenantID)
 		}
 	})
 
@@ -377,6 +383,37 @@ func TestExtractTenantID_ContextStoresResolverType(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Errorf("expected status 200, got %d", w.Code)
 		}
-		// Response body should contain the resolver type
+	})
+}
+
+func TestExtractTenantID_StoresIntInContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(ExtractTenantID())
+	router.GET("/test", func(c *gin.Context) {
+		// Verify tenant_id is stored as int, not string
+		tenantID, exists := c.Get("tenant_id")
+		if !exists {
+			c.JSON(500, gin.H{"error": "tenant_id not found"})
+			return
+		}
+		// Type assertion to int
+		id, ok := tenantID.(int)
+		if !ok {
+			c.JSON(500, gin.H{"error": "tenant_id is not int"})
+			return
+		}
+		c.JSON(200, gin.H{"tenant_id": id, "type": "int"})
+	})
+
+	t.Run("Tenant ID stored as int in context", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Header.Set("X-Tenant-ID", "456")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
 	})
 }

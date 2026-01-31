@@ -17,7 +17,6 @@ import (
 )
 
 type Application struct {
-	tenantResolver   *TenantResolver                                                 //租户解析器
 	tenantDBs        sync.Map                                                        //租户数据库连接，非CQRS
 	tenantCommandDBs sync.Map                                                        //租户命令数据库连接，CQRS
 	tenantQueryDBs   sync.Map                                                        //租户查询数据库连接，CQRS
@@ -45,31 +44,13 @@ type Routers struct {
 	List []Router
 }
 
-// SetTenantMapping 添加或更新域名到租户ID的映射
-func (e *Application) SetTenantMapping(host, tenantID string) {
-	e.tenantResolver.SetTenantMapping(host, tenantID)
-}
-
-// GetTenantID 获取租户id
-func (e *Application) GetTenantID(host string) string {
-	tenantID, ok := e.tenantResolver.GetTenantID(host)
-	if !ok {
-		return ""
-	}
-	return tenantID
-}
-
 // SetTenantDB 非CQRS时，设置租户数据库连接
-func (e *Application) SetTenantDB(tenantID string, db *gorm.DB) {
+func (e *Application) SetTenantDB(tenantID int, db *gorm.DB) {
 	e.tenantDBs.Store(tenantID, db)
 }
 
 // GetTenantDB 非CQRS时，根据租户id获取db
-func (e *Application) GetTenantDB(tenantID string) *gorm.DB {
-	// 如果存在租户id为*，则返回默认的db，表示没有租户
-	if db, ok := e.tenantDBs.Load("*"); ok {
-		return db.(*gorm.DB)
-	}
+func (e *Application) GetTenantDB(tenantID int) *gorm.DB {
 	if db, ok := e.tenantDBs.Load(tenantID); ok {
 		return db.(*gorm.DB)
 	}
@@ -77,12 +58,12 @@ func (e *Application) GetTenantDB(tenantID string) *gorm.DB {
 }
 
 // SetTenantCommandDB CQRS时，设置租户的CommandDB
-func (e *Application) SetTenantCommandDB(tenantID string, db *gorm.DB) {
+func (e *Application) SetTenantCommandDB(tenantID int, db *gorm.DB) {
 	e.tenantCommandDBs.Store(tenantID, db)
 }
 
 // GetTenantCommandDB CQRS时，根据租户id获取CommandDB
-func (e *Application) GetTenantCommandDB(tenantID string) *gorm.DB {
+func (e *Application) GetTenantCommandDB(tenantID int) *gorm.DB {
 	if db, ok := e.tenantCommandDBs.Load(tenantID); ok {
 		return db.(*gorm.DB)
 	}
@@ -90,12 +71,12 @@ func (e *Application) GetTenantCommandDB(tenantID string) *gorm.DB {
 }
 
 // SetTenantQueryDB CQRS时，设置租户的QueryDB
-func (e *Application) SetTenantQueryDB(tenantID string, db *gorm.DB) {
+func (e *Application) SetTenantQueryDB(tenantID int, db *gorm.DB) {
 	e.tenantQueryDBs.Store(tenantID, db)
 }
 
 // GetTenantQueryDB CQRS时，根据租户id获取QueryDB
-func (e *Application) GetTenantQueryDB(tenantID string) *gorm.DB {
+func (e *Application) GetTenantQueryDB(tenantID int) *gorm.DB {
 	if db, ok := e.tenantQueryDBs.Load(tenantID); ok {
 		return db.(*gorm.DB)
 	}
@@ -106,7 +87,7 @@ func (e *Application) GetTenantQueryDB(tenantID string) *gorm.DB {
 // 使用举例，统计活跃的数据库连接数
 // count := 0
 //
-//	app.GetTenantDBs(func(tenantID string, db *gorm.DB) bool {
+//	app.GetTenantDBs(func(tenantID int, db *gorm.DB) bool {
 //	    if db != nil {
 //	        count++
 //	    }
@@ -114,37 +95,33 @@ func (e *Application) GetTenantQueryDB(tenantID string) *gorm.DB {
 //	})
 //
 // fmt.Printf("活跃租户数量: %d\n", count)
-func (e *Application) GetTenantDBs(fn func(tenantID string, db *gorm.DB) bool) {
+func (e *Application) GetTenantDBs(fn func(tenantID int, db *gorm.DB) bool) {
 	e.tenantDBs.Range(func(key, value interface{}) bool {
-		return fn(key.(string), value.(*gorm.DB))
+		return fn(key.(int), value.(*gorm.DB))
 	})
 }
 
 // GetTenantCommandDBs 遍历所有租户命令数据库连接
-func (e *Application) GetTenantCommandDBs(fn func(tenantID string, db *gorm.DB) bool) {
+func (e *Application) GetTenantCommandDBs(fn func(tenantID int, db *gorm.DB) bool) {
 	e.tenantCommandDBs.Range(func(key, value interface{}) bool {
-		return fn(key.(string), value.(*gorm.DB))
+		return fn(key.(int), value.(*gorm.DB))
 	})
 }
 
 // GetTenantQueryDBs 遍历所有租户查询数据库连接
-func (e *Application) GetTenantQueryDBs(fn func(tenantID string, db *gorm.DB) bool) {
+func (e *Application) GetTenantQueryDBs(fn func(tenantID int, db *gorm.DB) bool) {
 	e.tenantQueryDBs.Range(func(key, value interface{}) bool {
-		return fn(key.(string), value.(*gorm.DB))
+		return fn(key.(int), value.(*gorm.DB))
 	})
 }
 
 // SetTenantCasbin 设置对应租户的casbin
-func (e *Application) SetTenantCasbin(tenantID string, enforcer *casbin.SyncedEnforcer) {
+func (e *Application) SetTenantCasbin(tenantID int, enforcer *casbin.SyncedEnforcer) {
 	e.casbins.Store(tenantID, enforcer)
 }
 
 // GetTenantCasbin 根据租户id获取casbin
-func (e *Application) GetTenantCasbin(tenantID string) *casbin.SyncedEnforcer {
-	// 如果存在租户id为*，则返回默认的casbin，表示没有租户
-	if value, ok := e.casbins.Load("*"); ok {
-		return value.(*casbin.SyncedEnforcer)
-	}
+func (e *Application) GetTenantCasbin(tenantID int) *casbin.SyncedEnforcer {
 	if value, ok := e.casbins.Load(tenantID); ok {
 		return value.(*casbin.SyncedEnforcer)
 	}
@@ -152,9 +129,9 @@ func (e *Application) GetTenantCasbin(tenantID string) *casbin.SyncedEnforcer {
 }
 
 // GetCasbins 遍历所有租户casbin
-func (e *Application) GetCasbins(fn func(tenantID string, enforcer *casbin.SyncedEnforcer) bool) {
+func (e *Application) GetCasbins(fn func(tenantID int, enforcer *casbin.SyncedEnforcer) bool) {
 	e.casbins.Range(func(key, value interface{}) bool {
-		return fn(key.(string), value.(*casbin.SyncedEnforcer))
+		return fn(key.(int), value.(*casbin.SyncedEnforcer))
 	})
 }
 
@@ -198,7 +175,6 @@ func (e *Application) GetLogger() *zap.Logger {
 // NewConfig 默认值
 func NewConfig() *Application {
 	return &Application{
-		tenantResolver:   NewTenantResolver(),
 		tenantDBs:        sync.Map{},
 		tenantCommandDBs: sync.Map{},
 		tenantQueryDBs:   sync.Map{},
@@ -213,16 +189,12 @@ func NewConfig() *Application {
 }
 
 // SetCrontab 设置对应key的crontab
-func (e *Application) SetTenantCrontab(tenantID string, crontab *cron.Cron) {
+func (e *Application) SetTenantCrontab(tenantID int, crontab *cron.Cron) {
 	e.crontabs.Store(tenantID, crontab)
 }
 
 // GetCrontabKey 根据key获取crontab
-func (e *Application) GetTenantCrontab(tenantID string) *cron.Cron {
-	// 如果存在租户id为*，则返回默认的crontab，表示没有租户
-	if value, ok := e.crontabs.Load("*"); ok {
-		return value.(*cron.Cron)
-	}
+func (e *Application) GetTenantCrontab(tenantID int) *cron.Cron {
 	if value, ok := e.crontabs.Load(tenantID); ok {
 		return value.(*cron.Cron)
 	}
@@ -230,9 +202,9 @@ func (e *Application) GetTenantCrontab(tenantID string) *cron.Cron {
 }
 
 // GetCrontab 获取所有map里的crontab数据
-func (e *Application) GetCrontabs(fn func(tenantID string, crontab *cron.Cron) bool) {
+func (e *Application) GetCrontabs(fn func(tenantID int, crontab *cron.Cron) bool) {
 	e.crontabs.Range(func(key, value interface{}) bool {
-		return fn(key.(string), value.(*cron.Cron))
+		return fn(key.(int), value.(*cron.Cron))
 	})
 }
 

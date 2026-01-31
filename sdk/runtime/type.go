@@ -14,31 +14,27 @@ import (
 )
 
 type Runtime interface {
-	// GetTenantID 获取租户id
-	SetTenantMapping(host, tenantID string)
-	GetTenantID(host string) string
-
 	// SetDb 非CQRS时，多db设置，⚠️SetDbs不允许并发,可以根据自己的业务，例如app分库（用分表分库，或不同微服务实现）、host分库（多租户）
-	SetTenantDB(tenantID string, db *gorm.DB)
-	GetTenantDB(tenantID string) *gorm.DB
-	GetTenantDBs(fn func(tenantID string, db *gorm.DB) bool)
+	SetTenantDB(tenantID int, db *gorm.DB)
+	GetTenantDB(tenantID int) *gorm.DB
+	GetTenantDBs(fn func(tenantID int, db *gorm.DB) bool)
 
 	// SetTenantCommandDB CQRS时，设置对应租户的Command db
-	SetTenantCommandDB(tenantID string, db *gorm.DB)
-	GetTenantCommandDB(tenantID string) *gorm.DB
-	GetTenantCommandDBs(fn func(tenantID string, db *gorm.DB) bool)
+	SetTenantCommandDB(tenantID int, db *gorm.DB)
+	GetTenantCommandDB(tenantID int) *gorm.DB
+	GetTenantCommandDBs(fn func(tenantID int, db *gorm.DB) bool)
 
 	// SetTenantQueryDB CQRS时，设置对应租户的Query db
-	SetTenantQueryDB(tenantID string, db *gorm.DB)
-	GetTenantQueryDB(tenantID string) *gorm.DB
-	GetTenantQueryDBs(fn func(tenantID string, db *gorm.DB) bool)
+	SetTenantQueryDB(tenantID int, db *gorm.DB)
+	GetTenantQueryDB(tenantID int) *gorm.DB
+	GetTenantQueryDBs(fn func(tenantID int, db *gorm.DB) bool)
 
 	// SetTenantCasbin 设置对应租户的casbin
-	SetTenantCasbin(tenantID string, enforcer *casbin.SyncedEnforcer)
+	SetTenantCasbin(tenantID int, enforcer *casbin.SyncedEnforcer)
 	// GetTenantCasbin 根据租户id获取casbin
-	GetTenantCasbin(tenantID string) *casbin.SyncedEnforcer
+	GetTenantCasbin(tenantID int) *casbin.SyncedEnforcer
 	// GetCasbins 获取所有casbin
-	GetCasbins(fn func(tenantID string, enforcer *casbin.SyncedEnforcer) bool)
+	GetCasbins(fn func(tenantID int, enforcer *casbin.SyncedEnforcer) bool)
 
 	// SetEngine 使用的路由
 	SetEngine(engine http.Handler)
@@ -51,9 +47,9 @@ type Runtime interface {
 	GetLogger() *zap.Logger
 
 	// SetCrontab crontab
-	SetTenantCrontab(tenantID string, crontab *cron.Cron)
-	GetTenantCrontab(tenantID string) *cron.Cron
-	GetCrontabs(fn func(tenantID string, crontab *cron.Cron) bool)
+	SetTenantCrontab(tenantID int, crontab *cron.Cron)
+	GetTenantCrontab(tenantID int) *cron.Cron
+	GetCrontabs(fn func(tenantID int, crontab *cron.Cron) bool)
 
 	// SetMiddleware middleware
 	SetMiddleware(string, interface{})
