@@ -7,6 +7,7 @@ toolchain go1.24.7
 require (
 	github.com/IBM/sarama v1.46.0
 	github.com/anthdm/hollywood v1.0.5
+	github.com/avast/retry-go/v4 v4.7.0
 	github.com/bsm/redislock v0.8.2
 	github.com/bytedance/go-tagexpr/v2 v2.7.12
 	github.com/casbin/casbin/v2 v2.54.0
@@ -56,7 +57,6 @@ require (
 require (
 	github.com/DataDog/gostackparse v0.7.0 // indirect
 	github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible // indirect
-	github.com/avast/retry-go/v4 v4.7.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/casbin/redis-watcher/v2 v2.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
