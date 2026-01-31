@@ -1,20 +1,223 @@
+// Package middleware provides tenant ID extraction middleware for Gin framework.
+//
+// Supported resolver types:
+//   - "host":   Extract tenant ID from Host header (domain-based)
+//   - "header": Extract tenant ID from a custom header (default: X-Tenant-ID)
+//   - "query":  Extract tenant ID from URL query parameter (default: tenant)
+//   - "path":   Extract tenant ID from URL path by index
+//
+// Usage:
+//
+//	// Simple: Use default header-based extraction
+//	router.Use(middleware.ExtractTenantID())
+//
+//	// Advanced: Configure resolver type and options
+//	router.Use(middleware.ExtractTenantID(middleware.WithResolverType("host")))
+//	router.Use(middleware.ExtractTenantID(
+//	    middleware.WithResolverType("query"),
+//	    middleware.WithQueryParam("tenant_id"),
+//	))
 package middleware
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 )
 
-// ExtractTenantID is a Gin middleware that extracts the tenant ID from the X-Tenant-ID header
-// and stores it in the request context. If the header is missing or empty, it returns a 400 error.
-func ExtractTenantID() gin.HandlerFunc {
+// ResolverType defines the tenant ID extraction strategy
+type ResolverType string
+
+const (
+	ResolverTypeHost   ResolverType = "host"   // Extract from Host header
+	ResolverTypeHeader ResolverType = "header" // Extract from custom header
+	ResolverTypeQuery  ResolverType = "query"  // Extract from query parameter
+	ResolverTypePath   ResolverType = "path"   // Extract from path segment
+)
+
+// Config holds the middleware configuration
+type Config struct {
+	resolverType ResolverType
+	headerName   string // For type=header
+	queryParam   string // For type=query
+	pathIndex    int    // For type=path
+}
+
+// Option is a function that configures the tenant ID extraction
+type Option func(*Config)
+
+// WithResolverType sets the resolver type (host/header/query/path)
+// Default: "header"
+func WithResolverType(resolverType string) Option {
+	return func(c *Config) {
+		c.resolverType = ResolverType(resolverType)
+	}
+}
+
+// WithHeaderName sets the header name for type=header
+// Default: "X-Tenant-ID"
+func WithHeaderName(name string) Option {
+	return func(c *Config) {
+		c.headerName = name
+	}
+}
+
+// WithQueryParam sets the query parameter name for type=query
+// Default: "tenant"
+func WithQueryParam(param string) Option {
+	return func(c *Config) {
+		c.queryParam = param
+	}
+}
+
+// WithPathIndex sets the path segment index for type=path
+// Default: 0 (first segment after leading slash)
+// Example: /tenant-123/users -> pathIndex=0 extracts "tenant-123"
+func WithPathIndex(index int) Option {
+	return func(c *Config) {
+		c.pathIndex = index
+	}
+}
+
+// defaultConfig returns the default configuration
+func defaultConfig() *Config {
+	return &Config{
+		resolverType: ResolverTypeHeader,
+		headerName:   "X-Tenant-ID",
+		queryParam:   "tenant",
+		pathIndex:    0,
+	}
+}
+
+// ExtractTenantID creates a middleware that extracts tenant ID from the request
+// and stores it in the Gin context under the key "tenant_id".
+//
+// By default, it extracts from the "X-Tenant-ID" header.
+// Use options to customize the extraction strategy.
+//
+// The middleware returns HTTP 400 if tenant ID cannot be extracted.
+func ExtractTenantID(opts ...Option) gin.HandlerFunc {
+	cfg := defaultConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	return func(c *gin.Context) {
-		tenantID := c.GetHeader("X-Tenant-ID")
-		if tenantID == "" {
-			c.JSON(400, gin.H{"error": "X-Tenant-ID header missing"})
+		tenantID, ok := extractTenantID(c, cfg)
+		if !ok {
+			c.JSON(400, gin.H{
+				"error":      "tenant ID missing or invalid",
+				"resolver":   string(cfg.resolverType),
+				"resolver_type": string(cfg.resolverType),
+			})
 			c.Abort()
 			return
 		}
 		c.Set("tenant_id", tenantID)
+		c.Set("tenant_resolver_type", string(cfg.resolverType))
 		c.Next()
 	}
+}
+
+// extractTenantID extracts tenant ID based on the configured resolver type
+func extractTenantID(c *gin.Context, cfg *Config) (string, bool) {
+	switch cfg.resolverType {
+	case ResolverTypeHost:
+		return extractFromHost(c)
+	case ResolverTypeHeader:
+		return extractFromHeader(c, cfg.headerName)
+	case ResolverTypeQuery:
+		return extractFromQuery(c, cfg.queryParam)
+	case ResolverTypePath:
+		return extractFromPath(c, cfg.pathIndex)
+	default:
+		return "", false
+	}
+}
+
+// extractFromHost extracts tenant ID from Host header
+// Supports both subdomain extraction (tenant1.example.com -> tenant1)
+// and full domain mapping when used with a domain lookup service
+func extractFromHost(c *gin.Context) (string, bool) {
+	host := c.Request.Host
+	if host == "" {
+		return "", false
+	}
+
+	// Remove port if present
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+
+	// Extract subdomain (first part before first dot)
+	parts := strings.Split(host, ".")
+	if len(parts) < 2 {
+		return "", false
+	}
+
+	// Return the subdomain as tenant ID
+	// Example: tenant1.example.com -> tenant1
+	subdomain := parts[0]
+	if subdomain == "" || subdomain == "www" {
+		return "", false
+	}
+
+	return subdomain, true
+}
+
+// extractFromHeader extracts tenant ID from a custom header
+func extractFromHeader(c *gin.Context, headerName string) (string, bool) {
+	tenantID := c.GetHeader(headerName)
+	return tenantID, tenantID != ""
+}
+
+// extractFromQuery extracts tenant ID from URL query parameter
+func extractFromQuery(c *gin.Context, queryParam string) (string, bool) {
+	tenantID := c.Query(queryParam)
+	return tenantID, tenantID != ""
+}
+
+// extractFromPath extracts tenant ID from URL path by index
+// Path segments are 0-indexed after the leading slash
+// Example: /tenant-123/users with pathIndex=0 -> "tenant-123"
+func extractFromPath(c *gin.Context, pathIndex int) (string, bool) {
+	path := c.Request.URL.Path
+	if path == "" || path == "/" {
+		return "", false
+	}
+
+	// Remove leading slash and split
+	path = strings.TrimPrefix(path, "/")
+	parts := strings.Split(path, "/")
+
+	if pathIndex >= len(parts) || pathIndex < 0 {
+		return "", false
+	}
+
+	tenantID := parts[pathIndex]
+	return tenantID, tenantID != ""
+}
+
+// GetTenantID retrieves the tenant ID from the Gin context
+// Returns empty string if not found
+func GetTenantID(c *gin.Context) string {
+	return c.GetString("tenant_id")
+}
+
+// GetTenantIDAsInt retrieves the tenant ID from the Gin context as an integer
+// Returns 0 and an error if the tenant ID is not a valid integer
+func GetTenantIDAsInt(c *gin.Context) (int, error) {
+	tenantID := c.GetString("tenant_id")
+	return strconv.Atoi(tenantID)
+}
+
+// MustGetTenantID retrieves the tenant ID from the Gin context
+// Panics if not found (useful for handlers that require tenant ID)
+func MustGetTenantID(c *gin.Context) string {
+	tenantID, exists := c.Get("tenant_id")
+	if !exists {
+		panic("tenant_id not found in context")
+	}
+	return tenantID.(string)
 }

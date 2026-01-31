@@ -242,6 +242,7 @@ jxt-core/
 │   │   ├── ws/            # WebSocket
 │   │   ├── cronjob/       # 定时任务
 │   │   ├── tenant/        # 多租户组件 ⭐
+│   │   │   ├── cache/     # 本地文件缓存实现
 │   │   │   ├── provider/  # ETCD 配置 Provider
 │   │   │   ├── database/  # 数据库配置缓存
 │   │   │   ├── ftp/       # FTP 配置缓存
