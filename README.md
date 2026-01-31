@@ -1,17 +1,27 @@
 # go-admin-team 公共代码库
 
-### 功能
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-- [x] log 组件
-- [x] 缓存(支持 memory)
-- [x] 队列(支持 memory)
-- [x] 日志写入 writer
-- [x] 日志插件 zap（高性能结构化日志）
-- [x] 大文件分割写入
+## ✨ 核心特性
 
-> **注意:** 自 v2.0.0 起已移除 Logrus 插件支持，请使用 Zap 或默认日志实现。
+### 📝 Logger 模块（企业级日志解决方案）
 
-- 暂时移除对 redis 的支持
+- **异步日志** - 45x 性能提升（3,358ns → 75ns），支持 100k+ QPS
+- **采样日志** - 29x 性能提升（3,357ns → 116ns），智能频率控制
+- **脱敏日志** - 自动脱敏敏感数据（手机号、密码、邮箱等），满足合规要求
+- **Logrus 适配器** - 完整 Logrus 生态支持，50+ Hooks 可用
+- **生产级配置** - 内置最佳实践配置（异步 + 采样 + 脱敏）
+- **并发安全** - Race Detector 验证通过，零数据竞争
+
+### 🚀 其他组件
+
+- [x] 缓存组件（支持 memory）
+- [x] 队列组件（支持 memory）
+- [x] 配置管理（支持多种数据源）
+- [x] 日志写入器（支持文件分割）
+
+> **最新版本:** Go 1.25.1 | 119 个依赖包已升级 | 35 个单元测试 + 30+ 性能基准测试
 
 ---
 
