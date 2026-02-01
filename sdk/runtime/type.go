@@ -29,6 +29,13 @@ type Runtime interface {
 	GetTenantQueryDB(tenantID int) *gorm.DB
 	GetTenantQueryDBs(fn func(tenantID int, db *gorm.DB) bool)
 
+	// SetTenantServiceDB 设置租户指定服务的数据库连接
+	SetTenantServiceDB(tenantID int, serviceCode string, db *gorm.DB)
+	// GetTenantServiceDB 获取租户指定服务的数据库连接
+	GetTenantServiceDB(tenantID int, serviceCode string) *gorm.DB
+	// GetTenantServiceDBs 遍历所有租户服务数据库连接
+	GetTenantServiceDBs(fn func(tenantID int, serviceCode string, db *gorm.DB) bool)
+
 	// SetTenantCasbin 设置对应租户的casbin
 	SetTenantCasbin(tenantID int, enforcer *casbin.SyncedEnforcer)
 	// GetTenantCasbin 根据租户id获取casbin
