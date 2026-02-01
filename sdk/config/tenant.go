@@ -39,10 +39,15 @@ type TenantsStorageConfig struct {
 
 // DefaultTenantConfig 默认租户配置
 type DefaultTenantConfig struct {
+	// Legacy: 单个数据库配置（向后兼容）
 	Database *TenantDatabaseDetailConfig `mapstructure:"database" yaml:"database"` // 数据库配置
-	Domain   *TenantDomainConfig         `mapstructure:"domain" yaml:"domain"`     // 域名配置
-	FTP      *TenantFTPDetailConfig      `mapstructure:"ftp" yaml:"ftp"`           // FTP 配置
-	Storage  *TenantStorageDetailConfig  `mapstructure:"storage" yaml:"storage"`   // 存储配置
+
+	// NEW: 服务级数据库配置映射（service_code -> config）
+	ServiceDatabases map[string]TenantDatabaseDetailConfig `mapstructure:"service_databases" yaml:"service_databases"` // 服务级数据库配置
+
+	Domain  *TenantDomainConfig         `mapstructure:"domain" yaml:"domain"`   // 域名配置
+	FTP     *TenantFTPDetailConfig      `mapstructure:"ftp" yaml:"ftp"`         // FTP 配置
+	Storage *TenantStorageDetailConfig  `mapstructure:"storage" yaml:"storage"` // 存储配置
 }
 
 // TenantDatabaseDetailConfig 详细的数据库配置
@@ -210,6 +215,30 @@ func (dtc *DefaultTenantConfig) GetDefaultTenantStorage() *TenantStorageDetailCo
 		return nil
 	}
 	return dtc.Storage
+}
+
+// GetServiceDatabases 获取服务级数据库配置映射
+func (dtc *DefaultTenantConfig) GetServiceDatabases() map[string]TenantDatabaseDetailConfig {
+	if dtc == nil || dtc.ServiceDatabases == nil {
+		return make(map[string]TenantDatabaseDetailConfig)
+	}
+	return dtc.ServiceDatabases
+}
+
+// GetServiceDatabase 获取指定服务的数据库配置
+func (dtc *DefaultTenantConfig) GetServiceDatabase(serviceCode string) *TenantDatabaseDetailConfig {
+	if dtc == nil || dtc.ServiceDatabases == nil {
+		return nil
+	}
+	if config, ok := dtc.ServiceDatabases[serviceCode]; ok {
+		return &config
+	}
+	return nil
+}
+
+// HasServiceDatabases 判断是否配置了服务级数据库
+func (dtc *DefaultTenantConfig) HasServiceDatabases() bool {
+	return dtc != nil && len(dtc.ServiceDatabases) > 0
 }
 
 func (dbConfig *TenantDatabaseDetailConfig) GetDatabaseConnectionString() string {
@@ -442,7 +471,7 @@ tenants:
 
   # 默认租户配置
   default:
-    # 数据库配置 - 默认租户的专属数据库
+    # 数据库配置 - 默认租户的专属数据库（向后兼容）
     database:
       driver: "postgres"
       host: "postgres-tenant-service"
@@ -458,6 +487,44 @@ tenants:
       connect_timeout: 10  # 秒
       read_timeout: 30  # 秒
       write_timeout: 30  # 秒
+
+    # NEW: 服务级数据库配置
+    service_databases:
+      evidence-command:
+        driver: "mysql"
+        host: "mysql-command"
+        port: 3306
+        database: "tenant_default_command"
+        username: "tenant_default_cmd"
+        password: "password123"
+        sslmode: "disable"
+        max_open_conns: 100
+        max_idle_conns: 20
+
+      evidence-query:
+        driver: "postgres"
+        host: "postgres-query"
+        port: 5432
+        database: "tenant_default_query"
+        username: "tenant_default_query"
+        password: "password123"
+        sslmode: "disable"
+
+      file-storage:
+        driver: "postgres"
+        host: "postgres-storage"
+        port: 5432
+        database: "tenant_default_storage"
+        username: "tenant_default_storage"
+        password: "password123"
+
+      security-management:
+        driver: "postgres"
+        host: "postgres-security"
+        port: 5432
+        database: "securitydb"
+        username: "tenant"
+        password: "password123"
 
     # 域名配置 - 统一域名方案
     domain:
