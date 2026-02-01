@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +23,7 @@ type Application struct {
 	tenantDBs        sync.Map                                                        //租户数据库连接，非CQRS
 	tenantCommandDBs sync.Map                                                        //租户命令数据库连接，CQRS
 	tenantQueryDBs   sync.Map                                                        //租户查询数据库连接，CQRS
+	tenantServiceDBs sync.Map                                                        //服务级数据库连接（key: "tenantID:serviceCode"）
 	casbins          sync.Map                                                        //casbin
 	engine           http.Handler                                                    //路由引擎
 	crontabs         sync.Map                                                        //crontab
@@ -49,8 +53,13 @@ func (e *Application) SetTenantDB(tenantID int, db *gorm.DB) {
 	e.tenantDBs.Store(tenantID, db)
 }
 
-// GetTenantDB 非CQRS时，根据租户id获取db
+// GetTenantDB 向后兼容：优先返回 security-management 服务，否则返回默认 tenantDBs
 func (e *Application) GetTenantDB(tenantID int) *gorm.DB {
+	// 优先尝试服务级配置的 security-management
+	if db := e.GetTenantServiceDB(tenantID, "security-management"); db != nil {
+		return db
+	}
+	// 回退到旧的 tenantDBs
 	if db, ok := e.tenantDBs.Load(tenantID); ok {
 		return db.(*gorm.DB)
 	}
@@ -113,6 +122,48 @@ func (e *Application) GetTenantQueryDBs(fn func(tenantID int, db *gorm.DB) bool)
 	e.tenantQueryDBs.Range(func(key, value interface{}) bool {
 		return fn(key.(int), value.(*gorm.DB))
 	})
+}
+
+// === 服务级数据库管理方法 ===
+
+// SetTenantServiceDB 设置租户指定服务的数据库连接
+func (e *Application) SetTenantServiceDB(tenantID int, serviceCode string, db *gorm.DB) {
+	key := e.buildTenantServiceKey(tenantID, serviceCode)
+	e.tenantServiceDBs.Store(key, db)
+}
+
+// GetTenantServiceDB 获取租户指定服务的数据库连接
+func (e *Application) GetTenantServiceDB(tenantID int, serviceCode string) *gorm.DB {
+	key := e.buildTenantServiceKey(tenantID, serviceCode)
+	if db, ok := e.tenantServiceDBs.Load(key); ok {
+		return db.(*gorm.DB)
+	}
+	return nil
+}
+
+// GetTenantServiceDBs 遍历所有租户服务数据库连接
+func (e *Application) GetTenantServiceDBs(fn func(tenantID int, serviceCode string, db *gorm.DB) bool) {
+	e.tenantServiceDBs.Range(func(key, value interface{}) bool {
+		// key 格式: "tenantID:serviceCode"
+		keyStr := key.(string)
+		tenantID, serviceCode := e.parseTenantServiceKey(keyStr)
+		return fn(tenantID, serviceCode, value.(*gorm.DB))
+	})
+}
+
+// buildTenantServiceKey 构建租户服务缓存键
+func (e *Application) buildTenantServiceKey(tenantID int, serviceCode string) string {
+	return fmt.Sprintf("%d:%s", tenantID, serviceCode)
+}
+
+// parseTenantServiceKey 解析租户服务缓存键
+func (e *Application) parseTenantServiceKey(key string) (int, string) {
+	parts := strings.SplitN(key, ":", 2)
+	if len(parts) != 2 {
+		return 0, ""
+	}
+	tenantID, _ := strconv.Atoi(parts[0])
+	return tenantID, parts[1]
 }
 
 // SetTenantCasbin 设置对应租户的casbin
@@ -178,6 +229,7 @@ func NewConfig() *Application {
 		tenantDBs:        sync.Map{},
 		tenantCommandDBs: sync.Map{},
 		tenantQueryDBs:   sync.Map{},
+		tenantServiceDBs: sync.Map{}, // NEW: 初始化服务级数据库存储
 		casbins:          sync.Map{},
 		crontabs:         sync.Map{},
 		middlewares:      make(map[string]interface{}),

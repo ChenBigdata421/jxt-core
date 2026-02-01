@@ -44,6 +44,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **ORM 集成** - 基于 GORM 的数据库操作
 - [x] **读写分离** - 支持主从数据库配置
 - [x] **事务管理** - 完整的数据库事务支持
+- [x] **服务级数据库配置** - 支持为每个租户的每个微服务配置独立数据库 ⭐ **新增**
 
 ### ⏰ 任务调度
 - [x] **定时任务** - 基于 cron 的任务调度
@@ -183,6 +184,77 @@ tenants:
 ```
 
 > 更详细的字段含义与环境变量映射，请参考 `docs/tenant.yml`。
+
+### 服务级数据库配置 ⭐
+
+框架支持为每个租户的每个微服务配置独立的数据库连接，实现更细粒度的数据隔离和性能优化。
+
+#### 配置示例
+
+```yaml
+tenants:
+  default:
+    service_databases:
+      evidence-command:
+        driver: mysql
+        host: mysql-command
+        port: 3306
+        database: tenant_command
+
+      evidence-query:
+        driver: postgres
+        host: postgres-query
+        port: 5432
+        database: tenant_query
+
+      file-storage:
+        driver: postgres
+        host: postgres-storage
+        port: 5432
+        database: tenant_storage
+
+      security-management:
+        driver: postgres
+        host: postgres-security
+        port: 5432
+        database: securitydb
+```
+
+#### 使用方法
+
+```go
+// 设置服务数据库连接
+app.SetTenantServiceDB(tenantID, "evidence-command", db)
+
+// 获取服务数据库连接
+db := app.GetTenantServiceDB(tenantID, "evidence-command")
+
+// 遍历所有服务数据库连接
+app.GetTenantServiceDBs(func(tenantID int, serviceCode string, db *gorm.DB) bool {
+    fmt.Printf("租户 %d 的 %s 服务数据库\n", tenantID, serviceCode)
+    return true
+})
+```
+
+#### 支持的服务代码
+
+- `evidence-command` - 证据管理写服务（CQRS Command 端）
+- `evidence-query` - 证据管理读服务（CQRS Query 端）
+- `file-storage` - 文件存储服务
+- `security-management` - 安全管理服务
+
+#### 向后兼容
+
+旧的 API 仍然可用，并自动映射到服务级配置：
+
+```go
+// 这些方法仍然可用，内部映射到服务级配置
+db := app.GetTenantDB(tenantID)              // 映射到 security-management
+cmdDB := app.GetTenantCommandDB(tenantID)    // 映射到 evidence-command
+queryDB := app.GetTenantQueryDB(tenantID)    // 映射到 evidence-query
+```
+
+详细文档参见: [服务级数据库配置指南](sdk/config/SERVICE_DATABASE_CONFIG.md)
 
 ## EventBus 事件总线 ⭐
 
