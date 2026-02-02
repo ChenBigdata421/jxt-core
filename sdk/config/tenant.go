@@ -45,9 +45,9 @@ type DefaultTenantConfig struct {
 	// NEW: 服务级数据库配置映射（service_code -> config）
 	ServiceDatabases map[string]TenantDatabaseDetailConfig `mapstructure:"service_databases" yaml:"service_databases"` // 服务级数据库配置
 
-	Domain  *TenantDomainConfig         `mapstructure:"domain" yaml:"domain"`   // 域名配置
-	FTP     *TenantFTPDetailConfig      `mapstructure:"ftp" yaml:"ftp"`         // FTP 配置
-	Storage *TenantStorageDetailConfig  `mapstructure:"storage" yaml:"storage"` // 存储配置
+	Domain     *TenantDomainConfig        `mapstructure:"domain" yaml:"domain"`         // 域名配置
+	FTPConfigs []TenantFTPDetailConfig   `mapstructure:"ftp_configs" yaml:"ftp_configs"` // FTP 配置数组
+	Storage    *TenantStorageDetailConfig `mapstructure:"storage" yaml:"storage"`        // 存储配置
 }
 
 // TenantDatabaseDetailConfig 详细的数据库配置
@@ -201,14 +201,6 @@ func (dtc *DefaultTenantConfig) GetDefaultTenantDomain() *TenantDomainConfig {
 		return nil
 	}
 	return dtc.Domain
-}
-
-// GetDefaultTenantFTP 获取默认租户 FTP 配置
-func (dtc *DefaultTenantConfig) GetDefaultTenantFTP() *TenantFTPDetailConfig {
-	if dtc == nil || dtc.FTP == nil {
-		return nil
-	}
-	return dtc.FTP
 }
 
 // GetDefaultTenantStorage 获取默认租户存储配置
