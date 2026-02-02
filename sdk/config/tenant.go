@@ -211,6 +211,48 @@ func (dtc *DefaultTenantConfig) GetDefaultTenantStorage() *TenantStorageDetailCo
 	return dtc.Storage
 }
 
+// GetFTPConfigs 获取所有 FTP 配置数组
+func (dtc *DefaultTenantConfig) GetFTPConfigs() []TenantFTPDetailConfig {
+	if dtc == nil || dtc.FTPConfigs == nil {
+		return []TenantFTPDetailConfig{}
+	}
+	return dtc.FTPConfigs
+}
+
+// GetActiveFTPConfigs 获取所有状态为 active 的 FTP 配置
+func (dtc *DefaultTenantConfig) GetActiveFTPConfigs() []TenantFTPDetailConfig {
+	if dtc == nil || dtc.FTPConfigs == nil {
+		return []TenantFTPDetailConfig{}
+	}
+
+	result := make([]TenantFTPDetailConfig, 0)
+	for _, cfg := range dtc.FTPConfigs {
+		if cfg.Status == "" || cfg.Status == "active" {
+			result = append(result, cfg)
+		}
+	}
+	return result
+}
+
+// GetFTPConfigByUsername 根据 Username 查找特定的 FTP 配置
+func (dtc *DefaultTenantConfig) GetFTPConfigByUsername(username string) *TenantFTPDetailConfig {
+	if dtc == nil || dtc.FTPConfigs == nil {
+		return nil
+	}
+
+	for i := range dtc.FTPConfigs {
+		if dtc.FTPConfigs[i].Username == username {
+			return &dtc.FTPConfigs[i]
+		}
+	}
+	return nil
+}
+
+// HasFTPConfigs 判断是否配置了多个 FTP
+func (dtc *DefaultTenantConfig) HasFTPConfigs() bool {
+	return dtc != nil && len(dtc.FTPConfigs) > 0
+}
+
 // GetServiceDatabases 获取服务级数据库配置映射
 func (dtc *DefaultTenantConfig) GetServiceDatabases() map[string]TenantDatabaseDetailConfig {
 	if dtc == nil || dtc.ServiceDatabases == nil {
