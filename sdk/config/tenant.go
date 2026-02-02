@@ -39,10 +39,7 @@ type TenantsStorageConfig struct {
 
 // DefaultTenantConfig 默认租户配置
 type DefaultTenantConfig struct {
-	// Legacy: 单个数据库配置（向后兼容）
-	Database *TenantDatabaseDetailConfig `mapstructure:"database" yaml:"database"` // 数据库配置
-
-	// NEW: 服务级数据库配置映射（service_code -> config）
+	// 服务级数据库配置映射（service_code -> config）
 	ServiceDatabases map[string]TenantDatabaseDetailConfig `mapstructure:"service_databases" yaml:"service_databases"` // 服务级数据库配置
 
 	Domain     *TenantDomainConfig        `mapstructure:"domain" yaml:"domain"`         // 域名配置
@@ -185,14 +182,6 @@ func (tc *Tenants) GetDefaultTenantConfig() *DefaultTenantConfig {
 		return nil
 	}
 	return tc.Default
-}
-
-// GetDefaultTenantDatabase 获取默认租户数据库配置
-func (dtc *DefaultTenantConfig) GetDefaultTenantDatabase() *TenantDatabaseDetailConfig {
-	if dtc == nil || dtc.Database == nil {
-		return nil
-	}
-	return dtc.Database
 }
 
 // GetDefaultTenantDomain 获取默认租户域名配置
