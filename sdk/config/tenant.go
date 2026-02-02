@@ -79,6 +79,8 @@ type TenantDomainConfig struct {
 type TenantFTPDetailConfig struct {
 	Username        string `mapstructure:"username" yaml:"username"`                 // FTP 用户名
 	InitialPassword string `mapstructure:"initial_password" yaml:"initial_password"` // 初始密码（首次创建时使用）
+	Description     string `mapstructure:"description" yaml:"description"`           // FTP 配置描述（用于标识不同 FTP）
+	Status          string `mapstructure:"status" yaml:"status"`                     // 状态: active, inactive
 }
 
 // TenantStorageDetailConfig 详细的存储配置
@@ -422,6 +424,27 @@ func (ftpConfig *TenantFTPDetailConfig) GetFTPInitialPassword() string {
 		return ""
 	}
 	return ftpConfig.InitialPassword
+}
+
+// GetFTPDescription 获取 FTP 配置描述
+func (ftpConfig *TenantFTPDetailConfig) GetFTPDescription() string {
+	if ftpConfig == nil {
+		return ""
+	}
+	return ftpConfig.Description
+}
+
+// GetFTPStatus 获取 FTP 状态
+func (ftpConfig *TenantFTPDetailConfig) GetFTPStatus() string {
+	if ftpConfig == nil || ftpConfig.Status == "" {
+		return "active" // 默认为 active
+	}
+	return ftpConfig.Status
+}
+
+// IsFTPActive 判断 FTP 配置是否处于 active 状态
+func (ftpConfig *TenantFTPDetailConfig) IsFTPActive() bool {
+	return ftpConfig.GetFTPStatus() == "active"
 }
 
 // GetStorageUploadQuotaGB 获取上传配额（GB）
