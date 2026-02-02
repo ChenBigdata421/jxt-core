@@ -590,10 +590,22 @@ tenants:
         - "www.example.com"
       internal: "app.internal"  # 内部调用域名（可选）
 
-    # FTP 配置 - 默认租户的 FTP 账号
-    ftp:
-      username: "default_ftp"  # FTP 用户名
-      initial_password: "Default@123456"  # 初始密码（首次创建时使用）
+    # FTP 配置数组（支持多个 FTP）
+    ftp_configs:
+      - username: "tenant1_sales_ftp"
+        initial_password: "Sales@123456"
+        description: "销售部 FTP"
+        status: "active"
+
+      - username: "tenant1_hr_ftp"
+        initial_password: "HR@123456"
+        description: "人事部 FTP"
+        status: "active"
+
+      - username: "tenant1_finance_ftp"
+        initial_password: "Finance@123456"
+        description: "财务部 FTP（临时停用）"
+        status: "inactive"
 
     # 存储配置 - 默认租户的存储限制
     storage:
