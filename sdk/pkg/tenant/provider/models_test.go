@@ -208,3 +208,81 @@ func TestDomainConfig_JSONRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendOrUpdateFtpConfig(t *testing.T) {
+	configs := []*FtpConfigDetail{
+		{Username: "user1", Description: "First"},
+		{Username: "user2", Description: "Second"},
+	}
+
+	// Test update
+	newConfig := &FtpConfigDetail{Username: "user1", Description: "Updated"}
+	result := appendOrUpdateFtpConfig(configs, newConfig)
+
+	if len(result) != 2 {
+		t.Errorf("expected 2 configs, got %d", len(result))
+	}
+	if result[0].Description != "Updated" {
+		t.Errorf("expected first config to be updated")
+	}
+
+	// Test append
+	newConfig2 := &FtpConfigDetail{Username: "user3", Description: "Third"}
+	result = appendOrUpdateFtpConfig(result, newConfig2)
+
+	if len(result) != 3 {
+		t.Errorf("expected 3 configs, got %d", len(result))
+	}
+}
+
+func TestRemoveFtpConfigByUsername(t *testing.T) {
+	configs := []*FtpConfigDetail{
+		{Username: "user1"},
+		{Username: "user2"},
+		{Username: "user3"},
+	}
+
+	result := removeFtpConfigByUsername(configs, "user2")
+
+	if len(result) != 2 {
+		t.Errorf("expected 2 configs, got %d", len(result))
+	}
+	if result[1].Username != "user3" {
+		t.Errorf("expected second config to be user3")
+	}
+}
+
+func TestTenantDataCopyData(t *testing.T) {
+	original := &tenantData{
+		Metas: map[int]*TenantMeta{
+			1: {TenantID: 1, Code: "t1"},
+		},
+		Databases: map[int]map[string]*ServiceDatabaseConfig{
+			1: {
+				"evidence-command": {ServiceCode: "evidence-command"},
+			},
+		},
+		Ftps: map[int][]*FtpConfigDetail{
+			1: {{Username: "user1"}},
+		},
+		Domains: map[int]*DomainConfig{
+			1: {Primary: "example.com"},
+		},
+	}
+
+	copied := original.copyData()
+
+	// Verify copy is independent
+	copied.Metas[2] = &TenantMeta{TenantID: 2}
+	if _, ok := original.Metas[2]; ok {
+		t.Error("copy should be independent")
+	}
+
+	// Verify nested maps are independent
+	if copied.Databases[1] == nil {
+		t.Error("copied databases should not be nil")
+	}
+	if copied.Ftps[1] == nil {
+		t.Error("copied ftps should not be nil")
+	}
+}

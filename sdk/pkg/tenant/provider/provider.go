@@ -90,11 +90,13 @@ type Provider struct {
 	running     atomic.Bool
 }
 
+// tenantData 租户数据（新格式）
 type tenantData struct {
-	Metas    map[int]*TenantMeta    `json:"metas"`
-	Databases map[int]*DatabaseConfig `json:"databases"`
-	Ftps      map[int]*FtpConfig      `json:"ftps"`
-	Storages  map[int]*StorageConfig  `json:"storages"`
+	Metas     map[int]*TenantMeta                      `json:"metas"`
+	Databases map[int]map[string]*ServiceDatabaseConfig `json:"databases"` // tenantID -> serviceCode -> config
+	Ftps      map[int][]*FtpConfigDetail                 `json:"ftps"`      // tenantID -> configs[]
+	Storages  map[int]*StorageConfig                     `json:"storages"`
+	Domains   map[int]*DomainConfig                       `json:"domains"`   // 新增：域名配置
 }
 
 // Option configures Provider
@@ -225,10 +227,11 @@ func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 		data:        atomic.Value{},
 	}
 	p.data.Store(&tenantData{
-		Metas:    make(map[int]*TenantMeta),
-		Databases: make(map[int]*DatabaseConfig),
-		Ftps:      make(map[int]*FtpConfig),
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
 	})
 	for _, opt := range opts {
 		opt(p)
@@ -282,10 +285,11 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 
 	// 正常从 ETCD 加载
 	newData := &tenantData{
-		Metas:    make(map[int]*TenantMeta),
-		Databases: make(map[int]*DatabaseConfig),
-		Ftps:      make(map[int]*FtpConfig),
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
 	}
 
 	for _, kv := range resp.Kvs {
@@ -347,11 +351,18 @@ func (p *Provider) processKey(key, value string, data *tenantData) {
 	case "meta":
 		p.processMetaKey(tenantID, value, data)
 	case "database":
-		p.processDatabaseKey(tenantID, value, data)
+		// Check if service code is provided in the key path: tenants/{id}/database/{serviceCode}
+		serviceCode := ""
+		if len(parts) >= 4 {
+			serviceCode = parts[3]
+		}
+		p.processDatabaseKey(tenantID, serviceCode, value, data)
 	case "ftp":
 		p.processFtpKey(tenantID, value, data)
 	case "storage":
 		p.processStorageKey(tenantID, value, data)
+	case "domain":
+		p.processDomainKey(tenantID, value, data)
 	}
 }
 
@@ -366,64 +377,48 @@ func (p *Provider) processMetaKey(tenantID int, value string, data *tenantData) 
 	data.Metas[tenantID] = &meta
 }
 
-// processDatabaseKey processes database configuration from ETCD
-func (p *Provider) processDatabaseKey(tenantID int, value string, data *tenantData) {
-	// ETCD JSON uses "databaseName", need to map to DbName
-	type etcdDatabaseConfig struct {
-		TenantID     int    `json:"tenantId"`
-		Driver       string `json:"driver"`
-		DatabaseName string `json:"databaseName"`
-		Host         string `json:"host"`
-		Port         int    `json:"port"`
-		Username     string `json:"username"`
-		Password     string `json:"password"`
-		SSLMode      string `json:"sslMode"`
-		MaxOpenConns int `json:"maxOpenConns"`
-		MaxIdleConns int `json:"maxIdleConns"`
-	}
-
-	var etcdDB etcdDatabaseConfig
-	if err := json.Unmarshal([]byte(value), &etcdDB); err != nil {
+// processDatabaseKey processes service-level database configuration from ETCD
+func (p *Provider) processDatabaseKey(tenantID int, serviceCode string, value string, data *tenantData) {
+	var dbConfig ServiceDatabaseConfig
+	if err := json.Unmarshal([]byte(value), &dbConfig); err != nil {
 		return
 	}
 
-	dbConfig := DatabaseConfig{
-		TenantID:     tenantID,
-		Driver:       etcdDB.Driver,
-		DbName:       etcdDB.DatabaseName,
-		Host:         etcdDB.Host,
-		Port:         etcdDB.Port,
-		Username:     etcdDB.Username,
-		Password:     etcdDB.Password,
-		SSLMode:      etcdDB.SSLMode,
-		MaxOpenConns: etcdDB.MaxOpenConns,
-		MaxIdleConns: etcdDB.MaxIdleConns,
+	// If serviceCode is not provided in the key path, try to get it from the config
+	if serviceCode == "" && dbConfig.ServiceCode != "" {
+		serviceCode = dbConfig.ServiceCode
+	}
+	if serviceCode == "" {
+		// Default service code for backward compatibility
+		serviceCode = "default"
 	}
 
-	// Merge meta information if available
-	if meta, ok := data.Metas[tenantID]; ok {
-		dbConfig.Code = meta.Code
-		dbConfig.Name = meta.Name
-	}
+	dbConfig.TenantID = tenantID
+	dbConfig.ServiceCode = serviceCode
 
-	data.Databases[tenantID] = &dbConfig
+	// Initialize nested map if needed
+	if data.Databases[tenantID] == nil {
+		data.Databases[tenantID] = make(map[string]*ServiceDatabaseConfig)
+	}
+	data.Databases[tenantID][serviceCode] = &dbConfig
 }
 
 // processFtpKey processes FTP configuration from ETCD
 func (p *Provider) processFtpKey(tenantID int, value string, data *tenantData) {
-	var ftpConfig FtpConfig
+	var ftpConfig FtpConfigDetail
 	if err := json.Unmarshal([]byte(value), &ftpConfig); err != nil {
 		return
 	}
 
-	// Merge meta information if available
-	if meta, ok := data.Metas[tenantID]; ok {
-		ftpConfig.Code = meta.Code
-		ftpConfig.Name = meta.Name
+	ftpConfig.TenantID = tenantID
+
+	// Initialize array if needed
+	if data.Ftps[tenantID] == nil {
+		data.Ftps[tenantID] = []*FtpConfigDetail{}
 	}
 
-	ftpConfig.TenantID = tenantID
-	data.Ftps[tenantID] = &ftpConfig
+	// Use helper function to append or update
+	data.Ftps[tenantID] = appendOrUpdateFtpConfig(data.Ftps[tenantID], &ftpConfig)
 }
 
 // processStorageKey processes storage configuration from ETCD
@@ -454,6 +449,17 @@ func (p *Provider) processStorageKey(tenantID int, value string, data *tenantDat
 	}
 
 	data.Storages[tenantID] = &storageConfig
+}
+
+// processDomainKey processes domain configuration from ETCD
+func (p *Provider) processDomainKey(tenantID int, value string, data *tenantData) {
+	var domainConfig DomainConfig
+	if err := json.Unmarshal([]byte(value), &domainConfig); err != nil {
+		return
+	}
+
+	domainConfig.TenantID = tenantID
+	data.Domains[tenantID] = &domainConfig
 }
 
 // StartWatch begins watching ETCD for changes
@@ -558,26 +564,78 @@ func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
 
 func (p *Provider) copyTenantData(src *tenantData) *tenantData {
 	dst := &tenantData{
-		Metas:    make(map[int]*TenantMeta),
-		Databases: make(map[int]*DatabaseConfig),
-		Ftps:      make(map[int]*FtpConfig),
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
 	}
 
 	for k, v := range src.Metas {
 		dst.Metas[k] = v
 	}
 	for k, v := range src.Databases {
-		dst.Databases[k] = v
+		dst.Databases[k] = make(map[string]*ServiceDatabaseConfig)
+		for kk, vv := range v {
+			dst.Databases[k][kk] = vv
+		}
 	}
 	for k, v := range src.Ftps {
-		dst.Ftps[k] = v
+		newFtps := make([]*FtpConfigDetail, len(v))
+		copy(newFtps, v)
+		dst.Ftps[k] = newFtps
 	}
 	for k, v := range src.Storages {
 		dst.Storages[k] = v
 	}
+	for k, v := range src.Domains {
+		dst.Domains[k] = v
+	}
 
 	return dst
+}
+
+// copyData 创建 tenantData 的深拷贝
+func (d *tenantData) copyData() *tenantData {
+	newData := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+	}
+
+	// 复制 Metas
+	for k, v := range d.Metas {
+		newData.Metas[k] = v
+	}
+
+	// 复制 Databases
+	for k, v := range d.Databases {
+		newData.Databases[k] = make(map[string]*ServiceDatabaseConfig)
+		for kk, vv := range v {
+			newData.Databases[k][kk] = vv
+		}
+	}
+
+	// 复制 Ftps
+	for k, v := range d.Ftps {
+		newFtps := make([]*FtpConfigDetail, len(v))
+		copy(newFtps, v)
+		newData.Ftps[k] = newFtps
+	}
+
+	// 复制 Storages
+	for k, v := range d.Storages {
+		newData.Storages[k] = v
+	}
+
+	// 复制 Domains
+	for k, v := range d.Domains {
+		newData.Domains[k] = v
+	}
+
+	return newData
 }
 
 // StopWatch stops watching ETCD for changes
@@ -617,7 +675,7 @@ func (p *Provider) handleDeleteKey(key string, data *tenantData) {
 		return
 	}
 
-	// Parse key path: tenants/{id}/{category}
+	// Parse key path: tenants/{id}/{category} or tenants/{id}/{category}/{field}
 	parts := strings.Split(strings.TrimPrefix(key, p.namespace), "/")
 	if len(parts) < 3 {
 		return
@@ -629,16 +687,43 @@ func (p *Provider) handleDeleteKey(key string, data *tenantData) {
 	case "meta":
 		delete(data.Metas, tenantID)
 	case "database":
-		delete(data.Databases, tenantID)
+		// Check if service code is provided: tenants/{id}/database/{serviceCode}
+		if len(parts) >= 4 {
+			serviceCode := parts[3]
+			if dbMap, ok := data.Databases[tenantID]; ok {
+				delete(dbMap, serviceCode)
+				// Clean up empty map
+				if len(dbMap) == 0 {
+					delete(data.Databases, tenantID)
+				}
+			}
+		} else {
+			delete(data.Databases, tenantID)
+		}
 	case "ftp":
 		delete(data.Ftps, tenantID)
 	case "storage":
 		delete(data.Storages, tenantID)
+	case "domain":
+		delete(data.Domains, tenantID)
 	}
 }
 
-// GetDatabaseConfig retrieves the database configuration for a tenant
-func (p *Provider) GetDatabaseConfig(tenantID int) (*DatabaseConfig, bool) {
+// GetServiceDatabaseConfig retrieves the service-level database configuration for a tenant
+func (p *Provider) GetServiceDatabaseConfig(tenantID int, serviceCode string) (*ServiceDatabaseConfig, bool) {
+	data := p.data.Load().(*tenantData)
+	if data == nil {
+		return nil, false
+	}
+	if dbMap, ok := data.Databases[tenantID]; ok {
+		cfg, ok := dbMap[serviceCode]
+		return cfg, ok
+	}
+	return nil, false
+}
+
+// GetAllServiceDatabases retrieves all service database configurations for a tenant
+func (p *Provider) GetAllServiceDatabases(tenantID int) (map[string]*ServiceDatabaseConfig, bool) {
 	data := p.data.Load().(*tenantData)
 	if data == nil {
 		return nil, false
@@ -647,13 +732,23 @@ func (p *Provider) GetDatabaseConfig(tenantID int) (*DatabaseConfig, bool) {
 	return cfg, ok
 }
 
-// GetFtpConfig retrieves the FTP configuration for a tenant
-func (p *Provider) GetFtpConfig(tenantID int) (*FtpConfig, bool) {
+// GetFtpConfigs retrieves all FTP configurations for a tenant
+func (p *Provider) GetFtpConfigs(tenantID int) ([]*FtpConfigDetail, bool) {
 	data := p.data.Load().(*tenantData)
 	if data == nil {
 		return nil, false
 	}
 	cfg, ok := data.Ftps[tenantID]
+	return cfg, ok
+}
+
+// GetDomainConfig retrieves the domain configuration for a tenant
+func (p *Provider) GetDomainConfig(tenantID int) (*DomainConfig, bool) {
+	data := p.data.Load().(*tenantData)
+	if data == nil {
+		return nil, false
+	}
+	cfg, ok := data.Domains[tenantID]
 	return cfg, ok
 }
 

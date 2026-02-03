@@ -43,10 +43,11 @@ func TestProvider_LoadAll_WithCacheFallback(t *testing.T) {
 
 	cache := &mockFileCache{
 		data: &tenantData{
-			Metas:    make(map[int]*TenantMeta),
-			Databases: make(map[int]*DatabaseConfig),
-			Ftps:      make(map[int]*FtpConfig),
+			Metas:     make(map[int]*TenantMeta),
+			Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+			Ftps:      make(map[int][]*FtpConfigDetail),
 			Storages:  make(map[int]*StorageConfig),
+			Domains:   make(map[int]*DomainConfig),
 		},
 	}
 
@@ -89,9 +90,10 @@ func TestFileCacheAdapter_SaveLoad(t *testing.T) {
 		Metas: map[int]*TenantMeta{
 			1: {TenantID: 1, Code: "test1", Name: "Test", Status: "active"},
 		},
-		Databases: make(map[int]*DatabaseConfig),
-		Ftps:      make(map[int]*FtpConfig),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
 	}
 
 	if err := cache.Save(data); err != nil {

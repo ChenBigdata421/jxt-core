@@ -98,3 +98,26 @@ type DomainConfig struct {
 	Aliases  []string `json:"aliases"`  // 别名列表
 	Internal string   `json:"internal"` // 内部域名
 }
+
+// ========== FTP Helper Functions ==========
+
+// appendOrUpdateFtpConfig 添加或更新FTP配置
+func appendOrUpdateFtpConfig(configs []*FtpConfigDetail, newConfig *FtpConfigDetail) []*FtpConfigDetail {
+	for i, cfg := range configs {
+		if cfg.Username == newConfig.Username {
+			configs[i] = newConfig
+			return configs
+		}
+	}
+	return append(configs, newConfig)
+}
+
+// removeFtpConfigByUsername 从配置列表中移除指定用户名的配置
+func removeFtpConfigByUsername(configs []*FtpConfigDetail, username string) []*FtpConfigDetail {
+	for i, cfg := range configs {
+		if cfg.Username == username {
+			return append(configs[:i], configs[i+1:]...)
+		}
+	}
+	return configs
+}

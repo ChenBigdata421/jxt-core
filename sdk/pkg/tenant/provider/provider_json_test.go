@@ -7,10 +7,11 @@ import (
 func TestProvider_processMetaKey(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
-		Metas:    make(map[int]*TenantMeta),
-		Databases: make(map[int]*DatabaseConfig),
-		Ftps:      make(map[int]*FtpConfig),
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
 	}
 
 	metaJSON := `{"id":123,"code":"test_tenant","name":"Test Tenant","status":"active","billingPlan":"premium"}`
@@ -40,35 +41,36 @@ func TestProvider_processMetaKey(t *testing.T) {
 func TestProvider_processDatabaseKey(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
-		Metas:    make(map[int]*TenantMeta),
-		Databases: make(map[int]*DatabaseConfig),
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
 	}
 
 	// First, add meta
 	metaJSON := `{"id":456,"code":"db_tenant","name":"DB Tenant","status":"active"}`
 	p.processMetaKey(456, metaJSON, data)
 
-	// Then add database config
-	dbJSON := `{"tenantId":456,"driver":"postgres","databaseName":"testdb","host":"localhost","port":5432,"maxOpenConns":50,"maxIdleConns":10}`
-	p.processDatabaseKey(456, dbJSON, data)
+	// Then add database config with service code
+	dbJSON := `{"tenantId":456,"serviceCode":"evidence-command","driver":"postgres","database":"testdb","host":"localhost","port":5432,"maxOpenConns":50,"maxIdleConns":10}`
+	p.processDatabaseKey(456, "evidence-command", dbJSON, data)
 
-	if db, ok := data.Databases[456]; !ok {
+	if dbMap, ok := data.Databases[456]; !ok {
 		t.Fatal("database config not stored")
 	} else {
+		db, ok := dbMap["evidence-command"]
+		if !ok {
+			t.Fatal("evidence-command database config not stored")
+		}
 		if db.TenantID != 456 {
 			t.Errorf("TenantID = %v, want 456", db.TenantID)
 		}
-		if db.Code != "db_tenant" {
-			t.Errorf("Code = %v, want db_tenant (from meta)", db.Code)
-		}
-		if db.Name != "DB Tenant" {
-			t.Errorf("Name = %v, want DB Tenant (from meta)", db.Name)
+		if db.ServiceCode != "evidence-command" {
+			t.Errorf("ServiceCode = %v, want evidence-command", db.ServiceCode)
 		}
 		if db.Driver != "postgres" {
 			t.Errorf("Driver = %v, want postgres", db.Driver)
 		}
-		if db.DbName != "testdb" {
-			t.Errorf("DbName = %v, want testdb", db.DbName)
+		if db.Database != "testdb" {
+			t.Errorf("Database = %v, want testdb", db.Database)
 		}
 	}
 }
@@ -77,7 +79,7 @@ func TestProvider_processFtpKey(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
 		Metas: make(map[int]*TenantMeta),
-		Ftps:   make(map[int]*FtpConfig),
+		Ftps:  make(map[int][]*FtpConfigDetail),
 	}
 
 	// First, add meta
@@ -85,20 +87,24 @@ func TestProvider_processFtpKey(t *testing.T) {
 	p.processMetaKey(789, metaJSON, data)
 
 	// Then add FTP config
-	ftpJSON := `{"tenantId":789,"username":"ftp_user","passwordHash":"$2a$10$..."}`
+	ftpJSON := `{"tenantId":789,"username":"ftp_user","passwordHash":"$2a$10$...","description":"Main FTP","status":"active"}`
 	p.processFtpKey(789, ftpJSON, data)
 
-	if ftp, ok := data.Ftps[789]; !ok {
+	if ftpList, ok := data.Ftps[789]; !ok {
 		t.Fatal("FTP config not stored")
 	} else {
+		if len(ftpList) != 1 {
+			t.Fatalf("Expected 1 FTP config, got %d", len(ftpList))
+		}
+		ftp := ftpList[0]
 		if ftp.TenantID != 789 {
 			t.Errorf("TenantID = %v, want 789", ftp.TenantID)
 		}
-		if ftp.Code != "ftp_tenant" {
-			t.Errorf("Code = %v, want ftp_tenant (from meta)", ftp.Code)
-		}
 		if ftp.Username != "ftp_user" {
 			t.Errorf("Username = %v, want ftp_user", ftp.Username)
+		}
+		if ftp.Description != "Main FTP" {
+			t.Errorf("Description = %v, want Main FTP", ftp.Description)
 		}
 	}
 }

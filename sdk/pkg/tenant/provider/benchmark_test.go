@@ -8,7 +8,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-func BenchmarkProvider_GetDatabaseConfig(b *testing.B) {
+func BenchmarkProvider_GetServiceDatabaseConfig(b *testing.B) {
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{"localhost:2379"},
 		DialTimeout: 5 * time.Second,
@@ -25,12 +25,12 @@ func BenchmarkProvider_GetDatabaseConfig(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cfg, _ := p.GetDatabaseConfig(1)
+		cfg, _ := p.GetServiceDatabaseConfig(1, "evidence-command")
 		_ = cfg
 	}
 }
 
-func BenchmarkProvider_GetFtpConfig(b *testing.B) {
+func BenchmarkProvider_GetFtpConfigs(b *testing.B) {
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{"localhost:2379"},
 		DialTimeout: 5 * time.Second,
@@ -47,7 +47,7 @@ func BenchmarkProvider_GetFtpConfig(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cfg, _ := p.GetFtpConfig(1)
+		cfg, _ := p.GetFtpConfigs(1)
 		_ = cfg
 	}
 }
