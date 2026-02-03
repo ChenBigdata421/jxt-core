@@ -362,4 +362,34 @@ var _ = Describe("ServiceDatabaseConfig", func() {
 			Expect(config.PasswordEncrypted).To(BeFalse())
 		})
 	})
+
+	Describe("HasEncryptedPassword", func() {
+		Context("when password is set and encrypted", func() {
+			It("should return true", func() {
+				config := &ServiceDatabaseConfig{
+					Password:          "some-encrypted-value",
+					PasswordEncrypted: true,
+				}
+				Expect(config.HasEncryptedPassword()).To(BeTrue())
+			})
+		})
+
+		Context("when password is empty", func() {
+			It("should return false", func() {
+				config := &ServiceDatabaseConfig{
+					PasswordEncrypted: true,
+				}
+				Expect(config.HasEncryptedPassword()).To(BeFalse())
+			})
+		})
+
+		Context("when PasswordEncrypted is false", func() {
+			It("should return false", func() {
+				config := &ServiceDatabaseConfig{
+					Password: "some-value",
+				}
+				Expect(config.HasEncryptedPassword()).To(BeFalse())
+			})
+		})
+	})
 })

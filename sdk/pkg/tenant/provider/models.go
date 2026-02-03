@@ -76,6 +76,11 @@ type ServiceDatabaseConfig struct {
 	PasswordEncrypted bool   `json:"passwordEncrypted"` // 密码加密标识
 }
 
+// HasEncryptedPassword 检查是否有加密的密码
+func (c *ServiceDatabaseConfig) HasEncryptedPassword() bool {
+	return c.PasswordEncrypted && c.Password != ""
+}
+
 // ========== 新增：FTP配置详情 ==========
 
 // FtpConfigDetail FTP配置详情（支持多配置）
