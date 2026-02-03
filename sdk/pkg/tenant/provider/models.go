@@ -62,16 +62,18 @@ type StorageConfig struct {
 
 // ServiceDatabaseConfig 服务级数据库配置
 type ServiceDatabaseConfig struct {
-	TenantID    int    `json:"tenantId"`
-	ServiceCode string `json:"serviceCode"` // evidence-command, evidence-query, file-storage, security-management
-	Driver      string `json:"driver"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Database    string `json:"database"`
-	Username    string `json:"username"`
-	SSLMode     string `json:"sslMode"`
-	MaxOpenConns int   `json:"maxOpenConns"`
-	MaxIdleConns int   `json:"maxIdleConns"`
+	TenantID          int    `json:"tenantId"`
+	ServiceCode       string `json:"serviceCode"` // evidence-command, evidence-query, file-storage, security-management
+	Driver            string `json:"driver"`
+	Host              string `json:"host"`
+	Port              int    `json:"port"`
+	Database          string `json:"database"`
+	Username          string `json:"username"`
+	Password          string `json:"password"`           // 加密后的密码（Base64编码）
+	SSLMode           string `json:"sslMode"`
+	MaxOpenConns      int    `json:"maxOpenConns"`
+	MaxIdleConns      int    `json:"maxIdleConns"`
+	PasswordEncrypted bool   `json:"passwordEncrypted"` // 密码加密标识
 }
 
 // ========== 新增：FTP配置详情 ==========

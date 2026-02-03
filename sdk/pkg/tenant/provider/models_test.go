@@ -3,6 +3,9 @@ package provider
 import (
 	"encoding/json"
 	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 func TestServiceDatabaseConfig(t *testing.T) {
@@ -286,3 +289,77 @@ func TestTenantDataCopyData(t *testing.T) {
 		t.Error("copied ftps should not be nil")
 	}
 }
+
+func TestServiceDatabaseConfig_PasswordFields(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "ServiceDatabaseConfig Suite")
+}
+
+var _ = Describe("ServiceDatabaseConfig", func() {
+	Describe("Password fields", func() {
+		It("should have Password and PasswordEncrypted fields", func() {
+			config := &ServiceDatabaseConfig{
+				TenantID:          1,
+				ServiceCode:       "evidence-command",
+				Password:          "encrypted-password-here",
+				PasswordEncrypted: true,
+			}
+
+			Expect(config.TenantID).To(Equal(1))
+			Expect(config.Password).To(Equal("encrypted-password-here"))
+			Expect(config.PasswordEncrypted).To(BeTrue())
+		})
+
+		It("should support JSON marshaling with password fields", func() {
+			original := &ServiceDatabaseConfig{
+				TenantID:          1,
+				ServiceCode:       "evidence-command",
+				Driver:            "mysql",
+				Host:              "localhost",
+				Port:              3306,
+				Database:          "evidence_cmd",
+				Username:          "tenant1_user",
+				Password:          "base64-encoded-password",
+				PasswordEncrypted: true,
+				SSLMode:           "require",
+				MaxOpenConns:      100,
+				MaxIdleConns:      10,
+			}
+
+			// Marshal to JSON
+			data, err := json.Marshal(original)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Unmarshal back to struct
+			var decoded ServiceDatabaseConfig
+			err = json.Unmarshal(data, &decoded)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify all fields including password fields
+			Expect(decoded.TenantID).To(Equal(original.TenantID))
+			Expect(decoded.ServiceCode).To(Equal(original.ServiceCode))
+			Expect(decoded.Driver).To(Equal(original.Driver))
+			Expect(decoded.Host).To(Equal(original.Host))
+			Expect(decoded.Port).To(Equal(original.Port))
+			Expect(decoded.Database).To(Equal(original.Database))
+			Expect(decoded.Username).To(Equal(original.Username))
+			Expect(decoded.Password).To(Equal(original.Password))
+			Expect(decoded.PasswordEncrypted).To(Equal(original.PasswordEncrypted))
+			Expect(decoded.SSLMode).To(Equal(original.SSLMode))
+			Expect(decoded.MaxOpenConns).To(Equal(original.MaxOpenConns))
+			Expect(decoded.MaxIdleConns).To(Equal(original.MaxIdleConns))
+		})
+
+		It("should support empty password with PasswordEncrypted false", func() {
+			config := &ServiceDatabaseConfig{
+				TenantID:          2,
+				ServiceCode:       "evidence-query",
+				Password:          "",
+				PasswordEncrypted: false,
+			}
+
+			Expect(config.Password).To(BeEmpty())
+			Expect(config.PasswordEncrypted).To(BeFalse())
+		})
+	})
+})
