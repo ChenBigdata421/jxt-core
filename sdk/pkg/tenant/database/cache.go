@@ -7,54 +7,73 @@ import (
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/tenant/provider"
 )
 
-// Cache provides access to tenant database configurations.
-// It uses the Provider to fetch tenant data and caches the configurations.
+// Cache 数据库配置缓存
 type Cache struct {
 	provider *provider.Provider
 }
 
-// NewCache creates a new Cache instance with the given Provider.
+// NewCache 创建数据库配置缓存
 func NewCache(prov *provider.Provider) *Cache {
-	return &Cache{
-		provider: prov,
-	}
+	return &Cache{provider: prov}
 }
 
-// GetByID retrieves the database configuration for a tenant by its ID.
-// Returns ErrTenantNotFound if the tenant does not exist.
-func (c *Cache) GetByID(ctx context.Context, tenantID int) (*TenantDatabaseConfig, error) {
-	cfg, ok := c.provider.GetDatabaseConfig(tenantID)
+// GetByService 获取指定服务的数据库配置
+func (c *Cache) GetByService(ctx context.Context, tenantID int, serviceCode string) (*TenantDatabaseConfig, error) {
+	cfg, ok := c.provider.GetServiceDatabaseConfig(tenantID, serviceCode)
 	if !ok {
-		return nil, fmt.Errorf("tenant %d database config not found", tenantID)
+		return nil, fmt.Errorf("database config not found for tenant %d, service %s", tenantID, serviceCode)
 	}
 
-	// Convert internal DatabaseConfig to TenantDatabaseConfig
+	meta, ok := c.provider.GetTenantMeta(tenantID)
+	if !ok {
+		return nil, fmt.Errorf("tenant meta not found for tenant %d", tenantID)
+	}
+
 	return &TenantDatabaseConfig{
-		TenantID:        cfg.TenantID,
-		Code:            cfg.Code,
-		Name:            cfg.Name,
-		Driver:          cfg.Driver,
-		Host:            cfg.Host,
-		Port:            cfg.Port,
-		DbName:          cfg.DbName,
-		Username:        cfg.Username,
-		Password:        cfg.Password,
-		SSLMode:         cfg.SSLMode,
-		MaxOpenConns:    cfg.MaxOpenConns,
-		MaxIdleConns:    cfg.MaxIdleConns,
-		ConnMaxLifeTime: cfg.ConnMaxLifeTime,
-		ConnMaxIdleTime: cfg.ConnMaxIdleTime,
-		ConnectTimeout:  cfg.ConnectTimeout,
-		ReadTimeout:     cfg.ReadTimeout,
-		WriteTimeout:    cfg.WriteTimeout,
+		TenantID:     cfg.TenantID,
+		Code:         meta.Code,
+		Name:         meta.Name,
+		ServiceCode:  cfg.ServiceCode,
+		Driver:       cfg.Driver,
+		Host:         cfg.Host,
+		Port:         cfg.Port,
+		DbName:       cfg.Database,
+		Username:     cfg.Username,
+		SSLMode:      cfg.SSLMode,
+		MaxOpenConns: cfg.MaxOpenConns,
+		MaxIdleConns: cfg.MaxIdleConns,
 	}, nil
 }
 
-// GetByCode retrieves the database configuration for a tenant by its code.
-// Returns ErrTenantNotFound if the tenant does not exist.
-// This is a placeholder implementation that will be completed in Task 8.
-func (c *Cache) GetByCode(ctx context.Context, code string) (*TenantDatabaseConfig, error) {
-	// Placeholder: will be implemented in Task 8
-	// For now, return an error to indicate not yet implemented
-	return nil, fmt.Errorf("GetByCode not yet implemented - will be linked to Provider in Task 8")
+// GetAllServices 获取租户所有服务的数据库配置
+func (c *Cache) GetAllServices(ctx context.Context, tenantID int) (map[string]*TenantDatabaseConfig, error) {
+	configs, ok := c.provider.GetAllServiceDatabaseConfigs(tenantID)
+	if !ok {
+		return nil, fmt.Errorf("no database configs found for tenant %d", tenantID)
+	}
+
+	meta, ok := c.provider.GetTenantMeta(tenantID)
+	if !ok {
+		return nil, fmt.Errorf("tenant meta not found for tenant %d", tenantID)
+	}
+
+	result := make(map[string]*TenantDatabaseConfig)
+	for serviceCode, cfg := range configs {
+		result[serviceCode] = &TenantDatabaseConfig{
+			TenantID:     cfg.TenantID,
+			Code:         meta.Code,
+			Name:         meta.Name,
+			ServiceCode:  cfg.ServiceCode,
+			Driver:       cfg.Driver,
+			Host:         cfg.Host,
+			Port:         cfg.Port,
+			DbName:       cfg.Database,
+			Username:     cfg.Username,
+			SSLMode:      cfg.SSLMode,
+			MaxOpenConns: cfg.MaxOpenConns,
+			MaxIdleConns: cfg.MaxIdleConns,
+		}
+	}
+
+	return result, nil
 }

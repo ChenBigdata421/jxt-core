@@ -1,14 +1,16 @@
 package database
 
-// TenantDatabaseConfig holds the database configuration for a tenant.
-// This includes connection parameters, pool settings, and timeout configurations.
+// TenantDatabaseConfig 租户数据库配置
 type TenantDatabaseConfig struct {
-	// Tenant identification
+	// 租户信息
 	TenantID int    `json:"tenant_id"`
 	Code     string `json:"code"`
 	Name     string `json:"name"`
 
-	// Database connection parameters
+	// 服务信息
+	ServiceCode string `json:"service_code"`
+
+	// 数据库连接参数
 	Driver   string `json:"driver"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -17,14 +19,7 @@ type TenantDatabaseConfig struct {
 	Password string `json:"password"`
 	SSLMode  string `json:"ssl_mode"`
 
-	// Connection pool settings
-	MaxOpenConns    int `json:"max_open_conns"`
-	MaxIdleConns    int `json:"max_idle_conns"`
-	ConnMaxLifeTime int `json:"conn_max_life_time"` // in seconds
-	ConnMaxIdleTime int `json:"conn_max_idle_time"` // in seconds
-
-	// Timeout settings (in seconds)
-	ConnectTimeout int `json:"connect_timeout"`
-	ReadTimeout    int `json:"read_timeout"`
-	WriteTimeout   int `json:"write_timeout"`
+	// 连接池设置
+	MaxOpenConns int `json:"max_open_conns"`
+	MaxIdleConns int `json:"max_idle_conns"`
 }
