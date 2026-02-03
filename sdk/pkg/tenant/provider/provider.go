@@ -265,25 +265,11 @@ func NewProviderWithRetry(client *clientv3.Client, opts ...Option) (*Provider, e
 
 // LoadAll loads all tenant data from ETCD, with cache fallback.
 func (p *Provider) LoadAll(ctx context.Context) error {
-	prefix := p.namespace + "tenants/"
-
-	resp, err := p.client.Get(ctx, prefix, clientv3.WithPrefix())
-	if err != nil {
-		// 尝试从缓存降级
-		if p.cache != nil && p.cache.IsAvailable() {
-			logger.Warnf("tenant provider: ETCD unavailable, loading from cache")
-			cachedData, cacheErr := p.cache.Load()
-			if cacheErr == nil {
-				p.data.Store(cachedData)
-				logger.Infof("tenant provider: loaded from cache")
-				return nil
-			}
-			logger.Errorf("tenant provider: cache load failed: %v", cacheErr)
-		}
-		return fmt.Errorf("ETCD Get failed: %w", err)
+	prefixes := []string{
+		p.namespace + "tenants/",
+		p.namespace + "common/",
 	}
 
-	// 正常从 ETCD 加载
 	newData := &tenantData{
 		Metas:     make(map[int]*TenantMeta),
 		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
@@ -292,12 +278,31 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 		Domains:   make(map[int]*DomainConfig),
 	}
 
-	for _, kv := range resp.Kvs {
-		p.processKey(string(kv.Key), string(kv.Value), newData)
+	for _, prefix := range prefixes {
+		resp, err := p.client.Get(ctx, prefix, clientv3.WithPrefix())
+		if err != nil {
+			// 尝试从缓存降级
+			if p.cache != nil && p.cache.IsAvailable() {
+				logger.Warnf("tenant provider: ETCD unavailable, loading from cache")
+				cachedData, cacheErr := p.cache.Load()
+				if cacheErr == nil {
+					p.data.Store(cachedData)
+					logger.Infof("tenant provider: loaded from cache")
+					return nil
+				}
+				logger.Errorf("tenant provider: cache load failed: %v", cacheErr)
+			}
+			return fmt.Errorf("ETCD Get failed for prefix %s: %w", prefix, err)
+		}
+
+		for _, kv := range resp.Kvs {
+			p.processKey(string(kv.Key), string(kv.Value), newData)
+		}
 	}
 
 	p.data.Store(newData)
-	logger.Infof("tenant provider: loaded %d tenants from ETCD", len(newData.Databases))
+	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs from ETCD",
+		len(newData.Metas), countServiceDatabases(newData.Databases), countFtpConfigs(newData.Ftps))
 
 	// 同步到缓存
 	if p.cache != nil {
@@ -785,5 +790,21 @@ func calculateBackoff(current time.Duration) time.Duration {
 		return MaxBackoff
 	}
 	return next
+}
+
+func countServiceDatabases(databases map[int]map[string]*ServiceDatabaseConfig) int {
+	count := 0
+	for _, services := range databases {
+		count += len(services)
+	}
+	return count
+}
+
+func countFtpConfigs(ftps map[int][]*FtpConfigDetail) int {
+	count := 0
+	for _, configs := range ftps {
+		count += len(configs)
+	}
+	return count
 }
 
