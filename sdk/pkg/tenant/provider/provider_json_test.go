@@ -15,7 +15,8 @@ func TestProvider_parseTenantMeta(t *testing.T) {
 	}
 
 	metaJSON := `{"id":123,"code":"test_tenant","name":"Test Tenant","status":"active","billingPlan":"premium"}`
-	key := "jxt/tenants/123/meta"
+	// Pass stripped key (without "jxt/" prefix) as processKey does
+	key := "tenants/123/meta"
 	if err := p.parseTenantMeta(key, metaJSON, data); err != nil {
 		t.Fatalf("parseTenantMeta failed: %v", err)
 	}
@@ -50,14 +51,14 @@ func TestProvider_parseServiceDatabaseConfig(t *testing.T) {
 
 	// First, add meta
 	metaJSON := `{"id":456,"code":"db_tenant","name":"DB Tenant","status":"active"}`
-	metaKey := "jxt/tenants/456/meta"
+	metaKey := "tenants/456/meta"
 	if err := p.parseTenantMeta(metaKey, metaJSON, data); err != nil {
 		t.Fatalf("parseTenantMeta failed: %v", err)
 	}
 
 	// Then add database config with service code
 	dbJSON := `{"tenantId":456,"serviceCode":"evidence-command","driver":"postgres","database":"testdb","host":"localhost","port":5432,"maxOpenConns":50,"maxIdleConns":10}`
-	dbKey := "jxt/tenants/456/database/evidence-command"
+	dbKey := "tenants/456/database/evidence-command"
 	if err := p.parseServiceDatabaseConfig(dbKey, dbJSON, data); err != nil {
 		t.Fatalf("parseServiceDatabaseConfig failed: %v", err)
 	}
@@ -93,14 +94,14 @@ func TestProvider_parseFtpConfig(t *testing.T) {
 
 	// First, add meta
 	metaJSON := `{"id":789,"code":"ftp_tenant","name":"FTP Tenant","status":"active"}`
-	metaKey := "jxt/tenants/789/meta"
+	metaKey := "tenants/789/meta"
 	if err := p.parseTenantMeta(metaKey, metaJSON, data); err != nil {
 		t.Fatalf("parseTenantMeta failed: %v", err)
 	}
 
 	// Then add FTP config
 	ftpJSON := `{"tenantId":789,"username":"ftp_user","passwordHash":"$2a$10$...","description":"Main FTP","status":"active"}`
-	ftpKey := "jxt/tenants/789/ftp/ftp_user"
+	ftpKey := "tenants/789/ftp/ftp_user"
 	if err := p.parseFtpConfig(ftpKey, ftpJSON, data); err != nil {
 		t.Fatalf("parseFtpConfig failed: %v", err)
 	}
@@ -133,14 +134,14 @@ func TestProvider_parseStorageConfig(t *testing.T) {
 
 	// First, add meta
 	metaJSON := `{"id":999,"code":"storage_tenant","name":"Storage Tenant","status":"active"}`
-	metaKey := "jxt/tenants/999/meta"
+	metaKey := "tenants/999/meta"
 	if err := p.parseTenantMeta(metaKey, metaJSON, data); err != nil {
 		t.Fatalf("parseTenantMeta failed: %v", err)
 	}
 
 	// Then add storage config
 	storageJSON := `{"tenantId":999,"quotaBytes":107374182400,"maxFileSizeBytes":524288000,"maxConcurrentUploads":20}`
-	storageKey := "jxt/tenants/999/storage"
+	storageKey := "tenants/999/storage"
 	if err := p.parseStorageConfig(storageKey, storageJSON, data); err != nil {
 		t.Fatalf("parseStorageConfig failed: %v", err)
 	}

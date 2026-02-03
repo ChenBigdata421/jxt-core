@@ -346,12 +346,12 @@ func isTenantMetaKey(key string) bool {
 
 func isServiceDatabaseKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 5 && parts[2] == "tenants" && parts[4] == "database"
+	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "database"
 }
 
 func isFtpConfigKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 5 && parts[2] == "tenants" && parts[4] == "ftp"
+	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "ftp"
 }
 
 func isStorageConfigKey(key string) bool {
@@ -360,17 +360,17 @@ func isStorageConfigKey(key string) bool {
 
 func isDomainPrimaryKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 6 && parts[2] == "tenants" && parts[4] == "domain" && parts[5] == "primary"
+	return len(parts) >= 5 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "primary"
 }
 
 func isDomainAliasesKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 6 && parts[2] == "tenants" && parts[4] == "domain" && parts[5] == "aliases"
+	return len(parts) >= 5 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "aliases"
 }
 
 func isDomainInternalKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 6 && parts[2] == "tenants" && parts[4] == "domain" && parts[5] == "internal"
+	return len(parts) >= 5 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "internal"
 }
 
 func (p *Provider) processKey(key, value string, data *tenantData) {
@@ -395,7 +395,7 @@ func (p *Provider) processKey(key, value string, data *tenantData) {
 // parseTenantMeta 解析租户元数据
 func (p *Provider) parseTenantMeta(key string, value string, data *tenantData) error {
 	parts := strings.Split(key, "/")
-	tenantID, err := strconv.Atoi(parts[2])
+	tenantID, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return err
 	}
@@ -413,11 +413,11 @@ func (p *Provider) parseTenantMeta(key string, value string, data *tenantData) e
 func (p *Provider) parseServiceDatabaseConfig(key string, value string, data *tenantData) error {
 	// /tenants/{tenantId}/database/{serviceCode}
 	parts := strings.Split(key, "/")
-	tenantID, err := strconv.Atoi(parts[2])
+	tenantID, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return err
 	}
-	serviceCode := parts[4]
+	serviceCode := parts[3]
 
 	var config ServiceDatabaseConfig
 	if err := json.Unmarshal([]byte(value), &config); err != nil {
@@ -436,7 +436,7 @@ func (p *Provider) parseServiceDatabaseConfig(key string, value string, data *te
 func (p *Provider) parseFtpConfig(key string, value string, data *tenantData) error {
 	// /tenants/{tenantId}/ftp/{username}
 	parts := strings.Split(key, "/")
-	tenantID, err := strconv.Atoi(parts[2])
+	tenantID, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return err
 	}
@@ -454,7 +454,7 @@ func (p *Provider) parseFtpConfig(key string, value string, data *tenantData) er
 // parseStorageConfig 解析存储配置
 func (p *Provider) parseStorageConfig(key string, value string, data *tenantData) error {
 	parts := strings.Split(key, "/")
-	tenantID, err := strconv.Atoi(parts[2])
+	tenantID, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return err
 	}
@@ -477,7 +477,7 @@ func (p *Provider) parseStorageConfig(key string, value string, data *tenantData
 // parseDomainConfig 解析域名配置
 func (p *Provider) parseDomainConfig(key string, value string, data *tenantData) {
 	parts := strings.Split(key, "/")
-	tenantID, err := strconv.Atoi(parts[2])
+	tenantID, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return
 	}
