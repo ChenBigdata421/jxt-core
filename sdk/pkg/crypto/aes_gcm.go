@@ -57,3 +57,38 @@ func (s *CryptoService) Encrypt(plaintext string) (string, error) {
 	// Base64 编码
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
+
+// Decrypt 解密 Base64 编码的密文，返回明文
+func (s *CryptoService) Decrypt(ciphertextBase64 string) (string, error) {
+	// Base64 解码
+	ciphertext, err := base64.StdEncoding.DecodeString(ciphertextBase64)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidCiphertext, err)
+	}
+
+	block, err := aes.NewCipher(s.key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", ErrInvalidCiphertext
+	}
+
+	// 提取 nonce 和密文
+	nonce, cipher := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	// 解密并验证
+	plaintext, err := gcm.Open(nil, nonce, cipher, nil)
+	if err != nil {
+		return "", ErrDecryptionFailed
+	}
+
+	return string(plaintext), nil
+}
