@@ -8,10 +8,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/tenant/database"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/tenant/provider"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 )
+
+// init initializes the logger for integration tests
+func init() {
+	// Initialize logger for test environment
+	zapLogger, _ := zap.NewDevelopment()
+	logger.Logger = zapLogger
+	logger.DefaultLogger = zapLogger.Sugar()
+}
 
 func TestIntegration_ReliabilityFeatures(t *testing.T) {
 	if testing.Short() {
@@ -92,9 +102,12 @@ func TestIntegration_ReliabilityFeatures(t *testing.T) {
 		prov.LoadAll(ctx)
 
 		dbCache := database.NewCache(prov)
-		cfg, err := dbCache.GetByID(ctx, 1)
+		// Test GetByService instead of GetByID (which doesn't exist)
+		cfg, err := dbCache.GetByService(ctx, 1, "test-service")
 		if err == nil {
 			t.Logf("Got config: %+v", cfg)
+		} else {
+			t.Logf("Expected: no config found (ETCD is empty): %v", err)
 		}
 	})
 }
