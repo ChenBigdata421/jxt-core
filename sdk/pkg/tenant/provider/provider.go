@@ -847,8 +847,8 @@ func (p *Provider) GetServiceDatabaseConfig(tenantID int, serviceCode string) (*
 	return nil, false
 }
 
-// GetAllServiceDatabases retrieves all service database configurations for a tenant
-func (p *Provider) GetAllServiceDatabases(tenantID int) (map[string]*ServiceDatabaseConfig, bool) {
+// GetAllServiceDatabaseConfigs retrieves all service database configurations for a tenant
+func (p *Provider) GetAllServiceDatabaseConfigs(tenantID int) (map[string]*ServiceDatabaseConfig, bool) {
 	data := p.data.Load().(*tenantData)
 	if data == nil {
 		return nil, false
@@ -865,6 +865,46 @@ func (p *Provider) GetFtpConfigs(tenantID int) ([]*FtpConfigDetail, bool) {
 	}
 	cfg, ok := data.Ftps[tenantID]
 	return cfg, ok
+}
+
+// GetFtpConfigByUsername retrieves FTP configuration by username across all tenants
+func (p *Provider) GetFtpConfigByUsername(username string) (*FtpConfigDetail, bool) {
+	data := p.data.Load().(*tenantData)
+	if data == nil {
+		return nil, false
+	}
+
+	// Iterate through all tenants' FTP configurations
+	for _, configs := range data.Ftps {
+		for _, cfg := range configs {
+			if cfg.Username == username {
+				return cfg, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// GetActiveFtpConfigs retrieves all active FTP configurations for a tenant
+func (p *Provider) GetActiveFtpConfigs(tenantID int) ([]*FtpConfigDetail, bool) {
+	data := p.data.Load().(*tenantData)
+	if data == nil {
+		return nil, false
+	}
+
+	configs, ok := data.Ftps[tenantID]
+	if !ok {
+		return nil, false
+	}
+
+	var activeConfigs []*FtpConfigDetail
+	for _, cfg := range configs {
+		if cfg.Status == "" || cfg.Status == "active" {
+			activeConfigs = append(activeConfigs, cfg)
+		}
+	}
+
+	return activeConfigs, len(activeConfigs) > 0
 }
 
 // GetDomainConfig retrieves the domain configuration for a tenant
