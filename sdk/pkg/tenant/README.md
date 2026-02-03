@@ -316,6 +316,64 @@ func handler(c *gin.Context) {
 }
 ```
 
+### 场景 5：服务级数据库配置与密码解密
+
+从 jxt-core Provider 获取的 `ServiceDatabaseConfig` 包含加密后的数据库密码。要使用密码建立连接，需要先解密：
+
+```go
+import (
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/tenant/provider"
+    "gorm.io/driver/mysql"
+    "gorm.io/gorm"
+)
+
+func ConnectToServiceDatabase(prov *provider.Provider, tenantID int, serviceCode string) (*gorm.DB, error) {
+    // 从环境变量获取加密密钥
+    encryptionKey := os.Getenv("ENCRYPTION_KEY")
+    if encryptionKey == "" {
+        return nil, fmt.Errorf("ENCRYPTION_KEY environment variable not set")
+    }
+
+    // 获取服务级数据库配置
+    config, ok := provider.GetServiceDatabaseConfig(tenantID, serviceCode)
+    if !ok {
+        return nil, fmt.Errorf("database config not found for tenant %d, service %s", tenantID, serviceCode)
+    }
+
+    // 检查是否有加密密码
+    if !config.HasEncryptedPassword() {
+        return nil, fmt.Errorf("no encrypted password in config")
+    }
+
+    // 解密密码
+    password, err := config.DecryptPassword(encryptionKey)
+    if err != nil {
+        return nil, fmt.Errorf("failed to decrypt password: %w", err)
+    }
+
+    // 构建数据库连接
+    dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+        config.Username, password, config.Host, config.Port, config.Database)
+
+    db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+    if err != nil {
+        return nil, fmt.Errorf("failed to connect to database: %w", err)
+    }
+
+    return db, nil
+}
+```
+
+**重要提示**：
+- 加密密钥（`ENCRYPTION_KEY`）必须是 32 字节长度
+- 所有服务必须使用相同的加密密钥
+- 密钥应该通过安全的方式管理（如 Kubernetes Secrets、环境变量等）
+- 有关服务级数据库配置的更多详细信息，请参考 [数据库配置文档](#场景-1数据库连接)
+
 ---
 
 ## 配置说明
