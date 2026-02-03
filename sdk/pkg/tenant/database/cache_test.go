@@ -19,9 +19,9 @@ func TestCache(t *testing.T) {
 
 var _ = Describe("Cache", func() {
 	var (
-		ctx      context.Context
-		cache    *Cache
-		testProv *provider.Provider
+		ctx        context.Context
+		cache      *Cache
+		testProv   *provider.Provider
 		etcdClient *clientv3.Client
 	)
 
@@ -46,28 +46,37 @@ var _ = Describe("Cache", func() {
 		}
 	})
 
-	Describe("GetByID", func() {
+	Describe("GetByService", func() {
 		It("should return error for non-existent tenant", func() {
 			// Test with a tenant ID that doesn't exist
-			config, err := cache.GetByID(ctx, 99999)
+			config, err := cache.GetByService(ctx, 99999, "evidence-command")
 
 			// Should return error
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("database config not found"))
 			Expect(config).To(BeNil())
 		})
+
+		It("should return error for non-existent service", func() {
+			// Test with a service code that doesn't exist
+			// Note: This requires tenant meta to exist but service database config to not exist
+			config, err := cache.GetByService(ctx, 1, "nonexistent-service")
+
+			// Should return error - either tenant not found or database config not found
+			Expect(err).To(HaveOccurred())
+			Expect(config).To(BeNil())
+		})
 	})
 
-	Describe("GetByCode", func() {
-		It("should return error for non-existent tenant code", func() {
-			// Test with a tenant code that doesn't exist
-			// Note: GetByCode is not yet implemented
-			config, err := cache.GetByCode(ctx, "nonexistent-code")
+	Describe("GetAllServices", func() {
+		It("should return error for non-existent tenant", func() {
+			// Test with a tenant ID that doesn't exist
+			configs, err := cache.GetAllServices(ctx, 99999)
 
-			// Should return error (not yet implemented)
+			// Should return error
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("not yet implemented"))
-			Expect(config).To(BeNil())
+			Expect(err.Error()).To(ContainSubstring("no database configs found"))
+			Expect(configs).To(BeNil())
 		})
 	})
 })
