@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestProvider_processMetaKey(t *testing.T) {
+func TestProvider_parseTenantMeta(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
 		Metas:     make(map[int]*TenantMeta),
@@ -15,7 +15,10 @@ func TestProvider_processMetaKey(t *testing.T) {
 	}
 
 	metaJSON := `{"id":123,"code":"test_tenant","name":"Test Tenant","status":"active","billingPlan":"premium"}`
-	p.processMetaKey(123, metaJSON, data)
+	key := "jxt/tenants/123/meta"
+	if err := p.parseTenantMeta(key, metaJSON, data); err != nil {
+		t.Fatalf("parseTenantMeta failed: %v", err)
+	}
 
 	if meta, ok := data.Metas[123]; !ok {
 		t.Fatal("meta not stored")
@@ -38,7 +41,7 @@ func TestProvider_processMetaKey(t *testing.T) {
 	}
 }
 
-func TestProvider_processDatabaseKey(t *testing.T) {
+func TestProvider_parseServiceDatabaseConfig(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
 		Metas:     make(map[int]*TenantMeta),
@@ -47,11 +50,17 @@ func TestProvider_processDatabaseKey(t *testing.T) {
 
 	// First, add meta
 	metaJSON := `{"id":456,"code":"db_tenant","name":"DB Tenant","status":"active"}`
-	p.processMetaKey(456, metaJSON, data)
+	metaKey := "jxt/tenants/456/meta"
+	if err := p.parseTenantMeta(metaKey, metaJSON, data); err != nil {
+		t.Fatalf("parseTenantMeta failed: %v", err)
+	}
 
 	// Then add database config with service code
 	dbJSON := `{"tenantId":456,"serviceCode":"evidence-command","driver":"postgres","database":"testdb","host":"localhost","port":5432,"maxOpenConns":50,"maxIdleConns":10}`
-	p.processDatabaseKey(456, "evidence-command", dbJSON, data)
+	dbKey := "jxt/tenants/456/database/evidence-command"
+	if err := p.parseServiceDatabaseConfig(dbKey, dbJSON, data); err != nil {
+		t.Fatalf("parseServiceDatabaseConfig failed: %v", err)
+	}
 
 	if dbMap, ok := data.Databases[456]; !ok {
 		t.Fatal("database config not stored")
@@ -75,7 +84,7 @@ func TestProvider_processDatabaseKey(t *testing.T) {
 	}
 }
 
-func TestProvider_processFtpKey(t *testing.T) {
+func TestProvider_parseFtpConfig(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
 		Metas: make(map[int]*TenantMeta),
@@ -84,11 +93,17 @@ func TestProvider_processFtpKey(t *testing.T) {
 
 	// First, add meta
 	metaJSON := `{"id":789,"code":"ftp_tenant","name":"FTP Tenant","status":"active"}`
-	p.processMetaKey(789, metaJSON, data)
+	metaKey := "jxt/tenants/789/meta"
+	if err := p.parseTenantMeta(metaKey, metaJSON, data); err != nil {
+		t.Fatalf("parseTenantMeta failed: %v", err)
+	}
 
 	// Then add FTP config
 	ftpJSON := `{"tenantId":789,"username":"ftp_user","passwordHash":"$2a$10$...","description":"Main FTP","status":"active"}`
-	p.processFtpKey(789, ftpJSON, data)
+	ftpKey := "jxt/tenants/789/ftp/ftp_user"
+	if err := p.parseFtpConfig(ftpKey, ftpJSON, data); err != nil {
+		t.Fatalf("parseFtpConfig failed: %v", err)
+	}
 
 	if ftpList, ok := data.Ftps[789]; !ok {
 		t.Fatal("FTP config not stored")
@@ -109,7 +124,7 @@ func TestProvider_processFtpKey(t *testing.T) {
 	}
 }
 
-func TestProvider_processStorageKey(t *testing.T) {
+func TestProvider_parseStorageConfig(t *testing.T) {
 	p := &Provider{namespace: "jxt/"}
 	data := &tenantData{
 		Metas:    make(map[int]*TenantMeta),
@@ -118,11 +133,17 @@ func TestProvider_processStorageKey(t *testing.T) {
 
 	// First, add meta
 	metaJSON := `{"id":999,"code":"storage_tenant","name":"Storage Tenant","status":"active"}`
-	p.processMetaKey(999, metaJSON, data)
+	metaKey := "jxt/tenants/999/meta"
+	if err := p.parseTenantMeta(metaKey, metaJSON, data); err != nil {
+		t.Fatalf("parseTenantMeta failed: %v", err)
+	}
 
 	// Then add storage config
-	storageJSON := `{"tenantId":999,"uploadQuotaGb":100,"maxFileSizeMb":500,"maxConcurrentUploads":20}`
-	p.processStorageKey(999, storageJSON, data)
+	storageJSON := `{"tenantId":999,"quotaBytes":107374182400,"maxFileSizeBytes":524288000,"maxConcurrentUploads":20}`
+	storageKey := "jxt/tenants/999/storage"
+	if err := p.parseStorageConfig(storageKey, storageJSON, data); err != nil {
+		t.Fatalf("parseStorageConfig failed: %v", err)
+	}
 
 	if storage, ok := data.Storages[999]; !ok {
 		t.Fatal("Storage config not stored")

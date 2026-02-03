@@ -338,133 +338,177 @@ func (p *Provider) parseTenantID(key string) (int, bool) {
 	return id, true
 }
 
+// ========== Key 判断函数 ==========
+
+func isTenantMetaKey(key string) bool {
+	return strings.HasSuffix(key, "/meta") && strings.Contains(key, "/tenants/")
+}
+
+func isServiceDatabaseKey(key string) bool {
+	parts := strings.Split(key, "/")
+	return len(parts) >= 5 && parts[2] == "tenants" && parts[4] == "database"
+}
+
+func isFtpConfigKey(key string) bool {
+	parts := strings.Split(key, "/")
+	return len(parts) >= 5 && parts[2] == "tenants" && parts[4] == "ftp"
+}
+
+func isStorageConfigKey(key string) bool {
+	return strings.HasSuffix(key, "/storage") && strings.Contains(key, "/tenants/")
+}
+
+func isDomainPrimaryKey(key string) bool {
+	parts := strings.Split(key, "/")
+	return len(parts) >= 6 && parts[2] == "tenants" && parts[4] == "domain" && parts[5] == "primary"
+}
+
+func isDomainAliasesKey(key string) bool {
+	parts := strings.Split(key, "/")
+	return len(parts) >= 6 && parts[2] == "tenants" && parts[4] == "domain" && parts[5] == "aliases"
+}
+
+func isDomainInternalKey(key string) bool {
+	parts := strings.Split(key, "/")
+	return len(parts) >= 6 && parts[2] == "tenants" && parts[4] == "domain" && parts[5] == "internal"
+}
+
 func (p *Provider) processKey(key, value string, data *tenantData) {
-	tenantID, ok := p.parseTenantID(key)
-	if !ok {
-		return
-	}
+	key = strings.TrimPrefix(key, p.namespace)
 
-	// Parse key path: tenants/{id}/{category} or tenants/{id}/{category}/{field}
-	parts := strings.Split(strings.TrimPrefix(key, p.namespace), "/")
-	if len(parts) < 3 {
-		return
-	}
-
-	category := parts[2]
-
-	switch category {
-	case "meta":
-		p.processMetaKey(tenantID, value, data)
-	case "database":
-		// Check if service code is provided in the key path: tenants/{id}/database/{serviceCode}
-		serviceCode := ""
-		if len(parts) >= 4 {
-			serviceCode = parts[3]
-		}
-		p.processDatabaseKey(tenantID, serviceCode, value, data)
-	case "ftp":
-		p.processFtpKey(tenantID, value, data)
-	case "storage":
-		p.processStorageKey(tenantID, value, data)
-	case "domain":
-		p.processDomainKey(tenantID, value, data)
+	switch {
+	case isTenantMetaKey(key):
+		p.parseTenantMeta(key, value, data)
+	case isServiceDatabaseKey(key):
+		p.parseServiceDatabaseConfig(key, value, data)
+	case isFtpConfigKey(key):
+		p.parseFtpConfig(key, value, data)
+	case isStorageConfigKey(key):
+		p.parseStorageConfig(key, value, data)
+	case isDomainPrimaryKey(key), isDomainAliasesKey(key), isDomainInternalKey(key):
+		p.parseDomainConfig(key, value, data)
 	}
 }
 
-// processMetaKey processes tenant metadata from ETCD
-func (p *Provider) processMetaKey(tenantID int, value string, data *tenantData) {
+// ========== 解析函数 ==========
+
+// parseTenantMeta 解析租户元数据
+func (p *Provider) parseTenantMeta(key string, value string, data *tenantData) error {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return err
+	}
+
 	var meta TenantMeta
 	if err := json.Unmarshal([]byte(value), &meta); err != nil {
-		return
+		return err
 	}
-	// Ensure TenantID matches the key
 	meta.TenantID = tenantID
 	data.Metas[tenantID] = &meta
+	return nil
 }
 
-// processDatabaseKey processes service-level database configuration from ETCD
-func (p *Provider) processDatabaseKey(tenantID int, serviceCode string, value string, data *tenantData) {
-	var dbConfig ServiceDatabaseConfig
-	if err := json.Unmarshal([]byte(value), &dbConfig); err != nil {
-		return
+// parseServiceDatabaseConfig 解析服务数据库配置
+func (p *Provider) parseServiceDatabaseConfig(key string, value string, data *tenantData) error {
+	// /tenants/{tenantId}/database/{serviceCode}
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return err
 	}
+	serviceCode := parts[4]
 
-	// If serviceCode is not provided in the key path, try to get it from the config
-	if serviceCode == "" && dbConfig.ServiceCode != "" {
-		serviceCode = dbConfig.ServiceCode
+	var config ServiceDatabaseConfig
+	if err := json.Unmarshal([]byte(value), &config); err != nil {
+		return err
 	}
-	if serviceCode == "" {
-		// Default service code for backward compatibility
-		serviceCode = "default"
-	}
+	config.TenantID = tenantID
 
-	dbConfig.TenantID = tenantID
-	dbConfig.ServiceCode = serviceCode
-
-	// Initialize nested map if needed
 	if data.Databases[tenantID] == nil {
 		data.Databases[tenantID] = make(map[string]*ServiceDatabaseConfig)
 	}
-	data.Databases[tenantID][serviceCode] = &dbConfig
+	data.Databases[tenantID][serviceCode] = &config
+	return nil
 }
 
-// processFtpKey processes FTP configuration from ETCD
-func (p *Provider) processFtpKey(tenantID int, value string, data *tenantData) {
-	var ftpConfig FtpConfigDetail
-	if err := json.Unmarshal([]byte(value), &ftpConfig); err != nil {
-		return
+// parseFtpConfig 解析FTP配置
+func (p *Provider) parseFtpConfig(key string, value string, data *tenantData) error {
+	// /tenants/{tenantId}/ftp/{username}
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return err
 	}
 
-	ftpConfig.TenantID = tenantID
-
-	// Initialize array if needed
-	if data.Ftps[tenantID] == nil {
-		data.Ftps[tenantID] = []*FtpConfigDetail{}
+	var config FtpConfigDetail
+	if err := json.Unmarshal([]byte(value), &config); err != nil {
+		return err
 	}
+	config.TenantID = tenantID
 
-	// Use helper function to append or update
-	data.Ftps[tenantID] = appendOrUpdateFtpConfig(data.Ftps[tenantID], &ftpConfig)
+	data.Ftps[tenantID] = appendOrUpdateFtpConfig(data.Ftps[tenantID], &config)
+	return nil
 }
 
-// processStorageKey processes storage configuration from ETCD
-func (p *Provider) processStorageKey(tenantID int, value string, data *tenantData) {
-	// ETCD storage uses tenantId as int, convert to int64 for our config
-	var etcdStorage struct {
-		TenantID             int    `json:"tenantId"`
-		UploadQuotaGb        int    `json:"uploadQuotaGb"`
-		MaxFileSizeMb        int    `json:"maxFileSizeMb"`
-		MaxConcurrentUploads int    `json:"maxConcurrentUploads"`
+// parseStorageConfig 解析存储配置
+func (p *Provider) parseStorageConfig(key string, value string, data *tenantData) error {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return err
 	}
 
-	if err := json.Unmarshal([]byte(value), &etcdStorage); err != nil {
-		return
+	var config StorageConfig
+	if err := json.Unmarshal([]byte(value), &config); err != nil {
+		return err
 	}
+	config.TenantID = int64(tenantID)
 
-	storageConfig := StorageConfig{
-		TenantID:             int64(etcdStorage.TenantID),
-		QuotaBytes:           int64(etcdStorage.UploadQuotaGb) * 1024 * 1024 * 1024, // Convert GB to bytes
-		MaxFileSizeBytes:     int64(etcdStorage.MaxFileSizeMb) * 1024 * 1024,       // Convert MB to bytes
-		MaxConcurrentUploads: etcdStorage.MaxConcurrentUploads,
-	}
-
-	// Merge meta information if available
 	if meta, ok := data.Metas[tenantID]; ok {
-		storageConfig.Code = meta.Code
-		storageConfig.Name = meta.Name
+		config.Code = meta.Code
+		config.Name = meta.Name
 	}
 
-	data.Storages[tenantID] = &storageConfig
+	data.Storages[tenantID] = &config
+	return nil
 }
 
-// processDomainKey processes domain configuration from ETCD
-func (p *Provider) processDomainKey(tenantID int, value string, data *tenantData) {
-	var domainConfig DomainConfig
-	if err := json.Unmarshal([]byte(value), &domainConfig); err != nil {
+// parseDomainConfig 解析域名配置
+func (p *Provider) parseDomainConfig(key string, value string, data *tenantData) {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[2])
+	if err != nil {
 		return
 	}
 
-	domainConfig.TenantID = tenantID
-	data.Domains[tenantID] = &domainConfig
+	if data.Domains[tenantID] == nil {
+		data.Domains[tenantID] = &DomainConfig{}
+	}
+
+	domain := data.Domains[tenantID]
+
+	// 根据不同的 key 类型更新对应字段
+	if isDomainPrimaryKey(key) {
+		var primary string
+		json.Unmarshal([]byte(value), &primary)
+		domain.Primary = primary
+	} else if isDomainAliasesKey(key) {
+		var aliases []string
+		json.Unmarshal([]byte(value), &aliases)
+		domain.Aliases = aliases
+	} else if isDomainInternalKey(key) {
+		var internal string
+		json.Unmarshal([]byte(value), &internal)
+		domain.Internal = internal
+	}
+
+	// 填充租户信息（如果已有）
+	if meta, ok := data.Metas[tenantID]; ok {
+		domain.TenantID = tenantID
+		domain.Code = meta.Code
+		domain.Name = meta.Name
+	}
 }
 
 // StartWatch begins watching ETCD for changes
