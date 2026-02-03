@@ -585,18 +585,23 @@ func (p *Provider) watchLoop(initialWatchChan clientv3.WatchChan) {
 }
 
 func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
-	// Get current data snapshot
 	current := p.data.Load().(*tenantData)
-	newData := p.copyTenantData(current)
+	newData := current.copyData()
 
 	key := string(ev.Kv.Key)
-	value := string(ev.Kv.Value)
+	keyStr := strings.TrimPrefix(key, p.namespace)
 
-	switch ev.Type {
-	case clientv3.EventTypePut:
-		p.processKey(key, value, newData)
-	case clientv3.EventTypeDelete:
-		p.handleDeleteKey(key, newData)
+	switch {
+	case isTenantMetaKey(keyStr):
+		p.handleTenantMetaChange(ev, keyStr, newData)
+	case isServiceDatabaseKey(keyStr):
+		p.handleServiceDatabaseChange(ev, keyStr, newData)
+	case isFtpConfigKey(keyStr):
+		p.handleFtpConfigChange(ev, keyStr, newData)
+	case isStorageConfigKey(keyStr):
+		p.handleStorageChange(ev, keyStr, newData)
+	case isDomainPrimaryKey(keyStr), isDomainAliasesKey(keyStr), isDomainInternalKey(keyStr):
+		p.handleDomainChange(ev, keyStr, newData)
 	}
 
 	p.data.Store(newData)
@@ -611,37 +616,149 @@ func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
 	}
 }
 
-func (p *Provider) copyTenantData(src *tenantData) *tenantData {
-	dst := &tenantData{
-		Metas:     make(map[int]*TenantMeta),
-		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
-		Ftps:      make(map[int][]*FtpConfigDetail),
-		Storages:  make(map[int]*StorageConfig),
-		Domains:   make(map[int]*DomainConfig),
+// ========== Watch 事件处理 ==========
+
+// handleServiceDatabaseChange 处理数据库配置变更
+func (p *Provider) handleServiceDatabaseChange(ev *clientv3.Event, key string, data *tenantData) {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
+	}
+	serviceCode := parts[3]
+
+	if ev.Type == clientv3.EventTypeDelete {
+		if data.Databases[tenantID] != nil {
+			delete(data.Databases[tenantID], serviceCode)
+		}
+	} else {
+		var config ServiceDatabaseConfig
+		if err := json.Unmarshal(ev.Kv.Value, &config); err != nil {
+			logger.Errorf("failed to unmarshal database config: %v", err)
+			return
+		}
+		config.TenantID = tenantID
+		if data.Databases[tenantID] == nil {
+			data.Databases[tenantID] = make(map[string]*ServiceDatabaseConfig)
+		}
+		data.Databases[tenantID][serviceCode] = &config
+	}
+}
+
+// handleFtpConfigChange 处理FTP配置变更
+func (p *Provider) handleFtpConfigChange(ev *clientv3.Event, key string, data *tenantData) {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
 	}
 
-	for k, v := range src.Metas {
-		dst.Metas[k] = v
+	if ev.Type == clientv3.EventTypeDelete {
+		username := parts[3]
+		data.Ftps[tenantID] = removeFtpConfigByUsername(data.Ftps[tenantID], username)
+	} else {
+		var config FtpConfigDetail
+		if err := json.Unmarshal(ev.Kv.Value, &config); err != nil {
+			logger.Errorf("failed to unmarshal ftp config: %v", err)
+			return
+		}
+		config.TenantID = tenantID
+		data.Ftps[tenantID] = appendOrUpdateFtpConfig(data.Ftps[tenantID], &config)
 	}
-	for k, v := range src.Databases {
-		dst.Databases[k] = make(map[string]*ServiceDatabaseConfig)
-		for kk, vv := range v {
-			dst.Databases[k][kk] = vv
+}
+
+// handleStorageChange 处理存储配置变更
+func (p *Provider) handleStorageChange(ev *clientv3.Event, key string, data *tenantData) {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
+	}
+
+	if ev.Type == clientv3.EventTypeDelete {
+		delete(data.Storages, tenantID)
+	} else {
+		var config StorageConfig
+		if err := json.Unmarshal(ev.Kv.Value, &config); err != nil {
+			logger.Errorf("failed to unmarshal storage config: %v", err)
+			return
+		}
+		config.TenantID = int64(tenantID)
+		if meta, ok := data.Metas[tenantID]; ok {
+			config.Code = meta.Code
+			config.Name = meta.Name
+		}
+		data.Storages[tenantID] = &config
+	}
+}
+
+// handleDomainChange 处理域名配置变更
+func (p *Provider) handleDomainChange(ev *clientv3.Event, key string, data *tenantData) {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
+	}
+
+	if data.Domains[tenantID] == nil {
+		data.Domains[tenantID] = &DomainConfig{}
+	}
+
+	domain := data.Domains[tenantID]
+
+	if ev.Type == clientv3.EventTypeDelete {
+		// Handle delete by resetting the specific field
+		if isDomainPrimaryKey(key) {
+			domain.Primary = ""
+		} else if isDomainAliasesKey(key) {
+			domain.Aliases = nil
+		} else if isDomainInternalKey(key) {
+			domain.Internal = ""
+		}
+	} else {
+		// Handle put/update
+		if isDomainPrimaryKey(key) {
+			var primary string
+			json.Unmarshal(ev.Kv.Value, &primary)
+			domain.Primary = primary
+		} else if isDomainAliasesKey(key) {
+			var aliases []string
+			json.Unmarshal(ev.Kv.Value, &aliases)
+			domain.Aliases = aliases
+		} else if isDomainInternalKey(key) {
+			var internal string
+			json.Unmarshal(ev.Kv.Value, &internal)
+			domain.Internal = internal
 		}
 	}
-	for k, v := range src.Ftps {
-		newFtps := make([]*FtpConfigDetail, len(v))
-		copy(newFtps, v)
-		dst.Ftps[k] = newFtps
+
+	// 填充租户信息
+	if meta, ok := data.Metas[tenantID]; ok {
+		domain.TenantID = tenantID
+		domain.Code = meta.Code
+		domain.Name = meta.Name
 	}
-	for k, v := range src.Storages {
-		dst.Storages[k] = v
-	}
-	for k, v := range src.Domains {
-		dst.Domains[k] = v
+}
+
+// handleTenantMetaChange 处理租户元数据变更
+func (p *Provider) handleTenantMetaChange(ev *clientv3.Event, key string, data *tenantData) {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
 	}
 
-	return dst
+	if ev.Type == clientv3.EventTypeDelete {
+		delete(data.Metas, tenantID)
+	} else {
+		var meta TenantMeta
+		if err := json.Unmarshal(ev.Kv.Value, &meta); err != nil {
+			logger.Errorf("failed to unmarshal tenant meta: %v", err)
+			return
+		}
+		meta.TenantID = tenantID
+		data.Metas[tenantID] = &meta
+	}
 }
 
 // copyData 创建 tenantData 的深拷贝
@@ -715,47 +832,6 @@ func (p *Provider) StartWatchWithRetry(ctx context.Context) error {
 		retryv4.MaxDelay(5*time.Second),
 		retryv4.DelayType(retryv4.BackOffDelay),
 	)
-}
-
-// handleDeleteKey handles delete events
-func (p *Provider) handleDeleteKey(key string, data *tenantData) {
-	tenantID, ok := p.parseTenantID(key)
-	if !ok {
-		return
-	}
-
-	// Parse key path: tenants/{id}/{category} or tenants/{id}/{category}/{field}
-	parts := strings.Split(strings.TrimPrefix(key, p.namespace), "/")
-	if len(parts) < 3 {
-		return
-	}
-
-	category := parts[2]
-
-	switch category {
-	case "meta":
-		delete(data.Metas, tenantID)
-	case "database":
-		// Check if service code is provided: tenants/{id}/database/{serviceCode}
-		if len(parts) >= 4 {
-			serviceCode := parts[3]
-			if dbMap, ok := data.Databases[tenantID]; ok {
-				delete(dbMap, serviceCode)
-				// Clean up empty map
-				if len(dbMap) == 0 {
-					delete(data.Databases, tenantID)
-				}
-			}
-		} else {
-			delete(data.Databases, tenantID)
-		}
-	case "ftp":
-		delete(data.Ftps, tenantID)
-	case "storage":
-		delete(data.Storages, tenantID)
-	case "domain":
-		delete(data.Domains, tenantID)
-	}
 }
 
 // GetServiceDatabaseConfig retrieves the service-level database configuration for a tenant
