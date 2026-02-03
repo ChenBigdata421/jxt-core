@@ -57,3 +57,44 @@ type StorageConfig struct {
 	MaxFileSizeBytes     int64  `json:"maxFileSizeBytes"`
 	MaxConcurrentUploads int    `json:"maxConcurrentUploads"`
 }
+
+// ========== 新增：服务级数据库配置 ==========
+
+// ServiceDatabaseConfig 服务级数据库配置
+type ServiceDatabaseConfig struct {
+	TenantID    int    `json:"tenantId"`
+	ServiceCode string `json:"serviceCode"` // evidence-command, evidence-query, file-storage, security-management
+	Driver      string `json:"driver"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Database    string `json:"database"`
+	Username    string `json:"username"`
+	SSLMode     string `json:"sslMode"`
+	MaxOpenConns int   `json:"maxOpenConns"`
+	MaxIdleConns int   `json:"maxIdleConns"`
+}
+
+// ========== 新增：FTP配置详情 ==========
+
+// FtpConfigDetail FTP配置详情（支持多配置）
+type FtpConfigDetail struct {
+	TenantID        int    `json:"tenantId"`
+	Username        string `json:"username"`
+	PasswordHash    string `json:"passwordHash"`
+	Description     string `json:"description"`  // FTP 配置描述
+	Status          string `json:"status"`        // active, inactive
+	HomeDirectory   string `json:"homeDirectory"`
+	WritePermission bool   `json:"writePermission"`
+}
+
+// ========== 新增：域名配置 ==========
+
+// DomainConfig 租户域名配置
+type DomainConfig struct {
+	TenantID int      `json:"tenantId"`
+	Code     string   `json:"code"`
+	Name     string   `json:"name"`
+	Primary  string   `json:"primary"`  // 主域名
+	Aliases  []string `json:"aliases"`  // 别名列表
+	Internal string   `json:"internal"` // 内部域名
+}
