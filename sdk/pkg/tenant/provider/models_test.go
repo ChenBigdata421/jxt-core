@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/crypto"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -389,6 +391,76 @@ var _ = Describe("ServiceDatabaseConfig", func() {
 					Password: "some-value",
 				}
 				Expect(config.HasEncryptedPassword()).To(BeFalse())
+			})
+		})
+	})
+
+	Describe("DecryptPassword", func() {
+		var (
+			encryptionKey = "12345678901234567890123456789012"
+			config        *ServiceDatabaseConfig
+		)
+
+		BeforeEach(func() {
+			config = &ServiceDatabaseConfig{
+				TenantID:          1,
+				ServiceCode:       "evidence-command",
+				PasswordEncrypted: true,
+			}
+		})
+
+		Context("with valid encrypted password", func() {
+			It("should decrypt successfully", func() {
+				// 先加密一个密码
+				cryptoService, _ := crypto.NewCryptoService(encryptionKey)
+				originalPassword := "my-db-password"
+				encrypted, _ := cryptoService.Encrypt(originalPassword)
+
+				config.Password = encrypted
+
+				// 解密
+				decrypted, err := config.DecryptPassword(encryptionKey)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(decrypted).To(Equal(originalPassword))
+			})
+		})
+
+		Context("when password is empty", func() {
+			It("should return error", func() {
+				config.Password = ""
+
+				_, err := config.DecryptPassword(encryptionKey)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("password is empty"))
+			})
+		})
+
+		Context("when PasswordEncrypted is false", func() {
+			It("should return error", func() {
+				config.Password = "some-value"
+				config.PasswordEncrypted = false
+
+				_, err := config.DecryptPassword(encryptionKey)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("password is not encrypted"))
+			})
+		})
+
+		Context("with wrong key", func() {
+			It("should fail to decrypt", func() {
+				cryptoService, _ := crypto.NewCryptoService(encryptionKey)
+				encrypted, _ := cryptoService.Encrypt("password")
+				config.Password = encrypted
+
+				wrongKey := "00000000000000000000000000000000"
+
+				_, err := config.DecryptPassword(wrongKey)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to decrypt password"))
 			})
 		})
 	})

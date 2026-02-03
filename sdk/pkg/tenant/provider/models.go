@@ -1,5 +1,11 @@
 package provider
 
+import (
+	"fmt"
+
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/crypto"
+)
+
 // TenantMeta represents tenant metadata from ETCD
 type TenantMeta struct {
 	TenantID    int    `json:"id"`
@@ -79,6 +85,30 @@ type ServiceDatabaseConfig struct {
 // HasEncryptedPassword 检查是否有加密的密码
 func (c *ServiceDatabaseConfig) HasEncryptedPassword() bool {
 	return c.PasswordEncrypted && c.Password != ""
+}
+
+// DecryptPassword 解密数据库密码
+// encryptionKey: 32字节的 AES-256 密钥（由调用者传入）
+// 返回: 解密后的明文密码
+func (c *ServiceDatabaseConfig) DecryptPassword(encryptionKey string) (string, error) {
+	if c.Password == "" {
+		return "", fmt.Errorf("password is empty")
+	}
+	if !c.PasswordEncrypted {
+		return "", fmt.Errorf("password is not encrypted")
+	}
+
+	cryptoService, err := crypto.NewCryptoService(encryptionKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to create crypto service: %w", err)
+	}
+
+	password, err := cryptoService.Decrypt(c.Password)
+	if err != nil {
+		return "", fmt.Errorf("failed to decrypt password: %w", err)
+	}
+
+	return password, nil
 }
 
 // ========== 新增：FTP配置详情 ==========
