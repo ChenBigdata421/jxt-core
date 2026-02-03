@@ -188,3 +188,72 @@ func TestTenantMeta_IsEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestProvider_parseDomainConfig(t *testing.T) {
+	p := &Provider{namespace: "jxt/"}
+	data := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+	}
+
+	// First, add meta
+	metaJSON := `{"id":100,"code":"domain_tenant","name":"Domain Tenant","status":"active"}`
+	metaKey := "tenants/100/meta"
+	if err := p.parseTenantMeta(metaKey, metaJSON, data); err != nil {
+		t.Fatalf("parseTenantMeta failed: %v", err)
+	}
+
+	// Verify meta was added
+	if _, ok := data.Metas[100]; !ok {
+		t.Fatal("Meta not added for tenant 100")
+	}
+
+	// Then add domain configs
+	// The values should be proper JSON that can be unmarshaled
+	// For string values, we need the quoted JSON string
+	primaryJSON := `"tenant100.example.com"`
+	primaryKey := "tenants/100/domain/primary"
+	p.parseDomainConfig(primaryKey, primaryJSON, data)
+
+	aliasesJSON := `["www.tenant100.example.com","tenant100.com"]`
+	aliasesKey := "tenants/100/domain/aliases"
+	p.parseDomainConfig(aliasesKey, aliasesJSON, data)
+
+	internalJSON := `"tenant100.internal"`
+	internalKey := "tenants/100/domain/internal"
+	p.parseDomainConfig(internalKey, internalJSON, data)
+
+	if domain, ok := data.Domains[100]; !ok {
+		t.Fatal("Domain config not stored")
+	} else {
+
+		if domain.TenantID != 100 {
+			t.Errorf("TenantID = %v, want 100", domain.TenantID)
+		}
+		if domain.Code != "domain_tenant" {
+			t.Errorf("Code = %v, want domain_tenant (from meta)", domain.Code)
+		}
+		if domain.Name != "Domain Tenant" {
+			t.Errorf("Name = %v, want Domain Tenant (from meta)", domain.Name)
+		}
+		if domain.Primary != "tenant100.example.com" {
+			t.Errorf("Primary = %q, want %q", domain.Primary, "tenant100.example.com")
+		}
+		if len(domain.Aliases) != 2 {
+			t.Errorf("Aliases count = %v, want 2", len(domain.Aliases))
+		} else {
+			if domain.Aliases[0] != "www.tenant100.example.com" {
+				t.Errorf("Aliases[0] = %v, want www.tenant100.example.com", domain.Aliases[0])
+			}
+			if domain.Aliases[1] != "tenant100.com" {
+				t.Errorf("Aliases[1] = %v, want tenant100.com", domain.Aliases[1])
+			}
+		}
+		if domain.Internal != "tenant100.internal" {
+			t.Errorf("Internal = %v, want tenant100.internal", domain.Internal)
+		}
+	}
+}

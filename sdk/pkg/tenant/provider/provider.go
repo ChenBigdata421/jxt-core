@@ -360,17 +360,17 @@ func isStorageConfigKey(key string) bool {
 
 func isDomainPrimaryKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 5 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "primary"
+	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "primary"
 }
 
 func isDomainAliasesKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 5 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "aliases"
+	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "aliases"
 }
 
 func isDomainInternalKey(key string) bool {
 	parts := strings.Split(key, "/")
-	return len(parts) >= 5 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "internal"
+	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "internal"
 }
 
 func (p *Provider) processKey(key, value string, data *tenantData) {
