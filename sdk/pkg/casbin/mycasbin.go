@@ -1,5 +1,19 @@
 package mycasbin
 
+// Package mycasbin provides Casbin enforcer setup for multi-tenant environments.
+//
+// The Setup function (deprecated) creates a single global enforcer using sync.Once,
+// which causes all tenants to share the same enforcer instance. This is a known
+// issue and will be fixed in future stages.
+//
+// The SetupForTenant function is the new recommended approach, creating independent
+// enforcer instances per tenant with proper error handling.
+//
+// Migration Guide:
+//   - Old: enforcer := mycasbin.Setup(db, "")
+//   - New: enforcer, err := mycasbin.SetupForTenant(db, tenantID)
+//
+// Stage 2 will add Redis Watcher support for per-tenant policy synchronization.
 import (
 	"fmt"
 
