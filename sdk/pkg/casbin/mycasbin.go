@@ -30,6 +30,48 @@ e = some(where (p.eft == allow))
 m = r.sub == p.sub && (keyMatch2(r.obj, p.obj) || keyMatch(r.obj, p.obj)) && (r.act == p.act || p.act == "*")
 `
 
+// SetupForTenant 为指定租户创建独立的 Casbin enforcer
+// 每个租户拥有独立的 adapter 和 enforcer 实例
+// 参数:
+//   - db: 该租户的数据库连接
+//   - tenantID: 租户ID（用于日志标识和后续 Redis Watcher 频道隔离）
+// 返回:
+//   - *casbin.SyncedEnforcer: 该租户专属的 enforcer 实例
+//   - error: 错误信息
+func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
+	// 1. 为该租户创建独立的 GORM Adapter
+	adapter, err := gormAdapter.NewAdapterByDBUseTableName(db, "sys", "casbin_rule")
+	if err != nil && err.Error() != "invalid DDL" {
+		return nil, fmt.Errorf("创建 Casbin adapter 失败 (租户 %d): %w", tenantID, err)
+	}
+
+	// 2. 加载权限模型
+	m, err := model.NewModelFromString(text)
+	if err != nil {
+		return nil, fmt.Errorf("加载 Casbin 模型失败: %w", err)
+	}
+
+	// 3. 创建该租户专属的 SyncedEnforcer
+	e, err := casbin.NewSyncedEnforcer(m, adapter)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Casbin enforcer 失败 (租户 %d): %w", tenantID, err)
+	}
+
+	// 4. 从该租户的数据库加载策略
+	if err := e.LoadPolicy(); err != nil {
+		return nil, fmt.Errorf("加载 Casbin 策略失败 (租户 %d): %w", tenantID, err)
+	}
+
+	// 5. 设置日志
+	log.SetLogger(&Logger{})
+	e.EnableLog(true)
+
+	// 注意: Redis Watcher 初始化将在 Stage 2 中添加
+	// 目前保持与原有 Setup 函数一致的行为，但使用租户隔离的方式
+
+	return e, nil
+}
+
 // 表名前缀为sys
 // 策略表名为casbin_rule
 // sys_casbin_rule存放访问控制策略
