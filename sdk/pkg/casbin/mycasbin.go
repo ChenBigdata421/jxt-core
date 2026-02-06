@@ -1,7 +1,7 @@
 package mycasbin
 
 import (
-	"sync"
+	"fmt"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/casbin/casbin/v2"
@@ -29,11 +29,6 @@ e = some(where (p.eft == allow))
 [matchers]
 m = r.sub == p.sub && (keyMatch2(r.obj, p.obj) || keyMatch(r.obj, p.obj)) && (r.act == p.act || p.act == "*")
 `
-
-var (
-	enforcer *casbin.SyncedEnforcer //策略执行器实例
-	once     sync.Once
-)
 
 // 表名前缀为sys
 // 策略表名为casbin_rule
