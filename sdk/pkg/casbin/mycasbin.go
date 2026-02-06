@@ -72,59 +72,42 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 	return e, nil
 }
 
-// 表名前缀为sys
-// 策略表名为casbin_rule
-// sys_casbin_rule存放访问控制策略
+// Setup 为指定租户创建 Casbin enforcer（向后兼容函数）
+// 注意: 此函数保留用于向后兼容，新代码应使用 SetupForTenant
+// Deprecated: 使用 SetupForTenant 替代，以获得更好的错误处理和多租户支持
 func Setup(db *gorm.DB, _ string) *casbin.SyncedEnforcer {
-	once.Do(func() {
-		Apter, err := gormAdapter.NewAdapterByDBUseTableName(db, "sys", "casbin_rule")
-		if err != nil && err.Error() != "invalid DDL" {
-			panic(err)
-		}
-		//权限模型加载
-		m, err := model.NewModelFromString(text)
-		if err != nil {
-			panic(err)
-		}
-		//创建支持并发的执行器实例
-		enforcer, err = casbin.NewSyncedEnforcer(m, Apter)
-		if err != nil {
-			panic(err)
-		}
-		//加载数据库中的策略到内存
-		err = enforcer.LoadPolicy()
-		if err != nil {
-			panic(err)
-		}
-		// set redis watcher if redis config is not nil
-		if config.CacheConfig.Redis != nil {
-			w, err := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
-				Options: redis.Options{
-					Network:  "tcp",
-					Password: config.CacheConfig.Redis.Password,
-				},
-				Channel:    "/casbin",
-				IgnoreSelf: false,
-			})
-			if err != nil {
-				panic(err)
-			}
+	e, err := SetupForTenant(db, 0)
+	if err != nil {
+		// 保持原有行为：发生错误时 panic
+		panic(err)
+	}
 
-			err = w.SetUpdateCallback(updateCallback)
-			if err != nil {
-				panic(err)
-			}
-			err = enforcer.SetWatcher(w)
-			if err != nil {
-				panic(err)
-			}
+	// 兼容旧版：如果配置了 Redis，设置全局 Watcher
+	// 注意: 在 Stage 2 中，这将被移到 SetupForTenant 中实现租户隔离
+	if config.CacheConfig.Redis != nil {
+		w, wErr := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
+			Options: redis.Options{
+				Network:  "tcp",
+				Password: config.CacheConfig.Redis.Password,
+			},
+			Channel:    "/casbin",
+			IgnoreSelf: false,
+		})
+		if wErr != nil {
+			panic(wErr)
 		}
 
-		log.SetLogger(&Logger{})
-		enforcer.EnableLog(true)
-	})
+		wErr = w.SetUpdateCallback(updateCallback)
+		if wErr != nil {
+			panic(wErr)
+		}
+		wErr = e.SetWatcher(w)
+		if wErr != nil {
+			panic(wErr)
+		}
+	}
 
-	return enforcer
+	return e
 }
 
 func updateCallback(msg string) {
