@@ -3,17 +3,21 @@ package mycasbin
 // Package mycasbin provides Casbin enforcer setup for multi-tenant environments.
 //
 // The Setup function (deprecated) creates a single global enforcer using sync.Once,
-// which causes all tenants to share the same enforcer instance. This is a known
-// issue and will be fixed in future stages.
+// which causes all tenants to share the same enforcer instance. This issue has been
+// fixed in SetupForTenant.
 //
-// The SetupForTenant function is the new recommended approach, creating independent
-// enforcer instances per tenant with proper error handling.
+// The SetupForTenant function is the recommended approach, creating independent
+// enforcer instances per tenant with proper error handling and per-tenant Redis
+// Watcher channels for policy synchronization.
 //
 // Migration Guide:
 //   - Old: enforcer := mycasbin.Setup(db, "")
 //   - New: enforcer, err := mycasbin.SetupForTenant(db, tenantID)
 //
-// Stage 2 will add Redis Watcher support for per-tenant policy synchronization.
+// Redis Watcher:
+//   - Each tenant uses a dedicated Redis channel: /casbin/tenant/{tenantID}
+//   - Policy changes are automatically synchronized across instances via Redis pub/sub
+//   - Watcher failures do not prevent enforcer creation (graceful degradation)
 import (
 	"fmt"
 
@@ -45,13 +49,18 @@ m = r.sub == p.sub && (keyMatch2(r.obj, p.obj) || keyMatch(r.obj, p.obj)) && (r.
 `
 
 // SetupForTenant 为指定租户创建独立的 Casbin enforcer
-// 每个租户拥有独立的 adapter 和 enforcer 实例
+// 每个租户拥有独立的 adapter、enforcer 实例和 Redis Watcher 频道
 // 参数:
 //   - db: 该租户的数据库连接
-//   - tenantID: 租户ID（用于日志标识和后续 Redis Watcher 频道隔离）
+//   - tenantID: 租户ID（用于日志标识和 Redis Watcher 频道隔离）
 // 返回:
 //   - *casbin.SyncedEnforcer: 该租户专属的 enforcer 实例
 //   - error: 错误信息
+//
+// Redis Watcher:
+//   - 每个租户使用独立的 Redis 频道: /casbin/tenant/{tenantID}
+//   - 当租户的权限策略变更时，通过 Redis pub/sub 自动通知所有实例重新加载策略
+//   - Redis 不可用时，enforcer 仍能正常创建和使用（优雅降级）
 func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 	// 验证输入参数
 	if db == nil {
