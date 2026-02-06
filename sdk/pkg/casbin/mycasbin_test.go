@@ -52,3 +52,41 @@ func TestSetupForTenant_IndependentInstances(t *testing.T) {
 	// 关键验证: 两个 enforcer 应该是不同的实例
 	assert.NotSame(t, enforcer1, enforcer2, "不同租户的 enforcer 应该是不同的实例")
 }
+
+// TestSetupForTenant_ErrorHandling verifies that SetupForTenant returns
+// proper errors when given invalid inputs
+func TestSetupForTenant_ErrorHandling(t *testing.T) {
+	tests := []struct {
+		name        string
+		db          *gorm.DB
+		tenantID    int
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "nil database should return error",
+			db:          nil,
+			tenantID:    1,
+			wantErr:     true,
+			errContains: "adapter",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enforcer, err := SetupForTenant(tt.db, tt.tenantID)
+
+			if tt.wantErr {
+				assert.Error(t, err, "SetupForTenant 应返回错误")
+				assert.Nil(t, enforcer, "出错时 enforcer 应为 nil")
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains,
+						"错误信息应包含: "+tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err, "SetupForTenant 不应返回错误")
+				assert.NotNil(t, enforcer, "enforcer 不应为 nil")
+			}
+		})
+	}
+}

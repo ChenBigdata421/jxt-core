@@ -39,6 +39,11 @@ m = r.sub == p.sub && (keyMatch2(r.obj, p.obj) || keyMatch(r.obj, p.obj)) && (r.
 //   - *casbin.SyncedEnforcer: 该租户专属的 enforcer 实例
 //   - error: 错误信息
 func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
+	// 验证输入参数
+	if db == nil {
+		return nil, fmt.Errorf("创建 Casbin adapter 失败 (租户 %d): %w", tenantID, fmt.Errorf("数据库连接不能为空"))
+	}
+
 	// 1. 为该租户创建独立的 GORM Adapter
 	adapter, err := gormAdapter.NewAdapterByDBUseTableName(db, "sys", "casbin_rule")
 	if err != nil && err.Error() != "invalid DDL" {
