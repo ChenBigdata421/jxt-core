@@ -90,3 +90,24 @@ func TestSetupForTenant_ErrorHandling(t *testing.T) {
 		})
 	}
 }
+
+// TestSetup_BackwardCompatibility verifies that the old Setup function
+// still works for existing code
+func TestSetup_BackwardCompatibility(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试（使用 -short 标志）")
+	}
+
+	db := realTestDB(t)
+	if db == nil {
+		return
+	}
+	defer func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	}()
+
+	// Setup 应该仍然工作（不 panic）
+	enforcer := Setup(db, "")
+	assert.NotNil(t, enforcer, "Setup 应返回非空 enforcer")
+}
