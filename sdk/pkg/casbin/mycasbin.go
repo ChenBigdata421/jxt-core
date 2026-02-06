@@ -81,12 +81,44 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 		return nil, fmt.Errorf("加载 Casbin 策略失败 (租户 %d): %w", tenantID, err)
 	}
 
-	// 5. 设置日志
+	// 5. 设置 Redis Watcher（如果 Redis 已配置）
+	if config.CacheConfig.Redis != nil {
+		// 每个租户使用独立的 Redis 频道
+		channel := fmt.Sprintf("/casbin/tenant/%d", tenantID)
+
+		w, err := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
+			Options: redis.Options{
+				Network:  "tcp",
+				Password: config.CacheConfig.Redis.Password,
+			},
+			Channel:    channel, // 租户专属频道
+			IgnoreSelf: false,
+		})
+		if err != nil {
+			// Watcher 失败不应阻止 enforcer 创建
+			logger.Errorf("租户 %d Redis Watcher 创建失败: %v", tenantID, err)
+		} else {
+			// 创建租户专属的 callback 闭包
+			tenantEnforcer := e // 捕获当前租户的 enforcer
+			callback := func(msg string) {
+				logger.Infof("casbin updateCallback (租户 %d) msg: %v", tenantID, msg)
+				if err := tenantEnforcer.LoadPolicy(); err != nil {
+					logger.Errorf("casbin LoadPolicy (租户 %d) err: %v", tenantID, err)
+				}
+			}
+
+			if err := w.SetUpdateCallback(callback); err != nil {
+				logger.Errorf("租户 %d 设置 Watcher callback 失败: %v", tenantID, err)
+			}
+			if err := e.SetWatcher(w); err != nil {
+				logger.Errorf("租户 %d 设置 Watcher 失败: %v", tenantID, err)
+			}
+		}
+	}
+
+	// 6. 设置日志
 	log.SetLogger(&Logger{})
 	e.EnableLog(true)
-
-	// 注意: Redis Watcher 初始化将在 Stage 2 中添加
-	// 目前保持与原有 Setup 函数一致的行为，但使用租户隔离的方式
 
 	return e, nil
 }
@@ -101,30 +133,8 @@ func Setup(db *gorm.DB, _ string) *casbin.SyncedEnforcer {
 		panic(err)
 	}
 
-	// 兼容旧版：如果配置了 Redis，设置全局 Watcher
-	// 注意: 在 Stage 2 中，这将被移到 SetupForTenant 中实现租户隔离
-	if config.CacheConfig.Redis != nil {
-		w, wErr := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
-			Options: redis.Options{
-				Network:  "tcp",
-				Password: config.CacheConfig.Redis.Password,
-			},
-			Channel:    "/casbin",
-			IgnoreSelf: false,
-		})
-		if wErr != nil {
-			panic(wErr)
-		}
-
-		wErr = w.SetUpdateCallback(updateCallback)
-		if wErr != nil {
-			panic(wErr)
-		}
-		wErr = e.SetWatcher(w)
-		if wErr != nil {
-			panic(wErr)
-		}
-	}
+	// SetupForTenant 已经为租户 0 创建了 Redis Watcher（使用 /casbin/tenant/0 频道）
+	// 不需要在这里重复设置
 
 	return e
 }
