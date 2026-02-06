@@ -111,3 +111,34 @@ func TestSetup_BackwardCompatibility(t *testing.T) {
 	enforcer := Setup(db, "")
 	assert.NotNil(t, enforcer, "Setup 应返回非空 enforcer")
 }
+
+// TestSetupForTenant_PolicyLoading verifies that policies are loaded
+// correctly from the database
+func TestSetupForTenant_PolicyLoading(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试（使用 -short 标志）")
+	}
+
+	db := realTestDB(t)
+	if db == nil {
+		return
+	}
+	defer func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	}()
+
+	enforcer, err := SetupForTenant(db, 1)
+	assert.NoError(t, err, "SetupForTenant 不应返回错误")
+	assert.NotNil(t, enforcer, "enforcer 不应为 nil")
+
+	// 验证 enforcer 已正确初始化
+	// GetAllSubjects() 返回所有定义的主体（用户）
+	subjects := enforcer.GetAllSubjects()
+	// 即使没有策略，也应该返回一个空切片而不是 nil
+	assert.NotNil(t, subjects, "GetAllSubjects 应返回非空切片")
+
+	// 验证 enforcer 的模型已正确加载
+	model := enforcer.GetModel()
+	assert.NotNil(t, model, "模型不应为 nil")
+}
