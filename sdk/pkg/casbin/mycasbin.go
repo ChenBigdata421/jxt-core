@@ -110,11 +110,11 @@ func Setup(db *gorm.DB, _ string) *casbin.SyncedEnforcer {
 	return e
 }
 
+// updateCallback is kept for backward compatibility but is now a no-op
+// In Stage 2, each tenant will have its own callback closure
+// Deprecated: This function no longer reloads policy since the global enforcer was removed
 func updateCallback(msg string) {
-	//l := logger.NewHelper(sdk.Runtime.GetLogger())//废弃原有logger
-	logger.Infof("casbin updateCallback msg: %v", msg) //使用sdk/pkg/logger
-	err := enforcer.LoadPolicy()
-	if err != nil {
-		logger.Errorf("casbin LoadPolicy err: %v", err) //使用sdk/pkg/logger
-	}
+	logger.Infof("casbin updateCallback msg: %v (警告: 全局 enforcer 已移除，此回调不再生效，请使用 SetupForTenant)", msg)
+	// 不再执行 LoadPolicy，因为全局 enforcer 已不存在
+	// 在 Stage 2 中，每个租户将有自己的 callback 闭包
 }
