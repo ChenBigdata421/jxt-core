@@ -66,6 +66,27 @@ Legacy function for backward compatibility. Creates a single global enforcer.
 
 **Deprecated:** Use `SetupForTenant` instead for proper multi-tenant support.
 
+## Redis Watcher
+
+Each tenant gets a dedicated Redis channel for policy synchronization:
+
+```go
+// Tenant 1 uses channel: /casbin/tenant/1
+// Tenant 2 uses channel: /casbin/tenant/2
+// etc.
+```
+
+When a tenant's policies are modified in the database:
+1. The modification publishes a message to `/casbin/tenant/{tenantID}`
+2. All instances running that tenant subscribe to the message
+3. Each instance's callback reloads policies from the tenant's database
+4. The enforcer is updated with the latest policies
+
+**Graceful Degradation:**
+- If Redis is unavailable during SetupForTenant, the enforcer is still created successfully
+- A warning is logged, but the tenant can still function
+- Policy changes won't be auto-synchronized until Redis is available
+
 ## Testing
 
 Run tests:
@@ -83,15 +104,13 @@ go test ./sdk/pkg/casbin/... -cover -coverprofile=coverage.out
 
 ## Known Issues
 
-1. **Redis Watcher:** The current implementation uses a shared Redis channel (`/casbin`) for all tenants. This will be fixed in Stage 2 with per-tenant channels (`/casbin/tenant/{tenantID}`).
-
-2. **Global updateCallback:** The `updateCallback` function no longer reloads policies since the global enforcer was removed. A warning is logged instead. Stage 2 will implement per-tenant callback closures.
+None (as of Stage 2). All multi-tenant isolation issues have been fixed.
 
 ## Roadmap
 
-- **Stage 1** (Current): Remove singleton, add `SetupForTenant` ✅
-- **Stage 2**: Redis Watcher per-tenant isolation
-- **Stage 3**: Update security-management to use new APIs
+- **Stage 1**: Remove singleton, add `SetupForTenant` ✅
+- **Stage 2** (Current): Redis Watcher per-tenant isolation ✅
+- **Stage 3**: Update security-management to use new APIs (pending)
 
 ## Related Documents
 
