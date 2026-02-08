@@ -341,7 +341,7 @@ func (p *Provider) parseTenantID(key string) (int, bool) {
 // ========== Key 判断函数 ==========
 
 func isTenantMetaKey(key string) bool {
-	return strings.HasSuffix(key, "/meta") && strings.Contains(key, "/tenants/")
+	return strings.HasSuffix(key, "/meta") && strings.HasPrefix(key, "tenants/")
 }
 
 func isServiceDatabaseKey(key string) bool {
@@ -355,7 +355,7 @@ func isFtpConfigKey(key string) bool {
 }
 
 func isStorageConfigKey(key string) bool {
-	return strings.HasSuffix(key, "/storage") && strings.Contains(key, "/tenants/")
+	return strings.HasSuffix(key, "/storage") && strings.HasPrefix(key, "tenants/")
 }
 
 func isDomainPrimaryKey(key string) bool {
