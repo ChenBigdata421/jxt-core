@@ -20,8 +20,8 @@ type EnterpriseEvent interface {
 	BaseEvent
 
 	// 租户隔离
-	GetTenantId() string
-	SetTenantId(string)
+	GetTenantId() int
+	SetTenantId(int)
 
 	// 可观测性方法
 	GetCorrelationId() string
