@@ -90,7 +90,7 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 		return nil, fmt.Errorf("加载 Casbin 策略失败 (租户 %d): %w", tenantID, err)
 	}
 
-	// 5. Set up Redis Watcher using shared helper
+	// 5. 设置 Redis Watcher（使用共享 helper）
 	setupRedisWatcherForEnforcer(e, tenantID)
 
 	// 6. 设置日志
@@ -129,13 +129,17 @@ func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
 
 	// Capture enforcer in closure for this tenant
 	tenantEnforcer := e
-	_ = w.SetUpdateCallback(func(msg string) {
+	if err := w.SetUpdateCallback(func(msg string) {
 		logger.Infof("casbin updateCallback (租户 %d) msg: %v", tenantID, msg)
 		if err := tenantEnforcer.LoadPolicy(); err != nil {
 			logger.Errorf("casbin LoadPolicy (租户 %d) err: %v", tenantID, err)
 		}
-	})
-	_ = e.SetWatcher(w)
+	}); err != nil {
+		logger.Errorf("租户 %d 设置 Watcher callback 失败: %v", tenantID, err)
+	}
+	if err := e.SetWatcher(w); err != nil {
+		logger.Errorf("租户 %d 设置 Watcher 失败: %v", tenantID, err)
+	}
 }
 
 // Setup 为指定租户创建 Casbin enforcer（向后兼容函数）
