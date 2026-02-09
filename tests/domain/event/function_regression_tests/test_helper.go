@@ -164,7 +164,7 @@ func (h *TestHelper) CreateComplexPayload() ComplexPayload {
 }
 
 // CreateEnvelope 创建测试用的 Envelope
-func (h *TestHelper) CreateEnvelope(eventType, aggregateID, tenantID string, payload []byte) *jxtevent.Envelope {
+func (h *TestHelper) CreateEnvelope(eventType, aggregateID string, tenantID int, payload []byte) *jxtevent.Envelope {
 	return &jxtevent.Envelope{
 		EventType:   eventType,
 		AggregateID: aggregateID,
