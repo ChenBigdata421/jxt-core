@@ -9,7 +9,7 @@ import (
 type Envelope struct {
 	EventType   string
 	AggregateID string
-	TenantID    string
+	TenantID    int
 	Payload     []byte
 }
 
@@ -48,7 +48,7 @@ func ValidateConsistency(envelope *Envelope, event BaseEvent) error {
 	// 3. 如果是企业级事件，校验TenantId一致性
 	if ee, ok := event.(EnterpriseEvent); ok {
 		if envelope.TenantID != ee.GetTenantId() {
-			return fmt.Errorf("tenantID mismatch: envelope=%s, event=%s",
+			return fmt.Errorf("tenantID mismatch: envelope=%d, event=%d",
 				envelope.TenantID, ee.GetTenantId())
 		}
 	}
