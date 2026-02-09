@@ -4,7 +4,15 @@ import (
 	"context"
 )
 
-// PolicyRule represents a single Casbin policy rule
+// PolicyRule represents a single Casbin policy rule.
+//
+// Validation Rules:
+//   - PType must be a valid Casbin policy type: "p" (policy), "g" (role inheritance), etc.
+//   - V0-V5 fields must be filled contiguously from left to right without gaps
+//   - Empty strings at the end of the sequence are allowed (e.g., V3="", V4="", V5="")
+//   - Empty strings in the middle are NOT allowed (e.g., V0="admin", V1="", V2="GET" is invalid)
+//
+// This format matches Casbin's standard storage schema (gorm-adapter).
 type PolicyRule struct {
 	PType string // Policy type: "p" (policy) or "g" (role inheritance)
 	V0    string // Usually sub (role name)
