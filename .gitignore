@@ -34,3 +34,6 @@ test_results_final/
 
 # Python 临时脚本
 merge_tests.py
+
+# Claude Code configuration
+.claude/
