@@ -50,6 +50,10 @@ m = r.sub == p.sub && (keyMatch2(r.obj, p.obj) || keyMatch(r.obj, p.obj)) && (r.
 
 // SetupForTenant 为指定租户创建独立的 Casbin enforcer
 // 每个租户拥有独立的 adapter、enforcer 实例和 Redis Watcher 频道
+//
+// ⚠️  仅供 security-management 使用（本地数据库模式）
+// 其他微服务请使用 SetupWithProvider
+//
 // 参数:
 //   - db: 该租户的数据库连接
 //   - tenantID: 租户ID（用于日志标识和 Redis Watcher 频道隔离）
@@ -140,6 +144,50 @@ func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
 	if err := e.SetWatcher(w); err != nil {
 		logger.Errorf("租户 %d 设置 Watcher 失败: %v", tenantID, err)
 	}
+}
+
+// SetupWithProvider creates a Casbin enforcer using a PolicyProvider (for microservices)
+// Unlike SetupForTenant, this does not require a local database connection
+//
+// ⚠️  For non-security-management microservices only (remote fetch mode)
+// security-management should continue using SetupForTenant
+//
+// Parameters:
+//   - provider: Policy provider (implemented by microservice, typically a gRPC adapter)
+//   - tenantID: Tenant identifier
+//
+// Returns:
+//   - *casbin.SyncedEnforcer: Enforcer with loaded policies
+//   - error: Initialization error
+func SetupWithProvider(provider PolicyProvider, tenantID int) (*casbin.SyncedEnforcer, error) {
+	// 1. Create ProviderAdapter
+	adapter := NewProviderAdapter(provider, tenantID)
+
+	// 2. Load the same RBAC model as SetupForTenant
+	m, err := model.NewModelFromString(text) // text variable is already defined in mycasbin.go
+	if err != nil {
+		return nil, fmt.Errorf("failed to create casbin model: %w", err)
+	}
+
+	// 3. Create SyncedEnforcer
+	e, err := casbin.NewSyncedEnforcer(m, adapter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create casbin enforcer: %w", err)
+	}
+
+	// 4. Load policies (via ProviderAdapter → Provider → remote service)
+	if err := e.LoadPolicy(); err != nil {
+		return nil, fmt.Errorf("failed to load policy via provider: %w", err)
+	}
+
+	// 5. Set up Redis Watcher using shared helper
+	setupRedisWatcherForEnforcer(e, tenantID)
+
+	// 6. Enable logging
+	log.SetLogger(&Logger{})
+	e.EnableLog(true)
+
+	return e, nil
 }
 
 // Setup 为指定租户创建 Casbin enforcer（向后兼容函数）
