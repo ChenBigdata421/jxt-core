@@ -6,23 +6,24 @@ This package provides Casbin enforcer setup with multi-tenant support.
 
 ### Old Usage (Deprecated)
 
-The old `Setup` function uses a singleton pattern that breaks multi-tenant isolation:
-
 ```go
-// ❌ 所有租户共享同一个 enforcer
+// ❌ Old: Direct database connection
 enforcer := mycasbin.Setup(db, "")
 ```
 
-### New Usage (Recommended)
-
-Use `SetupForTenant` for proper multi-tenant isolation:
+### For security-management (Local Database)
 
 ```go
-// ✅ 每个租户独立的 enforcer
+// ✅ security-management uses local database
 enforcer, err := mycasbin.SetupForTenant(db, tenantID)
-if err != nil {
-    log.Fatalf("初始化 Casbin 失败: %v", err)
-}
+```
+
+### For Microservices (Remote Provider)
+
+```go
+// ✅ Microservices use remote provider
+provider := grpc_client.NewGrpcCasbinPolicyProvider(connManager)
+enforcer, err := mycasbin.SetupWithProvider(provider, tenantID)
 ```
 
 ## API Reference
@@ -55,6 +56,39 @@ if err != nil {
 // Use enforcer for permission checks
 allowed, err := enforcer.Enforce("user", "/api/v1/resource", "GET")
 ```
+
+### SetupWithProvider
+
+```go
+func SetupWithProvider(provider PolicyProvider, tenantID int) (*casbin.SyncedEnforcer, error)
+```
+
+Creates a Casbin enforcer using a PolicyProvider instead of a database connection.
+
+**Parameters:**
+- `provider`: Policy provider implementation (typically gRPC-based)
+- `tenantID`: Tenant identifier
+
+**Returns:**
+- `*casbin.SyncedEnforcer`: Enforcer with loaded policies
+- `error`: Error if setup fails
+
+**Example:**
+
+```go
+provider := grpc_client.NewGrpcCasbinPolicyProvider(connManager)
+enforcer, err := mycasbin.SetupWithProvider(provider, tenantID)
+if err != nil {
+    log.Fatalf("Casbin init failed: %v", err)
+}
+
+// Use enforcer for permission checks
+allowed, err := enforcer.Enforce("user", "/api/v1/resource", "GET")
+```
+
+**Usage:**
+- For microservices (evidence-management, file-storage-service, tenant-service)
+- NOT for security-management (use SetupForTenant instead)
 
 ### Setup (Deprecated)
 
