@@ -29,7 +29,7 @@ func TestNewEnterpriseDomainEvent(t *testing.T) {
 	assert.WithinDuration(t, time.Now(), event.OccurredAt, time.Second)
 
 	// 验证企业级字段
-	assert.Equal(t, "*", event.TenantId, "Default TenantId should be '*'")
+	assert.Equal(t, 0, event.TenantId, "Default TenantId should be 0")
 	assert.Empty(t, event.CorrelationId)
 	assert.Empty(t, event.CausationId)
 	assert.Empty(t, event.TraceId)
@@ -39,11 +39,11 @@ func TestEnterpriseDomainEvent_TenantId(t *testing.T) {
 	event := NewEnterpriseDomainEvent("TestEvent", "test-123", "TestAggregate", nil)
 
 	// 测试默认值
-	assert.Equal(t, "*", event.GetTenantId())
+	assert.Equal(t, 0, event.GetTenantId())
 
 	// 测试设置租户ID
-	event.SetTenantId("tenant-001")
-	assert.Equal(t, "tenant-001", event.GetTenantId())
+	event.SetTenantId(1)
+	assert.Equal(t, int(1), event.GetTenantId())
 }
 
 func TestEnterpriseDomainEvent_ObservabilityFields(t *testing.T) {
@@ -85,7 +85,7 @@ func TestEnterpriseDomainEvent_CompleteWorkflow(t *testing.T) {
 	)
 
 	// 设置租户ID
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 设置可观测性字段
 	event.SetCorrelationId("workflow-123")
@@ -96,7 +96,7 @@ func TestEnterpriseDomainEvent_CompleteWorkflow(t *testing.T) {
 	assert.Equal(t, "Archive.Created", event.GetEventType())
 	assert.Equal(t, "archive-123", event.GetAggregateID())
 	assert.Equal(t, "Archive", event.GetAggregateType())
-	assert.Equal(t, "tenant-001", event.GetTenantId())
+	assert.Equal(t, 1, event.GetTenantId())
 	assert.Equal(t, "workflow-123", event.GetCorrelationId())
 	assert.Equal(t, "trigger-event-456", event.GetCausationId())
 	assert.Equal(t, "trace-789", event.GetTraceId())
