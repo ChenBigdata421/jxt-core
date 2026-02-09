@@ -90,46 +90,52 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 		return nil, fmt.Errorf("加载 Casbin 策略失败 (租户 %d): %w", tenantID, err)
 	}
 
-	// 5. 设置 Redis Watcher（如果 Redis 已配置）
-	if config.CacheConfig.Redis != nil {
-		// 每个租户使用独立的 Redis 频道
-		channel := fmt.Sprintf("/casbin/tenant/%d", tenantID)
-
-		w, err := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
-			Options: redis.Options{
-				Network:  "tcp",
-				Password: config.CacheConfig.Redis.Password,
-			},
-			Channel:    channel, // 租户专属频道
-			IgnoreSelf: false,
-		})
-		if err != nil {
-			// Watcher 失败不应阻止 enforcer 创建
-			logger.Errorf("租户 %d Redis Watcher 创建失败: %v", tenantID, err)
-		} else {
-			// 创建租户专属的 callback 闭包
-			tenantEnforcer := e // 捕获当前租户的 enforcer
-			callback := func(msg string) {
-				logger.Infof("casbin updateCallback (租户 %d) msg: %v", tenantID, msg)
-				if err := tenantEnforcer.LoadPolicy(); err != nil {
-					logger.Errorf("casbin LoadPolicy (租户 %d) err: %v", tenantID, err)
-				}
-			}
-
-			if err := w.SetUpdateCallback(callback); err != nil {
-				logger.Errorf("租户 %d 设置 Watcher callback 失败: %v", tenantID, err)
-			}
-			if err := e.SetWatcher(w); err != nil {
-				logger.Errorf("租户 %d 设置 Watcher 失败: %v", tenantID, err)
-			}
-		}
-	}
+	// 5. Set up Redis Watcher using shared helper
+	setupRedisWatcherForEnforcer(e, tenantID)
 
 	// 6. 设置日志
 	log.SetLogger(&Logger{})
 	e.EnableLog(true)
 
 	return e, nil
+}
+
+// setupRedisWatcherForEnforcer sets up Redis Watcher for an enforcer
+// Called by both SetupForTenant and SetupWithProvider to eliminate code duplication
+//
+// Behavior:
+//   - If Redis is configured, creates Watcher and sets callback
+//   - If Redis is not configured or creation fails, logs only (does not prevent enforcer creation)
+//   - Each tenant uses a dedicated Redis channel: /casbin/tenant/{tenantID}
+func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
+	if config.CacheConfig.Redis == nil {
+		return
+	}
+
+	channel := fmt.Sprintf("/casbin/tenant/%d", tenantID)
+
+	w, err := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
+		Options: redis.Options{
+			Network:  "tcp",
+			Password: config.CacheConfig.Redis.Password,
+		},
+		Channel:    channel,
+		IgnoreSelf: false,
+	})
+	if err != nil {
+		logger.Errorf("租户 %d Redis Watcher 创建失败: %v", tenantID, err)
+		return
+	}
+
+	// Capture enforcer in closure for this tenant
+	tenantEnforcer := e
+	_ = w.SetUpdateCallback(func(msg string) {
+		logger.Infof("casbin updateCallback (租户 %d) msg: %v", tenantID, msg)
+		if err := tenantEnforcer.LoadPolicy(); err != nil {
+			logger.Errorf("casbin LoadPolicy (租户 %d) err: %v", tenantID, err)
+		}
+	})
+	_ = e.SetWatcher(w)
 }
 
 // Setup 为指定租户创建 Casbin enforcer（向后兼容函数）
