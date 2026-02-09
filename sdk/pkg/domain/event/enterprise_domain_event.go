@@ -14,9 +14,9 @@ type EnterpriseDomainEvent struct {
 
 	// ========== 企业级通用字段 ==========
 	// 租户隔离：多租户系统的核心字段
-	// 多租户系统：使用实际的租户ID（如 "tenant_001"）
-	// 单租户系统：使用通配符 "*" 表示全局租户
-	TenantId string `json:"tenantId" gorm:"type:varchar(255);index;column:tenant_id;comment:租户ID"`
+	// 多租户系统：使用实际的租户ID（如 1, 2, 3）
+	// 单租户系统：使用 0 表示全局/无租户
+	TenantId int `json:"tenantId" gorm:"type:int;index;column:tenant_id;comment:租户ID"`
 
 	// ========== 可观测性字段 ==========
 	// 用于分布式追踪和因果链路分析
@@ -40,13 +40,13 @@ func NewEnterpriseDomainEvent(eventType string, aggregateID interface{}, aggrega
 			AggregateType: aggregateType,
 			Payload:       payload,
 		},
-		TenantId: "*", // 默认使用通配符，由业务层根据需要设置实际租户ID
+		TenantId: 0, // 默认为 0，由业务层根据需要设置实际租户ID
 	}
 }
 
 // 企业级特定方法
-func (e *EnterpriseDomainEvent) GetTenantId() string   { return e.TenantId }
-func (e *EnterpriseDomainEvent) SetTenantId(id string) { e.TenantId = id }
+func (e *EnterpriseDomainEvent) GetTenantId() int   { return e.TenantId }
+func (e *EnterpriseDomainEvent) SetTenantId(id int) { e.TenantId = id }
 
 // 可观测性方法
 func (e *EnterpriseDomainEvent) GetCorrelationId() string { return e.CorrelationId }
