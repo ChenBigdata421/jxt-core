@@ -2627,9 +2627,9 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 			Key: []byte("X-Correlation-ID"), Value: []byte(envelope.CorrelationID),
 		})
 	}
-	if envelope.TenantID != "" {
+	if envelope.TenantID != 0 {
 		msg.Headers = append(msg.Headers, sarama.RecordHeader{
-			Key: []byte("X-Tenant-ID"), Value: []byte(envelope.TenantID), // ← 租户ID（多租户支持，用于Outbox ACK路由）
+			Key: []byte("X-Tenant-ID"), Value: []byte(fmt.Sprintf("%d", envelope.TenantID)), // ← 租户ID（多租户支持，用于Outbox ACK路由）
 		})
 	}
 
