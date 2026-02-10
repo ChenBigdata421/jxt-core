@@ -59,7 +59,7 @@ func TestUnmarshalDomainEvent_EnterpriseDomainEvent_Success(t *testing.T) {
 	}
 
 	originalEvent := NewEnterpriseDomainEvent("EnterpriseEvent", "test-456", "TestAggregate", originalPayload)
-	originalEvent.SetTenantId("tenant-001")
+	originalEvent.SetTenantId(1)
 	originalEvent.SetCorrelationId("correlation-123")
 	originalEvent.SetTraceId("trace-456")
 
@@ -80,7 +80,7 @@ func TestUnmarshalDomainEvent_EnterpriseDomainEvent_Success(t *testing.T) {
 	assert.Equal(t, originalEvent.GetAggregateType(), result.GetAggregateType())
 
 	// 验证企业级字段
-	assert.Equal(t, "tenant-001", result.GetTenantId())
+	assert.Equal(t, 1, result.GetTenantId())
 	assert.Equal(t, "correlation-123", result.GetCorrelationId())
 	assert.Equal(t, "trace-456", result.GetTraceId())
 }
@@ -205,7 +205,7 @@ func TestDomainEvent_RoundTrip_WithPayloadExtraction(t *testing.T) {
 	}
 
 	originalEvent := NewEnterpriseDomainEvent("IntegrationEvent", "test-integration", "TestAggregate", originalPayload)
-	originalEvent.SetTenantId("tenant-integration")
+	originalEvent.SetTenantId(999)
 
 	// 2. 序列化（模拟保存到 Outbox）
 	eventBytes, err := MarshalDomainEvent(originalEvent)
@@ -218,7 +218,7 @@ func TestDomainEvent_RoundTrip_WithPayloadExtraction(t *testing.T) {
 	// 4. 验证基本字段
 	assert.Equal(t, originalEvent.GetEventID(), receivedEvent.GetEventID())
 	assert.Equal(t, originalEvent.GetEventType(), receivedEvent.GetEventType())
-	assert.Equal(t, "tenant-integration", receivedEvent.GetTenantId())
+	assert.Equal(t, 999, receivedEvent.GetTenantId())
 
 	// 5. 提取 Payload（模拟 Query Side 处理）
 	extractedPayload, err := UnmarshalPayload[TestEventPayload](receivedEvent)

@@ -109,7 +109,7 @@ func TestUnmarshalPayload_WithEnterpriseDomainEvent(t *testing.T) {
 	}
 
 	event := NewEnterpriseDomainEvent("TestEvent", "test-123", "TestAggregate", originalPayload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 执行
 	result, err := UnmarshalPayload[TestPayload](event)

@@ -13,7 +13,7 @@ func TestValidateConsistency_Success_BaseEvent(t *testing.T) {
 	envelope := &Envelope{
 		EventType:   event.GetEventType(),
 		AggregateID: event.GetAggregateID(),
-		TenantID:    "",
+		TenantID:    0,
 		Payload:     []byte("{}"),
 	}
 
@@ -27,7 +27,7 @@ func TestValidateConsistency_Success_BaseEvent(t *testing.T) {
 func TestValidateConsistency_Success_EnterpriseEvent(t *testing.T) {
 	// 准备测试数据
 	event := NewEnterpriseDomainEvent("TestEvent", "test-123", "TestAggregate", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	envelope := &Envelope{
 		EventType:   event.GetEventType(),
@@ -60,7 +60,7 @@ func TestValidateConsistency_NilEvent(t *testing.T) {
 	envelope := &Envelope{
 		EventType:   "TestEvent",
 		AggregateID: "test-123",
-		TenantID:    "",
+		TenantID:    0,
 		Payload:     []byte("{}"),
 	}
 
@@ -79,7 +79,7 @@ func TestValidateConsistency_EventTypeMismatch(t *testing.T) {
 	envelope := &Envelope{
 		EventType:   "DifferentEvent", // 不匹配
 		AggregateID: event.GetAggregateID(),
-		TenantID:    "",
+		TenantID:    0,
 		Payload:     []byte("{}"),
 	}
 
@@ -100,7 +100,7 @@ func TestValidateConsistency_AggregateIDMismatch(t *testing.T) {
 	envelope := &Envelope{
 		EventType:   event.GetEventType(),
 		AggregateID: "different-id", // 不匹配
-		TenantID:    "",
+		TenantID:    0,
 		Payload:     []byte("{}"),
 	}
 
@@ -117,12 +117,12 @@ func TestValidateConsistency_AggregateIDMismatch(t *testing.T) {
 func TestValidateConsistency_TenantIDMismatch(t *testing.T) {
 	// 准备测试数据
 	event := NewEnterpriseDomainEvent("TestEvent", "test-123", "TestAggregate", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	envelope := &Envelope{
 		EventType:   event.GetEventType(),
 		AggregateID: event.GetAggregateID(),
-		TenantID:    "tenant-002", // 不匹配
+		TenantID:    2, // 不匹配
 		Payload:     []byte("{}"),
 	}
 
@@ -132,8 +132,8 @@ func TestValidateConsistency_TenantIDMismatch(t *testing.T) {
 	// 验证
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "tenantID mismatch")
-	assert.Contains(t, err.Error(), "tenant-002")
-	assert.Contains(t, err.Error(), "tenant-001")
+	assert.Contains(t, err.Error(), "2")
+	assert.Contains(t, err.Error(), "1")
 }
 
 func TestValidateConsistency_CompleteWorkflow(t *testing.T) {
@@ -148,13 +148,13 @@ func TestValidateConsistency_CompleteWorkflow(t *testing.T) {
 			"title": "Test Archive",
 		},
 	)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 2. 创建匹配的Envelope
 	envelope := &Envelope{
 		EventType:   "Archive.Created",
 		AggregateID: "archive-123",
-		TenantID:    "tenant-001",
+		TenantID:    1,
 		Payload:     []byte(`{"title":"Test Archive"}`),
 	}
 
@@ -163,7 +163,7 @@ func TestValidateConsistency_CompleteWorkflow(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 4. 修改Envelope的TenantID，应该失败
-	envelope.TenantID = "tenant-002"
+	envelope.TenantID = 2
 	err = ValidateConsistency(envelope, event)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "tenantID mismatch")
@@ -176,7 +176,7 @@ func TestValidateConsistency_BaseEventWithTenantIDInEnvelope(t *testing.T) {
 	envelope := &Envelope{
 		EventType:   event.GetEventType(),
 		AggregateID: event.GetAggregateID(),
-		TenantID:    "tenant-001", // BaseEvent不会检查这个字段
+		TenantID:    1, // BaseEvent不会检查这个字段
 		Payload:     []byte("{}"),
 	}
 
