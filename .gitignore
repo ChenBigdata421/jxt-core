@@ -25,6 +25,9 @@ go.sum
 coverage*.out
 full_coverage.out
 
+# 性能分析文件 (pprof)
+*.prof
+
 # 测试日志
 *.log
 
