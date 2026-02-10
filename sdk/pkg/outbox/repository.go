@@ -21,8 +21,8 @@ type OutboxRepository interface {
 	// FindPendingEvents 查找待发布的事件
 	// ctx: 上下文
 	// limit: 最大返回数量
-	// tenantID: 租户 ID（可选，空字符串表示查询所有租户）
-	FindPendingEvents(ctx context.Context, limit int, tenantID string) ([]*OutboxEvent, error)
+	// tenantID: 租户 ID（可选，0 表示查询所有租户）
+	FindPendingEvents(ctx context.Context, limit int, tenantID int) ([]*OutboxEvent, error)
 
 	// FindPendingEventsWithDelay 查找创建时间超过指定延迟的待发布事件
 	// 用于调度器避让机制，防止与立即发布产生竞态
@@ -30,7 +30,7 @@ type OutboxRepository interface {
 	// tenantID: 租户 ID（可选）
 	// delaySeconds: 延迟秒数（只查询创建时间超过此延迟的事件）
 	// limit: 最大返回数量
-	FindPendingEventsWithDelay(ctx context.Context, tenantID string, delaySeconds int, limit int) ([]*OutboxEvent, error)
+	FindPendingEventsWithDelay(ctx context.Context, tenantID int, delaySeconds int, limit int) ([]*OutboxEvent, error)
 
 	// FindEventsForRetry 查找需要重试的失败事件
 	// ctx: 上下文
@@ -53,7 +53,7 @@ type OutboxRepository interface {
 	// ctx: 上下文
 	// aggregateID: 聚合根 ID
 	// tenantID: 租户 ID（可选）
-	FindByAggregateID(ctx context.Context, aggregateID string, tenantID string) ([]*OutboxEvent, error)
+	FindByAggregateID(ctx context.Context, aggregateID string, tenantID int) ([]*OutboxEvent, error)
 
 	// Update 更新事件
 	// ctx: 上下文
@@ -103,25 +103,25 @@ type OutboxRepository interface {
 	// ctx: 上下文
 	// before: 时间阈值
 	// tenantID: 租户 ID（可选）
-	DeletePublishedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error)
+	DeletePublishedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error)
 
 	// DeleteFailedBefore 删除指定时间之前失败的事件
 	// ctx: 上下文
 	// before: 时间阈值
 	// tenantID: 租户 ID（可选）
-	DeleteFailedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error)
+	DeleteFailedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error)
 
 	// Count 统计事件数量
 	// ctx: 上下文
 	// status: 事件状态（可选，空字符串表示所有状态）
 	// tenantID: 租户 ID（可选）
-	Count(ctx context.Context, status EventStatus, tenantID string) (int64, error)
+	Count(ctx context.Context, status EventStatus, tenantID int) (int64, error)
 
 	// CountByStatus 按状态统计事件数量
 	// ctx: 上下文
 	// tenantID: 租户 ID（可选）
 	// 返回：map[EventStatus]int64
-	CountByStatus(ctx context.Context, tenantID string) (map[EventStatus]int64, error)
+	CountByStatus(ctx context.Context, tenantID int) (map[EventStatus]int64, error)
 
 	// FindByIdempotencyKey 根据幂等性键查找事件
 	// ctx: 上下文
@@ -140,7 +140,7 @@ type OutboxRepository interface {
 	// limit: 最大返回数量
 	// tenantID: 租户 ID（可选）
 	// 返回：事件列表
-	FindMaxRetryEvents(ctx context.Context, limit int, tenantID string) ([]*OutboxEvent, error)
+	FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*OutboxEvent, error)
 
 	// BatchUpdate 批量更新事件（可选接口，用于性能优化）
 	// ctx: 上下文
@@ -167,7 +167,7 @@ type RepositoryStats struct {
 	OldestPendingAge time.Duration
 
 	// TenantID 租户 ID
-	TenantID string
+	TenantID int
 }
 
 // GetStats 获取仓储统计信息（可选方法）
@@ -176,7 +176,7 @@ type RepositoryStatsProvider interface {
 	// GetStats 获取统计信息
 	// ctx: 上下文
 	// tenantID: 租户 ID（可选）
-	GetStats(ctx context.Context, tenantID string) (*RepositoryStats, error)
+	GetStats(ctx context.Context, tenantID int) (*RepositoryStats, error)
 }
 
 // TransactionalRepository 支持事务的仓储接口（可选）
