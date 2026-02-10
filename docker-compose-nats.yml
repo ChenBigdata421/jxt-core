@@ -23,26 +23,6 @@ services:
     networks:
       - benchmark-network
 
-  # Kafka服务 (用于性能对比测试)
-  kafka:
-    image: bitnami/kafka:3.5.1
-    hostname: benchmark-kafka
-    container_name: benchmark-kafka
-    ports:
-      - "9093:9092"     # Kafka client port (避免与现有Kafka冲突)
-      - "29093:29092"   # External port (避免冲突)
-    environment:
-      - KAFKA_CFG_NODE_ID=2
-      - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=2@benchmark-kafka:9094
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://benchmark-kafka:9092,CONTROLLER://benchmark-kafka:9094,EXTERNAL://0.0.0.0:29092
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://benchmark-kafka:9092,EXTERNAL://localhost:29093
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
-      - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_KRAFT_CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk  # 有效的UUID格式
-
   # RedPanda服务 (Kafka兼容的高性能替代)
   redpanda:
     image: redpandadata/redpanda:v23.2.15
@@ -98,8 +78,6 @@ services:
 
 volumes:
   benchmark_nats_data:
-    driver: local
-  benchmark_kafka_data:
     driver: local
   benchmark_redpanda_data:
     driver: local
