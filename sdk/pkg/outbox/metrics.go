@@ -18,66 +18,66 @@ import (
 //	    pendingGauge     prometheus.Gauge
 //	}
 //
-//	func (c *PrometheusMetricsCollector) RecordPublished(tenantID, aggregateType, eventType string) {
+//	func (c *PrometheusMetricsCollector) RecordPublished(tenantID int, aggregateType, eventType string) {
 //	    c.publishedTotal.With(prometheus.Labels{
-//	        "tenant_id":      tenantID,
+//	        "tenant_id":      fmt.Sprint(tenantID),
 //	        "aggregate_type": aggregateType,
 //	        "event_type":     eventType,
 //	    }).Inc()
 //	}
 type MetricsCollector interface {
 	// RecordPublished 记录事件发布成功
-	RecordPublished(tenantID, aggregateType, eventType string)
+	RecordPublished(tenantID int, aggregateType, eventType string)
 
 	// RecordFailed 记录事件发布失败
-	RecordFailed(tenantID, aggregateType, eventType string, err error)
+	RecordFailed(tenantID int, aggregateType, eventType string, err error)
 
 	// RecordRetry 记录事件重试
-	RecordRetry(tenantID, aggregateType, eventType string)
+	RecordRetry(tenantID int, aggregateType, eventType string)
 
 	// RecordDLQ 记录事件进入死信队列
-	RecordDLQ(tenantID, aggregateType, eventType string)
+	RecordDLQ(tenantID int, aggregateType, eventType string)
 
 	// RecordPublishDuration 记录发布耗时
-	RecordPublishDuration(tenantID, aggregateType, eventType string, duration time.Duration)
+	RecordPublishDuration(tenantID int, aggregateType, eventType string, duration time.Duration)
 
 	// SetPendingCount 设置待发布事件数量
-	SetPendingCount(tenantID string, count int64)
+	SetPendingCount(tenantID int, count int64)
 
 	// SetFailedCount 设置失败事件数量
-	SetFailedCount(tenantID string, count int64)
+	SetFailedCount(tenantID int, count int64)
 
 	// SetDLQCount 设置死信队列事件数量
-	SetDLQCount(tenantID string, count int64)
+	SetDLQCount(tenantID int, count int64)
 }
 
 // NoOpMetricsCollector 空操作指标收集器（默认实现）
 type NoOpMetricsCollector struct{}
 
 // RecordPublished 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) RecordPublished(tenantID, aggregateType, eventType string) {}
+func (n *NoOpMetricsCollector) RecordPublished(tenantID int, aggregateType, eventType string) {}
 
 // RecordFailed 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) RecordFailed(tenantID, aggregateType, eventType string, err error) {}
+func (n *NoOpMetricsCollector) RecordFailed(tenantID int, aggregateType, eventType string, err error) {}
 
 // RecordRetry 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) RecordRetry(tenantID, aggregateType, eventType string) {}
+func (n *NoOpMetricsCollector) RecordRetry(tenantID int, aggregateType, eventType string) {}
 
 // RecordDLQ 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) RecordDLQ(tenantID, aggregateType, eventType string) {}
+func (n *NoOpMetricsCollector) RecordDLQ(tenantID int, aggregateType, eventType string) {}
 
 // RecordPublishDuration 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) RecordPublishDuration(tenantID, aggregateType, eventType string, duration time.Duration) {
+func (n *NoOpMetricsCollector) RecordPublishDuration(tenantID int, aggregateType, eventType string, duration time.Duration) {
 }
 
 // SetPendingCount 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) SetPendingCount(tenantID string, count int64) {}
+func (n *NoOpMetricsCollector) SetPendingCount(tenantID int, count int64) {}
 
 // SetFailedCount 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) SetFailedCount(tenantID string, count int64) {}
+func (n *NoOpMetricsCollector) SetFailedCount(tenantID int, count int64) {}
 
 // SetDLQCount 实现 MetricsCollector 接口
-func (n *NoOpMetricsCollector) SetDLQCount(tenantID string, count int64) {}
+func (n *NoOpMetricsCollector) SetDLQCount(tenantID int, count int64) {}
 
 // InMemoryMetricsCollector 内存指标收集器（用于测试和简单场景）
 type InMemoryMetricsCollector struct {
@@ -90,9 +90,9 @@ type InMemoryMetricsCollector struct {
 	DLQCount       int64
 
 	// 按租户统计
-	PendingByTenant map[string]int64
-	FailedByTenant  map[string]int64
-	DLQByTenant     map[string]int64
+	PendingByTenant map[int]int64
+	FailedByTenant  map[int]int64
+	DLQByTenant     map[int]int64
 
 	// 按事件类型统计
 	PublishedByType map[string]int64
@@ -109,9 +109,9 @@ type InMemoryMetricsCollector struct {
 // NewInMemoryMetricsCollector 创建内存指标收集器
 func NewInMemoryMetricsCollector() *InMemoryMetricsCollector {
 	return &InMemoryMetricsCollector{
-		PendingByTenant: make(map[string]int64),
-		FailedByTenant:  make(map[string]int64),
-		DLQByTenant:     make(map[string]int64),
+		PendingByTenant: make(map[int]int64),
+		FailedByTenant:  make(map[int]int64),
+		DLQByTenant:     make(map[int]int64),
 		PublishedByType: make(map[string]int64),
 		FailedByType:    make(map[string]int64),
 		MinDuration:     time.Hour, // 初始化为一个大值
@@ -119,7 +119,7 @@ func NewInMemoryMetricsCollector() *InMemoryMetricsCollector {
 }
 
 // RecordPublished 记录事件发布成功
-func (c *InMemoryMetricsCollector) RecordPublished(tenantID, aggregateType, eventType string) {
+func (c *InMemoryMetricsCollector) RecordPublished(tenantID int, aggregateType, eventType string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -128,7 +128,7 @@ func (c *InMemoryMetricsCollector) RecordPublished(tenantID, aggregateType, even
 }
 
 // RecordFailed 记录事件发布失败
-func (c *InMemoryMetricsCollector) RecordFailed(tenantID, aggregateType, eventType string, err error) {
+func (c *InMemoryMetricsCollector) RecordFailed(tenantID int, aggregateType, eventType string, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -137,7 +137,7 @@ func (c *InMemoryMetricsCollector) RecordFailed(tenantID, aggregateType, eventTy
 }
 
 // RecordRetry 记录事件重试
-func (c *InMemoryMetricsCollector) RecordRetry(tenantID, aggregateType, eventType string) {
+func (c *InMemoryMetricsCollector) RecordRetry(tenantID int, aggregateType, eventType string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -145,7 +145,7 @@ func (c *InMemoryMetricsCollector) RecordRetry(tenantID, aggregateType, eventTyp
 }
 
 // RecordDLQ 记录事件进入死信队列
-func (c *InMemoryMetricsCollector) RecordDLQ(tenantID, aggregateType, eventType string) {
+func (c *InMemoryMetricsCollector) RecordDLQ(tenantID int, aggregateType, eventType string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -153,7 +153,7 @@ func (c *InMemoryMetricsCollector) RecordDLQ(tenantID, aggregateType, eventType 
 }
 
 // RecordPublishDuration 记录发布耗时
-func (c *InMemoryMetricsCollector) RecordPublishDuration(tenantID, aggregateType, eventType string, duration time.Duration) {
+func (c *InMemoryMetricsCollector) RecordPublishDuration(tenantID int, aggregateType, eventType string, duration time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -170,7 +170,7 @@ func (c *InMemoryMetricsCollector) RecordPublishDuration(tenantID, aggregateType
 }
 
 // SetPendingCount 设置待发布事件数量
-func (c *InMemoryMetricsCollector) SetPendingCount(tenantID string, count int64) {
+func (c *InMemoryMetricsCollector) SetPendingCount(tenantID int, count int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -178,7 +178,7 @@ func (c *InMemoryMetricsCollector) SetPendingCount(tenantID string, count int64)
 }
 
 // SetFailedCount 设置失败事件数量
-func (c *InMemoryMetricsCollector) SetFailedCount(tenantID string, count int64) {
+func (c *InMemoryMetricsCollector) SetFailedCount(tenantID int, count int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -186,7 +186,7 @@ func (c *InMemoryMetricsCollector) SetFailedCount(tenantID string, count int64) 
 }
 
 // SetDLQCount 设置死信队列事件数量
-func (c *InMemoryMetricsCollector) SetDLQCount(tenantID string, count int64) {
+func (c *InMemoryMetricsCollector) SetDLQCount(tenantID int, count int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -224,9 +224,9 @@ func (c *InMemoryMetricsCollector) Reset() {
 	c.MinDuration = time.Hour
 	c.DurationCount = 0
 
-	c.PendingByTenant = make(map[string]int64)
-	c.FailedByTenant = make(map[string]int64)
-	c.DLQByTenant = make(map[string]int64)
+	c.PendingByTenant = make(map[int]int64)
+	c.FailedByTenant = make(map[int]int64)
+	c.DLQByTenant = make(map[int]int64)
 	c.PublishedByType = make(map[string]int64)
 	c.FailedByType = make(map[string]int64)
 }

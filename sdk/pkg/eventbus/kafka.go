@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -129,8 +130,8 @@ type kafkaEventBus struct {
 	publishResultChan chan *PublishResult
 
 	// 多租户 ACK 通道支持
-	tenantPublishResultChans map[string]chan *PublishResult // key: tenantID, value: ACK channel
-	tenantChannelsMu         sync.RWMutex                   // 保护 tenantPublishResultChans 的读写锁
+	tenantPublishResultChans map[int]chan *PublishResult // key: tenantID, value: ACK channel
+	tenantChannelsMu         sync.RWMutex                 // 保护 tenantPublishResultChans 的读写锁
 
 	// 🔥 高频路径：改为 sync.Map（消息处理时无锁查找）
 	// 订阅管理（用于重连后恢复订阅）- 保持兼容性
@@ -471,7 +472,7 @@ func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 		var eventID string
 		var aggregateID string
 		var eventType string
-		var tenantID string
+		var tenantID int
 		for _, header := range success.Headers {
 			switch string(header.Key) {
 			case "X-Event-ID":
@@ -481,7 +482,10 @@ func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 			case "X-Event-Type":
 				eventType = string(header.Value)
 			case "X-Tenant-ID":
-				tenantID = string(header.Value) // ← 租户ID（多租户支持，用于Outbox ACK路由）
+				// 转换 string 到 int
+				if id, err := strconv.Atoi(string(header.Value)); err == nil {
+					tenantID = id // ← 租户ID（多租户支持，用于Outbox ACK路由）
+				}
 			}
 		}
 
@@ -534,7 +538,7 @@ func (k *kafkaEventBus) handleAsyncProducerErrors() {
 		var eventID string
 		var aggregateID string
 		var eventType string
-		var tenantID string
+		var tenantID int
 		for _, header := range err.Msg.Headers {
 			switch string(header.Key) {
 			case "X-Event-ID":
@@ -544,7 +548,10 @@ func (k *kafkaEventBus) handleAsyncProducerErrors() {
 			case "X-Event-Type":
 				eventType = string(header.Value)
 			case "X-Tenant-ID":
-				tenantID = string(header.Value) // ← 租户ID（多租户支持，用于Outbox ACK路由）
+				// 转换 string 到 int
+				if id, err := strconv.Atoi(string(header.Value)); err == nil {
+					tenantID = id // ← 租户ID（多租户支持，用于Outbox ACK路由）
+				}
 			}
 		}
 
@@ -3264,7 +3271,7 @@ func (k *kafkaEventBus) GetTopicConfigStrategy() TopicConfigStrategy {
 // sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
 func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) {
 	// 优先发送到租户专属通道
-	if result.TenantID != "" {
+	if result.TenantID != 0 {
 		k.tenantChannelsMu.RLock()
 		tenantChan, exists := k.tenantPublishResultChans[result.TenantID]
 		k.tenantChannelsMu.RUnlock()
@@ -3277,14 +3284,14 @@ func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) {
 			default:
 				// 租户通道满，记录警告
 				k.logger.Warn("Tenant ACK channel full, falling back to global channel",
-					zap.String("tenantID", result.TenantID),
+					zap.Int("tenantID", result.TenantID),
 					zap.String("eventID", result.EventID),
 					zap.String("topic", result.Topic))
 			}
 		} else {
 			// 租户未注册，记录警告
 			k.logger.Warn("Tenant not registered, falling back to global channel",
-				zap.String("tenantID", result.TenantID),
+				zap.Int("tenantID", result.TenantID),
 				zap.String("eventID", result.EventID))
 		}
 	}
@@ -3296,7 +3303,7 @@ func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) {
 	default:
 		// 全局通道也满，记录错误
 		k.logger.Error("Both tenant and global ACK channels full, dropping result",
-			zap.String("tenantID", result.TenantID),
+			zap.Int("tenantID", result.TenantID),
 			zap.String("eventID", result.EventID),
 			zap.String("topic", result.Topic),
 			zap.Bool("success", result.Success))
@@ -3304,9 +3311,9 @@ func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) {
 }
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
-func (k *kafkaEventBus) RegisterTenant(tenantID string, bufferSize int) error {
-	if tenantID == "" {
-		return fmt.Errorf("tenantID cannot be empty")
+func (k *kafkaEventBus) RegisterTenant(tenantID int, bufferSize int) error {
+	if tenantID <= 0 {
+		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
 
 	if bufferSize <= 0 {
@@ -3318,28 +3325,28 @@ func (k *kafkaEventBus) RegisterTenant(tenantID string, bufferSize int) error {
 
 	// 延迟初始化 map
 	if k.tenantPublishResultChans == nil {
-		k.tenantPublishResultChans = make(map[string]chan *PublishResult)
+		k.tenantPublishResultChans = make(map[int]chan *PublishResult)
 	}
 
 	// 检查租户是否已注册
 	if _, exists := k.tenantPublishResultChans[tenantID]; exists {
-		return fmt.Errorf("tenant %s already registered", tenantID)
+		return fmt.Errorf("tenant %d already registered", tenantID)
 	}
 
 	// 创建租户专属 ACK Channel
 	k.tenantPublishResultChans[tenantID] = make(chan *PublishResult, bufferSize)
 
 	k.logger.Info("Tenant ACK channel registered",
-		zap.String("tenantID", tenantID),
+		zap.Int("tenantID", tenantID),
 		zap.Int("bufferSize", bufferSize))
 
 	return nil
 }
 
 // UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
-func (k *kafkaEventBus) UnregisterTenant(tenantID string) error {
-	if tenantID == "" {
-		return fmt.Errorf("tenantID cannot be empty")
+func (k *kafkaEventBus) UnregisterTenant(tenantID int) error {
+	if tenantID <= 0 {
+		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
 
 	k.tenantChannelsMu.Lock()
@@ -3348,7 +3355,7 @@ func (k *kafkaEventBus) UnregisterTenant(tenantID string) error {
 	// 检查租户是否已注册
 	ch, exists := k.tenantPublishResultChans[tenantID]
 	if !exists {
-		return fmt.Errorf("tenant %s not registered", tenantID)
+		return fmt.Errorf("tenant %d not registered", tenantID)
 	}
 
 	// 关闭并删除租户 Channel
@@ -3356,14 +3363,14 @@ func (k *kafkaEventBus) UnregisterTenant(tenantID string) error {
 	delete(k.tenantPublishResultChans, tenantID)
 
 	k.logger.Info("Tenant ACK channel unregistered",
-		zap.String("tenantID", tenantID))
+		zap.Int("tenantID", tenantID))
 
 	return nil
 }
 
 // GetTenantPublishResultChannel 获取租户专属的异步发布结果通道
-func (k *kafkaEventBus) GetTenantPublishResultChannel(tenantID string) <-chan *PublishResult {
-	if tenantID == "" {
+func (k *kafkaEventBus) GetTenantPublishResultChannel(tenantID int) <-chan *PublishResult {
+	if tenantID == 0 {
 		// 返回全局通道（向后兼容）
 		return k.publishResultChan
 	}
@@ -3377,16 +3384,16 @@ func (k *kafkaEventBus) GetTenantPublishResultChannel(tenantID string) <-chan *P
 
 	// 租户未注册，返回 nil
 	k.logger.Warn("Tenant not registered, returning nil channel",
-		zap.String("tenantID", tenantID))
+		zap.Int("tenantID", tenantID))
 	return nil
 }
 
 // GetRegisteredTenants 获取所有已注册的租户ID列表
-func (k *kafkaEventBus) GetRegisteredTenants() []string {
+func (k *kafkaEventBus) GetRegisteredTenants() []int {
 	k.tenantChannelsMu.RLock()
 	defer k.tenantChannelsMu.RUnlock()
 
-	tenants := make([]string, 0, len(k.tenantPublishResultChans))
+	tenants := make([]int, 0, len(k.tenantPublishResultChans))
 	for tenantID := range k.tenantPublishResultChans {
 		tenants = append(tenants, tenantID)
 	}

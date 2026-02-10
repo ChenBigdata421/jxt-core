@@ -79,7 +79,7 @@ type Envelope struct {
 	// CorrelationID 关联ID（可选）
 	CorrelationID string `json:"correlation_id,omitempty"`
 	// TenantID 租户ID（多租户支持，用于Outbox ACK路由）
-	TenantID string `json:"tenant_id,omitempty"`
+	TenantID int `json:"tenant_id,omitempty"`
 }
 
 // PublishResult 异步发布结果
@@ -99,7 +99,7 @@ type PublishResult struct {
 	// EventType 事件类型（可选，来自 Envelope）
 	EventType string
 	// TenantID 租户ID（多租户支持，用于Outbox ACK路由）
-	TenantID string
+	TenantID int
 }
 
 // NoOpEventPublisher 空操作 EventPublisher（用于测试）

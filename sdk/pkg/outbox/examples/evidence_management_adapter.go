@@ -122,7 +122,7 @@ func (a *OutboxRepositoryAdapter) SaveBatch(ctx context.Context, events []*outbo
 }
 
 // FindPendingEvents 查找待发布的事件
-func (a *OutboxRepositoryAdapter) FindPendingEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (a *OutboxRepositoryAdapter) FindPendingEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	return a.repo.FindPendingEvents(ctx, limit, tenantID)
 }
 
@@ -147,7 +147,7 @@ func (a *OutboxRepositoryAdapter) DeleteBatch(ctx context.Context, ids []string)
 }
 
 // FindByAggregateID 根据聚合 ID 查找事件
-func (a *OutboxRepositoryAdapter) FindByAggregateID(ctx context.Context, aggregateID string, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (a *OutboxRepositoryAdapter) FindByAggregateID(ctx context.Context, aggregateID string, tenantID int) ([]*outbox.OutboxEvent, error) {
 	return a.repo.FindByAggregateID(ctx, aggregateID, tenantID)
 }
 
@@ -161,8 +161,18 @@ func (a *OutboxRepositoryAdapter) MarkAsMaxRetry(ctx context.Context, eventID st
 	return a.repo.MarkAsMaxRetry(ctx, eventID, errorMsg)
 }
 
+// MarkAsPublished 标记事件为已发布
+func (a *OutboxRepositoryAdapter) MarkAsPublished(ctx context.Context, id string) error {
+	return a.repo.MarkAsPublished(ctx, id)
+}
+
+// MarkAsFailed 标记事件为失败
+func (a *OutboxRepositoryAdapter) MarkAsFailed(ctx context.Context, id string, err error) error {
+	return a.repo.MarkAsFailed(ctx, id, err)
+}
+
 // FindPendingEventsWithDelay 查找待发布的事件（带延迟）
-func (a *OutboxRepositoryAdapter) FindPendingEventsWithDelay(ctx context.Context, tenantID string, delaySeconds int, limit int) ([]*outbox.OutboxEvent, error) {
+func (a *OutboxRepositoryAdapter) FindPendingEventsWithDelay(ctx context.Context, tenantID int, delaySeconds int, limit int) ([]*outbox.OutboxEvent, error) {
 	return a.repo.FindPendingEventsWithDelay(ctx, tenantID, delaySeconds, limit)
 }
 
@@ -188,12 +198,12 @@ func (a *OutboxRepositoryAdapter) BatchUpdate(ctx context.Context, events []*out
 }
 
 // Count 统计事件数量
-func (a *OutboxRepositoryAdapter) Count(ctx context.Context, status outbox.EventStatus, tenantID string) (int64, error) {
+func (a *OutboxRepositoryAdapter) Count(ctx context.Context, status outbox.EventStatus, tenantID int) (int64, error) {
 	return a.repo.Count(ctx, status, tenantID)
 }
 
 // CountByStatus 按状态统计事件数量
-func (a *OutboxRepositoryAdapter) CountByStatus(ctx context.Context, tenantID string) (map[outbox.EventStatus]int64, error) {
+func (a *OutboxRepositoryAdapter) CountByStatus(ctx context.Context, tenantID int) (map[outbox.EventStatus]int64, error) {
 	return a.repo.CountByStatus(ctx, tenantID)
 }
 
@@ -208,17 +218,17 @@ func (a *OutboxRepositoryAdapter) ExistsByIdempotencyKey(ctx context.Context, id
 }
 
 // FindMaxRetryEvents 查找超过最大重试次数的事件
-func (a *OutboxRepositoryAdapter) FindMaxRetryEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (a *OutboxRepositoryAdapter) FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	return a.repo.FindMaxRetryEvents(ctx, limit, tenantID)
 }
 
 // DeletePublishedBefore 删除指定时间之前已发布的事件
-func (a *OutboxRepositoryAdapter) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error) {
+func (a *OutboxRepositoryAdapter) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	return a.repo.DeletePublishedBefore(ctx, before, tenantID)
 }
 
 // DeleteFailedBefore 删除指定时间之前失败的事件
-func (a *OutboxRepositoryAdapter) DeleteFailedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error) {
+func (a *OutboxRepositoryAdapter) DeleteFailedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	return a.repo.DeleteFailedBefore(ctx, before, tenantID)
 }
 
@@ -226,16 +236,6 @@ func (a *OutboxRepositoryAdapter) DeleteFailedBefore(ctx context.Context, before
 // Deprecated: 使用 IncrementRetry 代替
 func (a *OutboxRepositoryAdapter) IncrementRetryCount(ctx context.Context, id string) error {
 	return a.repo.IncrementRetryCount(ctx, id)
-}
-
-// Delete 删除事件
-func (a *OutboxRepositoryAdapter) Delete(ctx context.Context, id string) error {
-	return a.repo.Delete(ctx, id)
-}
-
-// DeleteBatch 批量删除事件
-func (a *OutboxRepositoryAdapter) DeleteBatch(ctx context.Context, ids []string) error {
-	return a.repo.DeleteBatch(ctx, ids)
 }
 
 // Ensure OutboxRepositoryAdapter implements OutboxRepository

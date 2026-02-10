@@ -366,7 +366,7 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context, events []*OutboxEven
 //
 //	int: 成功发布的事件数量
 //	error: 发布失败时返回错误
-func (p *OutboxPublisher) PublishPendingEvents(ctx context.Context, limit int, tenantID string) (int, error) {
+func (p *OutboxPublisher) PublishPendingEvents(ctx context.Context, limit int, tenantID int) (int, error) {
 	// 查找待发布的事件
 	events, err := p.repo.FindPendingEvents(ctx, limit, tenantID)
 	if err != nil {
@@ -736,7 +736,7 @@ func (p *OutboxPublisher) handleACKResult(result *PublishResult) {
 		}
 
 		// 更新外部指标收集器
-		p.metricsCollector.RecordPublished("", result.AggregateID, result.EventType)
+		p.metricsCollector.RecordPublished(result.TenantID, result.AggregateID, result.EventType)
 
 	} else {
 		// ACK 失败，记录错误（保持 Pending 状态，等待下次重试）
@@ -751,7 +751,7 @@ func (p *OutboxPublisher) handleACKResult(result *PublishResult) {
 		}
 
 		// 更新外部指标收集器
-		p.metricsCollector.RecordFailed("", result.AggregateID, result.EventType, result.Error)
+		p.metricsCollector.RecordFailed(result.TenantID, result.AggregateID, result.EventType, result.Error)
 	}
 }
 

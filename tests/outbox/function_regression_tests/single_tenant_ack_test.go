@@ -21,7 +21,7 @@ func TestSingleTenantACKChannel_NATS(t *testing.T) {
 
 	t.Log("========================================")
 	t.Log("  单租户 ACK Channel 测试 (NATS JetStream)")
-	t.Log("  默认租户ID: *")
+	t.Log("  默认租户ID: 1")
 	t.Log("========================================")
 
 	// 创建 NATS EventBus
@@ -49,11 +49,11 @@ func TestSingleTenantACKChannel_NATS(t *testing.T) {
 	adapter := outboxadapters.NewEventBusAdapter(eventBus)
 	defer adapter.Close()
 
-	// 注册默认租户 "*"（非多租户模式）
-	defaultTenantID := "*"
+	// 注册默认租户 1（非多租户模式）
+	defaultTenantID := 1
 	err = adapter.RegisterTenant(defaultTenantID, 10000)
 	require.NoError(t, err, "Failed to register default tenant")
-	t.Logf("✅ Registered default tenant: %s", defaultTenantID)
+	t.Logf("✅ Registered default tenant: %d", defaultTenantID)
 
 	// 配置主题
 	topic := fmt.Sprintf("%s.default-events", clientID)
@@ -70,7 +70,7 @@ func TestSingleTenantACKChannel_NATS(t *testing.T) {
 	// 获取默认租户的 ACK Channel
 	ackChan := adapter.GetTenantPublishResultChannel(defaultTenantID)
 	require.NotNil(t, ackChan, "ACK channel should not be nil for default tenant")
-	t.Logf("✅ Got ACK channel for default tenant: %s", defaultTenantID)
+	t.Logf("✅ Got ACK channel for default tenant: %d", defaultTenantID)
 
 	// 启动 ACK 监听器
 	ctx := context.Background()
@@ -93,7 +93,7 @@ func TestSingleTenantACKChannel_NATS(t *testing.T) {
 		err := repo.Save(context.Background(), event)
 		require.NoError(t, err, "Failed to save event")
 	}
-	t.Logf("✅ Created %d events for default tenant: %s", eventsCount, defaultTenantID)
+	t.Logf("Created %d events for tenant: %d", eventsCount, defaultTenantID)
 
 	// 发布所有事件
 	events, err := repo.FindPendingEvents(ctx, 1000, defaultTenantID)
@@ -156,12 +156,12 @@ func TestSingleTenantACKChannel_NATS(t *testing.T) {
 		require.True(t, event.IsPublished(), "Event %s should be published", eventID)
 	}
 
-	t.Logf("✅ All %d events for default tenant '%s' are published (100%%)", eventsCount, defaultTenantID)
+	t.Logf("%d", defaultTenantID)
 
 	// 注销默认租户
 	err = adapter.UnregisterTenant(defaultTenantID)
 	require.NoError(t, err, "Failed to unregister default tenant")
-	t.Logf("✅ Unregistered default tenant: %s", defaultTenantID)
+	t.Logf("Unregistered tenant: %d", defaultTenantID)
 
 	t.Log("✅ Single-tenant ACK Channel test with NATS JetStream passed!")
 }
@@ -213,11 +213,11 @@ func TestSingleTenantACKChannel_Kafka(t *testing.T) {
 	adapter := outboxadapters.NewEventBusAdapter(eventBus)
 	defer adapter.Close()
 
-	// 注册默认租户 "*"（非多租户模式）
-	defaultTenantID := "*"
+	// 注册默认租户 1（非多租户模式）
+	defaultTenantID := 1
 	err = adapter.RegisterTenant(defaultTenantID, 10000)
 	require.NoError(t, err, "Failed to register default tenant")
-	t.Logf("✅ Registered default tenant: %s", defaultTenantID)
+	t.Logf("✅ Registered default tenant: %d", defaultTenantID)
 
 	// 配置主题
 	topic := fmt.Sprintf("tenant-default-events-%d", time.Now().UnixNano())
@@ -234,7 +234,7 @@ func TestSingleTenantACKChannel_Kafka(t *testing.T) {
 	// 获取默认租户的 ACK Channel
 	ackChan := adapter.GetTenantPublishResultChannel(defaultTenantID)
 	require.NotNil(t, ackChan, "ACK channel should not be nil for default tenant")
-	t.Logf("✅ Got ACK channel for default tenant: %s", defaultTenantID)
+	t.Logf("✅ Got ACK channel for default tenant: %d", defaultTenantID)
 
 	// 启动 ACK 监听器
 	ctx := context.Background()
@@ -257,7 +257,7 @@ func TestSingleTenantACKChannel_Kafka(t *testing.T) {
 		err := repo.Save(context.Background(), event)
 		require.NoError(t, err, "Failed to save event")
 	}
-	t.Logf("✅ Created %d events for default tenant: %s", eventsCount, defaultTenantID)
+	t.Logf("Created %d events for tenant: %d", eventsCount, defaultTenantID)
 
 	// 发布所有事件
 	events, err := repo.FindPendingEvents(ctx, 1000, defaultTenantID)
@@ -320,12 +320,12 @@ func TestSingleTenantACKChannel_Kafka(t *testing.T) {
 		require.True(t, event.IsPublished(), "Event %s should be published", eventID)
 	}
 
-	t.Logf("✅ All %d events for default tenant '%s' are published (100%%)", eventsCount, defaultTenantID)
+	t.Logf("%d", defaultTenantID)
 
 	// 注销默认租户
 	err = adapter.UnregisterTenant(defaultTenantID)
 	require.NoError(t, err, "Failed to unregister default tenant")
-	t.Logf("✅ Unregistered default tenant: %s", defaultTenantID)
+	t.Logf("Unregistered tenant: %d", defaultTenantID)
 
 	t.Log("✅ Single-tenant ACK Channel test with Kafka passed!")
 }

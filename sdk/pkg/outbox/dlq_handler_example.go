@@ -78,7 +78,7 @@ Event Details:
 - Event Type: %s
 - Aggregate Type: %s
 - Aggregate ID: %s
-- Tenant ID: %s
+- Tenant ID: %d
 - Retry Count: %d
 - Max Retries: %d
 - Last Error: %s

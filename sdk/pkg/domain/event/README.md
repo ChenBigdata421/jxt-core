@@ -64,7 +64,7 @@ event := jxtevent.NewEnterpriseDomainEvent(
 )
 
 // 设置租户ID
-event.SetTenantId("tenant-001")
+event.SetTenantId(1)
 
 // 设置可观测性字段
 event.SetCorrelationId("workflow-123")
@@ -221,8 +221,8 @@ type EnterpriseEvent interface {
     BaseEvent
     
     // 租户隔离
-    GetTenantId() string
-    SetTenantId(string)
+    GetTenantId() int
+    SetTenantId(int)
     
     // 可观测性方法
     GetCorrelationId() string

@@ -91,7 +91,7 @@ func (h *TestHelper) AssertRegex(pattern, s string, msgAndArgs ...interface{}) {
 }
 
 // CreateTestEvent 创建测试事件
-func (h *TestHelper) CreateTestEvent(tenantID, aggregateType, aggregateID, eventType string) *outbox.OutboxEvent {
+func (h *TestHelper) CreateTestEvent(tenantID int, aggregateType, aggregateID, eventType string) *outbox.OutboxEvent {
 	payload := map[string]interface{}{
 		"test":      true,
 		"timestamp": time.Now().Unix(),
@@ -113,7 +113,7 @@ func (h *TestHelper) CreateTestEvent(tenantID, aggregateType, aggregateID, event
 }
 
 // CreateTestEventWithPayload 创建带自定义负载的测试事件
-func (h *TestHelper) CreateTestEventWithPayload(tenantID, aggregateType, aggregateID, eventType string, payload interface{}) *outbox.OutboxEvent {
+func (h *TestHelper) CreateTestEventWithPayload(tenantID int, aggregateType, aggregateID, eventType string, payload interface{}) *outbox.OutboxEvent {
 	// 创建 DomainEvent
 	domainEvent := jxtevent.NewBaseDomainEvent(eventType, aggregateID, aggregateType, payload)
 
@@ -200,7 +200,7 @@ func (m *MockRepository) BatchUpdate(ctx context.Context, events []*outbox.Outbo
 }
 
 // FindPendingEvents 查找待发布事件
-func (m *MockRepository) FindPendingEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (m *MockRepository) FindPendingEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	if m.findPendingError != nil {
 		return nil, m.findPendingError
 	}
@@ -208,7 +208,7 @@ func (m *MockRepository) FindPendingEvents(ctx context.Context, limit int, tenan
 	var pending []*outbox.OutboxEvent
 	for _, event := range m.events {
 		if event.Status == outbox.EventStatusPending {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				pending = append(pending, event)
 				if len(pending) >= limit {
 					break
@@ -221,7 +221,7 @@ func (m *MockRepository) FindPendingEvents(ctx context.Context, limit int, tenan
 }
 
 // FindPendingEventsWithDelay 查找创建时间超过指定延迟的待发布事件
-func (m *MockRepository) FindPendingEventsWithDelay(ctx context.Context, tenantID string, delaySeconds int, limit int) ([]*outbox.OutboxEvent, error) {
+func (m *MockRepository) FindPendingEventsWithDelay(ctx context.Context, tenantID int, delaySeconds int, limit int) ([]*outbox.OutboxEvent, error) {
 	if m.findPendingError != nil {
 		return nil, m.findPendingError
 	}
@@ -234,7 +234,7 @@ func (m *MockRepository) FindPendingEventsWithDelay(ctx context.Context, tenantI
 		if event.Status == outbox.EventStatusPending {
 			// 检查事件创建时间是否超过延迟
 			if now.Sub(event.CreatedAt) >= delayDuration {
-				if tenantID == "" || event.TenantID == tenantID {
+				if tenantID == 0 || event.TenantID == tenantID {
 					pending = append(pending, event)
 					if len(pending) >= limit {
 						break
@@ -265,11 +265,11 @@ func (m *MockRepository) FindByID(ctx context.Context, id string) (*outbox.Outbo
 }
 
 // FindByAggregateID 根据聚合根 ID 查找事件
-func (m *MockRepository) FindByAggregateID(ctx context.Context, aggregateID string, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (m *MockRepository) FindByAggregateID(ctx context.Context, aggregateID string, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var result []*outbox.OutboxEvent
 	for _, event := range m.events {
 		if event.AggregateID == aggregateID {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				result = append(result, event)
 			}
 		}
@@ -363,11 +363,11 @@ func (m *MockRepository) DeleteBatch(ctx context.Context, ids []string) error {
 }
 
 // FindFailedEvents 查找失败的事件
-func (m *MockRepository) FindFailedEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (m *MockRepository) FindFailedEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var failed []*outbox.OutboxEvent
 	for _, event := range m.events {
 		if event.Status == outbox.EventStatusFailed {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				failed = append(failed, event)
 				if len(failed) >= limit {
 					break
@@ -379,11 +379,11 @@ func (m *MockRepository) FindFailedEvents(ctx context.Context, limit int, tenant
 }
 
 // FindMaxRetryEvents 查找超过最大重试次数的事件
-func (m *MockRepository) FindMaxRetryEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (m *MockRepository) FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var maxRetry []*outbox.OutboxEvent
 	for _, event := range m.events {
 		if event.Status == outbox.EventStatusMaxRetry {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				maxRetry = append(maxRetry, event)
 				if len(maxRetry) >= limit {
 					break
@@ -395,12 +395,12 @@ func (m *MockRepository) FindMaxRetryEvents(ctx context.Context, limit int, tena
 }
 
 // FindScheduledEvents 查找计划发布的事件
-func (m *MockRepository) FindScheduledEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (m *MockRepository) FindScheduledEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var scheduled []*outbox.OutboxEvent
 	now := time.Now()
 	for _, event := range m.events {
 		if event.ScheduledAt != nil && event.ScheduledAt.Before(now) && event.Status == outbox.EventStatusPending {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				scheduled = append(scheduled, event)
 				if len(scheduled) >= limit {
 					break
@@ -412,11 +412,11 @@ func (m *MockRepository) FindScheduledEvents(ctx context.Context, limit int, ten
 }
 
 // CountPendingEvents 统计待发布事件数量
-func (m *MockRepository) CountPendingEvents(ctx context.Context, tenantID string) (int64, error) {
+func (m *MockRepository) CountPendingEvents(ctx context.Context, tenantID int) (int64, error) {
 	count := int64(0)
 	for _, event := range m.events {
 		if event.Status == outbox.EventStatusPending {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				count++
 			}
 		}
@@ -425,11 +425,11 @@ func (m *MockRepository) CountPendingEvents(ctx context.Context, tenantID string
 }
 
 // CountFailedEvents 统计失败事件数量
-func (m *MockRepository) CountFailedEvents(ctx context.Context, tenantID string) (int64, error) {
+func (m *MockRepository) CountFailedEvents(ctx context.Context, tenantID int) (int64, error) {
 	count := int64(0)
 	for _, event := range m.events {
 		if event.Status == outbox.EventStatusFailed {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				count++
 			}
 		}
@@ -438,11 +438,11 @@ func (m *MockRepository) CountFailedEvents(ctx context.Context, tenantID string)
 }
 
 // Count 统计事件数量
-func (m *MockRepository) Count(ctx context.Context, status outbox.EventStatus, tenantID string) (int64, error) {
+func (m *MockRepository) Count(ctx context.Context, status outbox.EventStatus, tenantID int) (int64, error) {
 	count := int64(0)
 	for _, event := range m.events {
 		statusMatch := status == "" || event.Status == status
-		tenantMatch := tenantID == "" || event.TenantID == tenantID
+		tenantMatch := tenantID == 0 || event.TenantID == tenantID
 		if statusMatch && tenantMatch {
 			count++
 		}
@@ -451,10 +451,10 @@ func (m *MockRepository) Count(ctx context.Context, status outbox.EventStatus, t
 }
 
 // CountByStatus 按状态统计事件数量
-func (m *MockRepository) CountByStatus(ctx context.Context, tenantID string) (map[outbox.EventStatus]int64, error) {
+func (m *MockRepository) CountByStatus(ctx context.Context, tenantID int) (map[outbox.EventStatus]int64, error) {
 	counts := make(map[outbox.EventStatus]int64)
 	for _, event := range m.events {
-		if tenantID == "" || event.TenantID == tenantID {
+		if tenantID == 0 || event.TenantID == tenantID {
 			counts[event.Status]++
 		}
 	}
@@ -462,11 +462,11 @@ func (m *MockRepository) CountByStatus(ctx context.Context, tenantID string) (ma
 }
 
 // DeletePublishedBefore 删除指定时间之前已发布的事件
-func (m *MockRepository) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error) {
+func (m *MockRepository) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	deleted := int64(0)
 	for id, event := range m.events {
 		if event.Status == outbox.EventStatusPublished && event.PublishedAt != nil && event.PublishedAt.Before(before) {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				delete(m.events, id)
 				deleted++
 			}
@@ -476,11 +476,11 @@ func (m *MockRepository) DeletePublishedBefore(ctx context.Context, before time.
 }
 
 // DeleteFailedBefore 删除指定时间之前失败的事件
-func (m *MockRepository) DeleteFailedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error) {
+func (m *MockRepository) DeleteFailedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	deleted := int64(0)
 	for id, event := range m.events {
 		if event.Status == outbox.EventStatusFailed && event.CreatedAt.Before(before) {
-			if tenantID == "" || event.TenantID == tenantID {
+			if tenantID == 0 || event.TenantID == tenantID {
 				delete(m.events, id)
 				deleted++
 			}
@@ -1025,21 +1025,21 @@ func (m *MockEventBusForAdapter) SubscribeEnvelope(ctx context.Context, topic st
 // ========== 多租户 ACK 支持 ==========
 
 // RegisterTenant 注册租户（Mock 实现）
-func (m *MockEventBusForAdapter) RegisterTenant(tenantID string, bufferSize int) error {
+func (m *MockEventBusForAdapter) RegisterTenant(tenantID int, bufferSize int) error {
 	return nil
 }
 
 // UnregisterTenant 注销租户（Mock 实现）
-func (m *MockEventBusForAdapter) UnregisterTenant(tenantID string) error {
+func (m *MockEventBusForAdapter) UnregisterTenant(tenantID int) error {
 	return nil
 }
 
 // GetTenantPublishResultChannel 获取租户专属的 ACK Channel（Mock 实现）
-func (m *MockEventBusForAdapter) GetTenantPublishResultChannel(tenantID string) <-chan *eventbus.PublishResult {
+func (m *MockEventBusForAdapter) GetTenantPublishResultChannel(tenantID int) <-chan *eventbus.PublishResult {
 	return m.resultChan
 }
 
 // GetRegisteredTenants 获取已注册的租户列表（Mock 实现）
-func (m *MockEventBusForAdapter) GetRegisteredTenants() []string {
-	return []string{}
+func (m *MockEventBusForAdapter) GetRegisteredTenants() []int {
+	return []int{}
 }

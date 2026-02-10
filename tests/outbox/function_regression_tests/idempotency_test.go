@@ -14,13 +14,13 @@ import (
 func TestIdempotency_AutoGeneration(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证幂等性键已自动生成
 	helper.AssertNotEmpty(event.IdempotencyKey, "IdempotencyKey should be auto-generated")
 
 	// 验证幂等性键格式
-	expectedPrefix := "tenant1:Order:order-123:OrderCreated:"
+	expectedPrefix := "1:Order:order-123:OrderCreated:"
 	helper.AssertContains(event.IdempotencyKey, expectedPrefix, "IdempotencyKey should contain expected prefix")
 }
 
@@ -28,7 +28,7 @@ func TestIdempotency_AutoGeneration(t *testing.T) {
 func TestIdempotency_CustomKey(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 设置自定义幂等性键
 	customKey := "custom-idempotency-key-12345"
@@ -44,10 +44,10 @@ func TestIdempotency_UniqueKeys(t *testing.T) {
 
 	// 创建多个不同的事件
 	events := []*outbox.OutboxEvent{
-		helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "Order", "order-456", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "User", "user-789", "UserRegistered"),
-		helper.CreateTestEvent("tenant2", "Order", "order-123", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-456", "OrderCreated"),
+		helper.CreateTestEvent(1, "User", "user-789", "UserRegistered"),
+		helper.CreateTestEvent(2, "Order", "order-123", "OrderCreated"),
 	}
 
 	// 收集所有幂等性键
@@ -68,9 +68,9 @@ func TestIdempotency_SameEventDifferentIDs(t *testing.T) {
 	helper := NewTestHelper(t)
 
 	// 创建两个相同参数的事件（但 ID 不同）
-	event1 := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event1 := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	time.Sleep(1 * time.Millisecond) // 确保时间戳不同
-	event2 := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event2 := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证 ID 不同
 	helper.AssertTrue(event1.ID != event2.ID, "Event IDs should be different")
@@ -100,7 +100,7 @@ func TestIdempotency_PublisherCheck(t *testing.T) {
 	defer outboxPublisher.StopACKListener()
 
 	// 创建事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 保存事件到仓储
 	err := repo.Save(ctx, event)
@@ -114,7 +114,7 @@ func TestIdempotency_PublisherCheck(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 第二次发布相同的幂等性键（应该被跳过）
-	event2 := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event2 := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	event2.IdempotencyKey = event.IdempotencyKey
 
 	err = outboxPublisher.PublishEvent(ctx, event2)
@@ -129,16 +129,16 @@ func TestIdempotency_DifferentTenants(t *testing.T) {
 	helper := NewTestHelper(t)
 
 	// 创建不同租户的相同事件
-	event1 := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
-	event2 := helper.CreateTestEvent("tenant2", "Order", "order-123", "OrderCreated")
+	event1 := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
+	event2 := helper.CreateTestEvent(2, "Order", "order-123", "OrderCreated")
 
 	// 验证幂等性键不同
 	helper.AssertTrue(event1.IdempotencyKey != event2.IdempotencyKey,
 		"IdempotencyKeys should be different for different tenants")
 
 	// 验证幂等性键包含租户 ID
-	helper.AssertContains(event1.IdempotencyKey, "tenant1", "IdempotencyKey should contain tenant1")
-	helper.AssertContains(event2.IdempotencyKey, "tenant2", "IdempotencyKey should contain tenant2")
+	helper.AssertContains(event1.IdempotencyKey, "1", "IdempotencyKey should contain tenant 1")
+	helper.AssertContains(event2.IdempotencyKey, "2", "IdempotencyKey should contain tenant 2")
 }
 
 // TestIdempotency_KeyFormat 测试幂等性键格式
@@ -150,7 +150,7 @@ func TestIdempotency_KeyFormat(t *testing.T) {
 	domainEvent := jxtevent.NewBaseDomainEvent("OrderCreated", "order-xyz", "Order", payload)
 
 	event, err := outbox.NewOutboxEvent(
-		"tenant-abc",
+		1,
 		"order-xyz",
 		"Order",
 		"OrderCreated",
@@ -159,7 +159,7 @@ func TestIdempotency_KeyFormat(t *testing.T) {
 	helper.RequireNoError(err, "Failed to create event")
 
 	// 验证幂等性键格式：{TenantID}:{AggregateType}:{AggregateID}:{EventType}:{EventID}
-	expectedFormat := fmt.Sprintf("tenant-abc:Order:order-xyz:OrderCreated:%s", event.ID)
+	expectedFormat := fmt.Sprintf("1:Order:order-xyz:OrderCreated:%s", event.ID)
 	helper.AssertEqual(expectedFormat, event.IdempotencyKey, "IdempotencyKey should match expected format")
 }
 
@@ -173,7 +173,7 @@ func TestIdempotency_EmptyFields(t *testing.T) {
 
 	// 创建带空字段的事件
 	event, err := outbox.NewOutboxEvent(
-		"", // 空租户 ID
+		0, // 空租户 ID
 		"order-123",
 		"Order",
 		"OrderCreated",
@@ -195,7 +195,7 @@ func TestIdempotency_SpecialCharacters(t *testing.T) {
 
 	// 创建带特殊字符的事件
 	event, err := outbox.NewOutboxEvent(
-		"tenant:123",
+		123,
 		"order/456",
 		"Order-Type",
 		"Order:Created",
@@ -207,7 +207,7 @@ func TestIdempotency_SpecialCharacters(t *testing.T) {
 	helper.AssertNotEmpty(event.IdempotencyKey, "IdempotencyKey should be generated with special characters")
 
 	// 验证幂等性键包含所有字段
-	helper.AssertContains(event.IdempotencyKey, "tenant:123", "Should contain tenant ID")
+	helper.AssertContains(event.IdempotencyKey, "123", "Should contain tenant ID")
 	helper.AssertContains(event.IdempotencyKey, "Order-Type", "Should contain aggregate type")
 	helper.AssertContains(event.IdempotencyKey, "order/456", "Should contain aggregate ID")
 	helper.AssertContains(event.IdempotencyKey, "Order:Created", "Should contain event type")
@@ -229,7 +229,7 @@ func TestIdempotency_ConcurrentPublish(t *testing.T) {
 	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
 	// 创建事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	idempotencyKey := event.IdempotencyKey
 
 	// 保存事件
@@ -242,7 +242,7 @@ func TestIdempotency_ConcurrentPublish(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func() {
-			duplicateEvent := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+			duplicateEvent := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 			duplicateEvent.IdempotencyKey = idempotencyKey
 			errors <- outboxPublisher.PublishEvent(ctx, duplicateEvent)
 		}()
@@ -276,9 +276,9 @@ func TestIdempotency_BatchPublish(t *testing.T) {
 
 	// 创建多个事件，其中有重复的幂等性键
 	events := []*outbox.OutboxEvent{
-		helper.CreateTestEvent("tenant1", "Order", "order-1", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "Order", "order-2", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "Order", "order-3", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-1", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-2", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-3", "OrderCreated"),
 	}
 
 	// 保存第一个事件并标记为已发布
@@ -289,7 +289,7 @@ func TestIdempotency_BatchPublish(t *testing.T) {
 	helper.AssertNoError(err, "Should save first event")
 
 	// 创建一个与第一个事件相同幂等性键的事件
-	duplicateEvent := helper.CreateTestEvent("tenant1", "Order", "order-1", "OrderCreated")
+	duplicateEvent := helper.CreateTestEvent(1, "Order", "order-1", "OrderCreated")
 	duplicateEvent.IdempotencyKey = events[0].IdempotencyKey
 
 	// 批量发布（包含重复的幂等性键）

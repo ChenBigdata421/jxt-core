@@ -44,8 +44,8 @@ type eventBusManager struct {
 	publishResultChan chan *PublishResult
 
 	// 多租户 ACK 通道支持
-	tenantPublishResultChans map[string]chan *PublishResult // key: tenantID, value: ACK channel
-	tenantChannelsMu         sync.RWMutex                   // 保护 tenantPublishResultChans 的读写锁
+	tenantPublishResultChans map[int]chan *PublishResult // key: tenantID, value: ACK channel
+	tenantChannelsMu         sync.RWMutex                 // 保护 tenantPublishResultChans 的读写锁
 
 	// 指标收集器（用于 Prometheus 等监控系统）
 	metricsCollector MetricsCollector
@@ -1009,7 +1009,7 @@ func (m *eventBusManager) PublishEnvelope(ctx context.Context, topic string, env
 			Timestamp:   time.Now(),
 			AggregateID: envelope.AggregateID,
 			EventType:   envelope.EventType,
-			TenantID:    fmt.Sprintf("%d", envelope.TenantID),
+			TenantID:    envelope.TenantID,
 		}
 
 		// 异步发送到租户专属通道或全局通道
@@ -1360,9 +1360,9 @@ func (m *eventBusManager) GetPublishResultChannel() <-chan *PublishResult {
 // ==========================================================================
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
-func (m *eventBusManager) RegisterTenant(tenantID string, bufferSize int) error {
-	if tenantID == "" {
-		return fmt.Errorf("tenantID cannot be empty")
+func (m *eventBusManager) RegisterTenant(tenantID int, bufferSize int) error {
+	if tenantID <= 0 {
+		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
 
 	if bufferSize <= 0 {
@@ -1374,12 +1374,12 @@ func (m *eventBusManager) RegisterTenant(tenantID string, bufferSize int) error 
 
 	// 延迟初始化 map
 	if m.tenantPublishResultChans == nil {
-		m.tenantPublishResultChans = make(map[string]chan *PublishResult)
+		m.tenantPublishResultChans = make(map[int]chan *PublishResult)
 	}
 
 	// 检查租户是否已注册
 	if _, exists := m.tenantPublishResultChans[tenantID]; exists {
-		return fmt.Errorf("tenant %s already registered", tenantID)
+		return fmt.Errorf("tenant %d already registered", tenantID)
 	}
 
 	// 创建租户专属 ACK Channel
@@ -1393,9 +1393,9 @@ func (m *eventBusManager) RegisterTenant(tenantID string, bufferSize int) error 
 }
 
 // UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
-func (m *eventBusManager) UnregisterTenant(tenantID string) error {
-	if tenantID == "" {
-		return fmt.Errorf("tenantID cannot be empty")
+func (m *eventBusManager) UnregisterTenant(tenantID int) error {
+	if tenantID <= 0 {
+		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
 
 	m.tenantChannelsMu.Lock()
@@ -1404,7 +1404,7 @@ func (m *eventBusManager) UnregisterTenant(tenantID string) error {
 	// 检查租户是否已注册
 	ch, exists := m.tenantPublishResultChans[tenantID]
 	if !exists {
-		return fmt.Errorf("tenant %s not registered", tenantID)
+		return fmt.Errorf("tenant %d not registered", tenantID)
 	}
 
 	// 关闭并删除租户 Channel
@@ -1418,8 +1418,8 @@ func (m *eventBusManager) UnregisterTenant(tenantID string) error {
 }
 
 // GetTenantPublishResultChannel 获取租户专属的异步发布结果通道
-func (m *eventBusManager) GetTenantPublishResultChannel(tenantID string) <-chan *PublishResult {
-	if tenantID == "" {
+func (m *eventBusManager) GetTenantPublishResultChannel(tenantID int) <-chan *PublishResult {
+	if tenantID == 0 {
 		// 返回全局通道（向后兼容）
 		return m.publishResultChan
 	}
@@ -1438,11 +1438,11 @@ func (m *eventBusManager) GetTenantPublishResultChannel(tenantID string) <-chan 
 }
 
 // GetRegisteredTenants 获取所有已注册的租户ID列表
-func (m *eventBusManager) GetRegisteredTenants() []string {
+func (m *eventBusManager) GetRegisteredTenants() []int {
 	m.tenantChannelsMu.RLock()
 	defer m.tenantChannelsMu.RUnlock()
 
-	tenants := make([]string, 0, len(m.tenantPublishResultChans))
+	tenants := make([]int, 0, len(m.tenantPublishResultChans))
 	for tenantID := range m.tenantPublishResultChans {
 		tenants = append(tenants, tenantID)
 	}
@@ -1453,7 +1453,7 @@ func (m *eventBusManager) GetRegisteredTenants() []string {
 // sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
 func (m *eventBusManager) sendResultToChannel(result *PublishResult) {
 	// 优先发送到租户专属通道
-	if result.TenantID != "" {
+	if result.TenantID != 0 {
 		m.tenantChannelsMu.RLock()
 		tenantChan, exists := m.tenantPublishResultChans[result.TenantID]
 		m.tenantChannelsMu.RUnlock()

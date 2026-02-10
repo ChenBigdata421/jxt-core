@@ -26,7 +26,7 @@ func TestNewOutboxEvent(t *testing.T) {
 	domainEvent := createTestDomainEvent("UserCreated", "aggregate-1", "User", payloadData)
 
 	event, err := NewOutboxEvent(
-		"tenant-1",
+		1,
 		"aggregate-1",
 		"User",
 		"UserCreated",
@@ -37,8 +37,8 @@ func TestNewOutboxEvent(t *testing.T) {
 		t.Fatalf("NewOutboxEvent failed: %v", err)
 	}
 
-	if event.TenantID != "tenant-1" {
-		t.Errorf("Expected TenantID to be 'tenant-1', got '%s'", event.TenantID)
+	if event.TenantID != 1 {
+		t.Errorf("Expected TenantID to be 1, got %d", event.TenantID)
 	}
 
 	if event.AggregateID != "aggregate-1" {
@@ -209,7 +209,7 @@ func TestOutboxEvent_GetPayloadAs(t *testing.T) {
 	domainEvent := createTestDomainEvent("UserCreated", "aggregate-1", "User", payloadData)
 
 	event, err := NewOutboxEvent(
-		"tenant-1",
+		1,
 		"aggregate-1",
 		"User",
 		"UserCreated",
@@ -275,7 +275,7 @@ func TestOutboxEvent_Clone(t *testing.T) {
 	now := time.Now()
 	event := &OutboxEvent{
 		ID:            "test-id",
-		TenantID:      "tenant-1",
+		TenantID:      1,
 		AggregateID:   "aggregate-1",
 		AggregateType: "User",
 		EventType:     "UserCreated",
@@ -322,7 +322,7 @@ func (e *testError) Error() string {
 
 // TestOutboxEvent_IncrementRetry 测试增加重试次数
 func TestOutboxEvent_IncrementRetry(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 	event.MaxRetries = 3
 
 	// 第一次重试
@@ -361,7 +361,7 @@ func TestOutboxEvent_IncrementRetry(t *testing.T) {
 
 // TestOutboxEvent_MarkAsMaxRetry 测试标记为超过最大重试次数
 func TestOutboxEvent_MarkAsMaxRetry(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	event.MarkAsMaxRetry("too many retries")
 
@@ -375,7 +375,7 @@ func TestOutboxEvent_MarkAsMaxRetry(t *testing.T) {
 
 // TestOutboxEvent_IsPublished 测试判断是否已发布
 func TestOutboxEvent_IsPublished(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	if event.IsPublished() {
 		t.Error("Expected IsPublished to be false for pending event")
@@ -390,7 +390,7 @@ func TestOutboxEvent_IsPublished(t *testing.T) {
 
 // TestOutboxEvent_IsMaxRetry 测试判断是否超过最大重试次数
 func TestOutboxEvent_IsMaxRetry(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	if event.IsMaxRetry() {
 		t.Error("Expected IsMaxRetry to be false for pending event")
@@ -405,7 +405,7 @@ func TestOutboxEvent_IsMaxRetry(t *testing.T) {
 
 // TestOutboxEvent_Version 测试事件版本
 func TestOutboxEvent_Version(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	if event.Version != 1 {
 		t.Errorf("Expected Version to be 1, got %d", event.Version)
@@ -414,7 +414,7 @@ func TestOutboxEvent_Version(t *testing.T) {
 
 // TestOutboxEvent_LastRetryAt 测试最后重试时间
 func TestOutboxEvent_LastRetryAt(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	if event.LastRetryAt != nil {
 		t.Error("Expected LastRetryAt to be nil for new event")
@@ -434,7 +434,7 @@ func TestOutboxEvent_LastRetryAt(t *testing.T) {
 
 // TestOutboxEvent_Clone_WithNewFields 测试克隆包含新字段
 func TestOutboxEvent_Clone_WithNewFields(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 	event.IncrementRetry("error")
 	event.Version = 2
 
@@ -465,7 +465,7 @@ func TestOutboxEvent_Clone_WithNewFields(t *testing.T) {
 
 // TestOutboxEvent_WithTraceID 测试设置链路追踪ID
 func TestOutboxEvent_WithTraceID(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	// 初始状态
 	if event.TraceID != "" {
@@ -488,7 +488,7 @@ func TestOutboxEvent_WithTraceID(t *testing.T) {
 
 // TestOutboxEvent_WithCorrelationID 测试设置关联ID
 func TestOutboxEvent_WithCorrelationID(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	// 初始状态
 	if event.CorrelationID != "" {
@@ -511,7 +511,7 @@ func TestOutboxEvent_WithCorrelationID(t *testing.T) {
 
 // TestOutboxEvent_ChainedSetters 测试链式调用
 func TestOutboxEvent_ChainedSetters(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 
 	// 链式调用
 	event.WithTraceID("trace-123").WithCorrelationID("corr-456")
@@ -527,7 +527,7 @@ func TestOutboxEvent_ChainedSetters(t *testing.T) {
 
 // TestOutboxEvent_ToEnvelope 测试转换为 Envelope
 func TestOutboxEvent_ToEnvelope(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 	event.WithTraceID("trace-123").WithCorrelationID("corr-456")
 	event.Version = 2
 
@@ -557,7 +557,7 @@ func TestOutboxEvent_ToEnvelope(t *testing.T) {
 
 // TestOutboxEvent_Clone_WithTraceFields 测试克隆包含追踪字段
 func TestOutboxEvent_Clone_WithTraceFields(t *testing.T) {
-	event, _ := NewOutboxEvent("tenant-1", "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
+	event, _ := NewOutboxEvent(1, "agg-1", "User", "UserCreated", createTestDomainEvent("UserCreated", "agg-1", "User", map[string]interface{}{"name": "test"}))
 	event.WithTraceID("trace-123").WithCorrelationID("corr-456")
 
 	clone := event.Clone()
@@ -694,7 +694,7 @@ func TestGenerateID_TimeOrdering(t *testing.T) {
 // TestNewOutboxEvent_IDGeneration 测试 NewOutboxEvent 生成的 ID
 func TestNewOutboxEvent_IDGeneration(t *testing.T) {
 	event, err := NewOutboxEvent(
-		"tenant-1",
+		1,
 		"aggregate-1",
 		"User",
 		"UserCreated",
@@ -723,7 +723,7 @@ func TestNewOutboxEvent_IDGeneration(t *testing.T) {
 // TestIdempotencyKey 测试幂等性键生成
 func TestIdempotencyKey(t *testing.T) {
 	event, err := NewOutboxEvent(
-		"tenant-1",
+		1,
 		"aggregate-123",
 		"Archive",
 		"ArchiveCreated",
@@ -740,7 +740,7 @@ func TestIdempotencyKey(t *testing.T) {
 	}
 
 	// 验证幂等性键格式
-	expected := "tenant-1:Archive:aggregate-123:ArchiveCreated:" + event.ID
+	expected := "1:Archive:aggregate-123:ArchiveCreated:" + event.ID
 	if event.IdempotencyKey != expected {
 		t.Errorf("Expected IdempotencyKey to be '%s', got '%s'", expected, event.IdempotencyKey)
 	}
@@ -751,7 +751,7 @@ func TestIdempotencyKey(t *testing.T) {
 // TestWithIdempotencyKey 测试自定义幂等性键
 func TestWithIdempotencyKey(t *testing.T) {
 	event, _ := NewOutboxEvent(
-		"tenant-1",
+		1,
 		"aggregate-123",
 		"Archive",
 		"ArchiveCreated",
@@ -771,7 +771,7 @@ func TestWithIdempotencyKey(t *testing.T) {
 // TestGetIdempotencyKey 测试获取幂等性键
 func TestGetIdempotencyKey(t *testing.T) {
 	event, _ := NewOutboxEvent(
-		"tenant-1",
+		1,
 		"aggregate-123",
 		"Archive",
 		"ArchiveCreated",
@@ -797,7 +797,7 @@ func TestIdempotencyKey_Uniqueness(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		event, _ := NewOutboxEvent(
-			"tenant-1",
+			1,
 			"aggregate-123",
 			"Archive",
 			"ArchiveCreated",

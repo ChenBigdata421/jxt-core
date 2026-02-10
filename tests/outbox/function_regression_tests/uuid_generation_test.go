@@ -14,7 +14,7 @@ func TestUUIDGeneration_Basic(t *testing.T) {
 	helper := NewTestHelper(t)
 
 	// 创建事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证 ID 不为空
 	helper.AssertNotEmpty(event.ID, "Event ID should not be empty")
@@ -33,7 +33,7 @@ func TestUUIDGeneration_Uniqueness(t *testing.T) {
 	ids := make(map[string]bool)
 
 	for i := 0; i < count; i++ {
-		event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+		event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 		// 检查 ID 是否重复
 		if ids[event.ID] {
@@ -62,7 +62,7 @@ func TestUUIDGeneration_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < eventsPerGoroutine; j++ {
-				event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+				event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 				idsChan <- event.ID
 			}
 		}()
@@ -94,7 +94,7 @@ func TestUUIDGeneration_TimeOrdering(t *testing.T) {
 	events := make([]*outbox.OutboxEvent, count)
 
 	for i := 0; i < count; i++ {
-		events[i] = helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+		events[i] = helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 		time.Sleep(1 * time.Millisecond) // 确保时间戳不同
 	}
 
@@ -117,7 +117,7 @@ func TestUUIDGeneration_TimeOrdering(t *testing.T) {
 func TestUUIDGeneration_Format(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证 UUID 格式（8-4-4-4-12）
 	parsedUUID, err := uuid.Parse(event.ID)
@@ -141,7 +141,7 @@ func TestUUIDGeneration_Performance(t *testing.T) {
 	start := time.Now()
 
 	for i := 0; i < count; i++ {
-		_ = helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+		_ = helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	}
 
 	duration := time.Since(start)
@@ -161,7 +161,7 @@ func TestUUIDGeneration_Stability(t *testing.T) {
 
 	// 多次运行，确保没有 panic
 	for i := 0; i < 1000; i++ {
-		event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+		event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 		helper.AssertNotEmpty(event.ID, "Event ID should not be empty")
 
 		_, err := uuid.Parse(event.ID)
@@ -179,7 +179,7 @@ func TestUUIDGeneration_DifferentAggregates(t *testing.T) {
 
 	for _, aggregateType := range aggregateTypes {
 		for i := 0; i < 100; i++ {
-			event := helper.CreateTestEvent("tenant1", aggregateType, "agg-123", "Created")
+			event := helper.CreateTestEvent(1, aggregateType, "agg-123", "Created")
 
 			// 检查 ID 是否重复
 			if ids[event.ID] {
@@ -212,7 +212,7 @@ func TestUUIDGeneration_Fallback(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < eventsPerGoroutine; j++ {
-				event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+				event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 				// 验证 UUID 有效性
 				if _, err := uuid.Parse(event.ID); err != nil {

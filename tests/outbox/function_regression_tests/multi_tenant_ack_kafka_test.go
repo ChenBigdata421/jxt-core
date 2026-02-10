@@ -65,24 +65,15 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 	defer adapter.Close()
 
 	// 定义租户列表：10个租户
-	tenants := []string{
-		"tenant-kafka-01",
-		"tenant-kafka-02",
-		"tenant-kafka-03",
-		"tenant-kafka-04",
-		"tenant-kafka-05",
-		"tenant-kafka-06",
-		"tenant-kafka-07",
-		"tenant-kafka-08",
-		"tenant-kafka-09",
-		"tenant-kafka-10",
+	tenants := []int{
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
 	}
 
 	// 为每个租户注册 ACK Channel
 	for _, tenantID := range tenants {
 		err := adapter.RegisterTenant(tenantID, 1000)
-		require.NoError(t, err, "Failed to register tenant %s", tenantID)
-		t.Logf("✅ Registered tenant: %s", tenantID)
+		require.NoError(t, err, "Failed to register tenant %d", tenantID)
+		t.Logf("✅ Registered tenant: %d", tenantID)
 	}
 
 	// 验证租户已注册
@@ -92,7 +83,7 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 
 	// 为每个租户创建 Repository 和 Publisher
 	type TenantContext struct {
-		tenantID   string
+		tenantID   int
 		repo       *MockRepository
 		publisher  *outbox.OutboxPublisher
 		ackChan    <-chan *outbox.PublishResult
@@ -100,14 +91,14 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 		received   []*outbox.PublishResult
 	}
 
-	tenantContexts := make(map[string]*TenantContext)
+	tenantContexts := make(map[int]*TenantContext)
 
 	// 为每个租户配置 Topic
-	topicNames := make(map[string]string)
+	topicNames := make(map[int]string)
 	for _, tenantID := range tenants {
-		topicName := fmt.Sprintf("tenant-%s-events-%d", tenantID, time.Now().UnixNano())
+		topicName := fmt.Sprintf("tenant-%d-events-%d", tenantID, time.Now().UnixNano())
 		topicNames[tenantID] = topicName
-		t.Logf("✅ Will use topic: %s for tenant: %s", topicName, tenantID)
+		t.Logf("✅ Will use topic: %s for tenant: %d", topicName, tenantID)
 	}
 
 	for _, tenantID := range tenants {
@@ -126,7 +117,7 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 
 		// 获取租户专属的 ACK Channel
 		ackChan := adapter.GetTenantPublishResultChannel(tenantID)
-		require.NotNil(t, ackChan, "ACK channel should not be nil for tenant %s", tenantID)
+		require.NotNil(t, ackChan, "ACK channel should not be nil for tenant %d", tenantID)
 
 		tenantContexts[tenantID] = &TenantContext{
 			tenantID:  tenantID,
@@ -136,7 +127,7 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 			received:  make([]*outbox.PublishResult, 0),
 		}
 
-		t.Logf("✅ Created context for tenant: %s", tenantID)
+		t.Logf("✅ Created context for tenant: %d", tenantID)
 	}
 
 	// 为每个租户创建事件：每个租户500个事件
@@ -146,18 +137,18 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 
 		for i := 0; i < eventsPerTenant; i++ {
 			event := &outbox.OutboxEvent{
-				ID:            fmt.Sprintf("event-%s-%d", tenantID, i),
-				AggregateID:   fmt.Sprintf("agg-%s-%d", tenantID, i),
+				ID:            fmt.Sprintf("event-%d-%d", tenantID, i),
+				AggregateID:   fmt.Sprintf("agg-%d-%d", tenantID, i),
 				AggregateType: "TestAggregate",
 				EventType:     "TestEvent",
-				Payload:       []byte(fmt.Sprintf(`{"tenant":"%s","index":%d}`, tenantID, i)),
+				Payload:       []byte(fmt.Sprintf(`{"tenant":"%d","index":%d}`, tenantID, i)),
 				Status:        outbox.EventStatusPending,
 				TenantID:      tenantID,
 			}
 			err := tenantCtx.repo.Save(context.Background(), event)
-			require.NoError(t, err, "Failed to save event for tenant %s", tenantID)
+			require.NoError(t, err, "Failed to save event for tenant %d", tenantID)
 		}
-		t.Logf("✅ Created %d events for tenant: %s", eventsPerTenant, tenantID)
+		t.Logf("✅ Created %d events for tenant: %d", eventsPerTenant, tenantID)
 	}
 
 	// 启动所有租户的 ACK 监听器
@@ -171,7 +162,7 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 		// Publisher 的 ACK 监听器会自动调用 repo.MarkAsPublished()
 		tenantCtx.publisher.StartACKListenerWithChannel(ctx, tenantCtx.ackChan)
 
-		t.Logf("✅ Started ACK listener for tenant: %s", tenantID)
+		t.Logf("✅ Started ACK listener for tenant: %d", tenantID)
 	}
 
 	// 为每个租户发布事件
@@ -180,16 +171,16 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 
 		// 获取待发布的事件
 		events, err := tenantCtx.repo.FindPendingEvents(ctx, eventsPerTenant, tenantID)
-		require.NoError(t, err, "Failed to find pending events for tenant %s", tenantID)
-		require.Equal(t, eventsPerTenant, len(events), "Should have %d pending events for tenant %s", eventsPerTenant, tenantID)
+		require.NoError(t, err, "Failed to find pending events for tenant %d", tenantID)
+		require.Equal(t, eventsPerTenant, len(events), "Should have %d pending events for tenant %d", eventsPerTenant, tenantID)
 
 		// 发布事件
 		for _, event := range events {
 			err := tenantCtx.publisher.PublishEvent(ctx, event)
-			require.NoError(t, err, "Failed to publish event for tenant %s", tenantID)
+			require.NoError(t, err, "Failed to publish event for tenant %d", tenantID)
 		}
 
-		t.Logf("✅ Published %d events for tenant: %s", len(events), tenantID)
+		t.Logf("✅ Published %d events for tenant: %d", len(events), tenantID)
 	}
 
 	// 等待所有 ACK 被接收（Kafka 异步发布需要时间）
@@ -213,7 +204,7 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 			// 统计已发布的事件数量
 			publishedCount := 0
 			for i := 0; i < eventsPerTenant; i++ {
-				eventID := fmt.Sprintf("event-%s-%d", tenantID, i)
+				eventID := fmt.Sprintf("event-%d-%d", tenantID, i)
 				event, err := tenantCtx.repo.FindByID(ctx, eventID)
 				if err == nil && event != nil && event.IsPublished() {
 					publishedCount++
@@ -259,7 +250,7 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 		publishedEvents := make(map[string]bool)
 
 		for i := 0; i < eventsPerTenant; i++ {
-			eventID := fmt.Sprintf("event-%s-%d", tenantID, i)
+			eventID := fmt.Sprintf("event-%d-%d", tenantID, i)
 			event, err := tenantCtx.repo.FindByID(ctx, eventID)
 			if err == nil && event != nil && event.IsPublished() {
 				publishedCount++
@@ -275,9 +266,9 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 			tenantID, minExpectedPublished, publishedCount)
 
 		if publishedCount == eventsPerTenant {
-			t.Logf("✅ Tenant %s: all %d/%d events published (100%%)", tenantID, publishedCount, eventsPerTenant)
+			t.Logf("✅ Tenant %d: all %d/%d events published (100%%)", tenantID, publishedCount, eventsPerTenant)
 		} else {
-			t.Logf("⚠️  Tenant %s: %d/%d events published (%.1f%%)",
+			t.Logf("⚠️  Tenant %d: %d/%d events published (%.1f%%)",
 				tenantID, publishedCount, eventsPerTenant,
 				float64(publishedCount)/float64(eventsPerTenant)*100)
 		}
@@ -286,8 +277,8 @@ func TestMultiTenantACKChannel_Kafka(t *testing.T) {
 	// 清理：注销所有租户
 	for _, tenantID := range tenants {
 		err := adapter.UnregisterTenant(tenantID)
-		require.NoError(t, err, "Failed to unregister tenant %s", tenantID)
-		t.Logf("✅ Unregistered tenant: %s", tenantID)
+		require.NoError(t, err, "Failed to unregister tenant %d", tenantID)
+		t.Logf("✅ Unregistered tenant: %d", tenantID)
 	}
 
 	t.Log("✅ Multi-tenant ACK Channel test with Kafka passed!")

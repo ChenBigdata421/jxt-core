@@ -36,13 +36,13 @@ func TestMultiTenantACKChannel_MemoryEventBus(t *testing.T) {
 	defer adapter.Close()
 
 	// 定义租户列表
-	tenants := []string{"tenant-a", "tenant-b", "tenant-c"}
+	tenants := []int{1, 2, 3}
 
 	// 为每个租户注册 ACK Channel
 	for _, tenantID := range tenants {
 		err := adapter.RegisterTenant(tenantID, 1000)
-		require.NoError(t, err, "Failed to register tenant %s", tenantID)
-		t.Logf("✅ Registered tenant: %s", tenantID)
+		require.NoError(t, err, "Failed to register tenant %d", tenantID)
+		t.Logf("✅ Registered tenant: %d", tenantID)
 	}
 
 	// 验证租户已注册
@@ -51,7 +51,7 @@ func TestMultiTenantACKChannel_MemoryEventBus(t *testing.T) {
 
 	// 为每个租户创建 Outbox Publisher 和 Scheduler
 	type TenantContext struct {
-		tenantID  string
+		tenantID  int
 		repo      *MockRepository
 		publisher *outbox.OutboxPublisher
 		scheduler *outbox.OutboxScheduler
@@ -71,7 +71,7 @@ func TestMultiTenantACKChannel_MemoryEventBus(t *testing.T) {
 
 		// 获取租户专属的 ACK Channel
 		ackChan := adapter.GetTenantPublishResultChannel(tenantID)
-		require.NotNil(t, ackChan, "ACK channel should not be nil for tenant %s", tenantID)
+		require.NotNil(t, ackChan, "ACK channel should not be nil for tenant %d", tenantID)
 
 		// 启动 ACK 监听器（使用租户专属 Channel）
 		ctx := context.Background()
@@ -85,7 +85,7 @@ func TestMultiTenantACKChannel_MemoryEventBus(t *testing.T) {
 			ackChan:   ackChan,
 		})
 
-		t.Logf("✅ Created Outbox Publisher for tenant: %s", tenantID)
+		t.Logf("✅ Created Outbox Publisher for tenant: %d", tenantID)
 	}
 
 	// 为每个租户创建并发布测试事件
@@ -96,17 +96,17 @@ func TestMultiTenantACKChannel_MemoryEventBus(t *testing.T) {
 			event := helper.CreateTestEvent(
 				tc.tenantID,
 				"Order",
-				fmt.Sprintf("order-%s-%d", tc.tenantID, i),
+				fmt.Sprintf("order-%d-%d", tc.tenantID, i),
 				"OrderCreated",
 			)
 			err := tc.repo.Save(ctx, event)
-			require.NoError(t, err, "Failed to save event for tenant %s", tc.tenantID)
+			require.NoError(t, err, "Failed to save event for tenant %d", tc.tenantID)
 
 			// 直接发布事件
 			err = tc.publisher.PublishEvent(ctx, event)
-			require.NoError(t, err, "Failed to publish event for tenant %s", tc.tenantID)
+			require.NoError(t, err, "Failed to publish event for tenant %d", tc.tenantID)
 		}
-		t.Logf("✅ Created and published %d events for tenant: %s", eventsPerTenant, tc.tenantID)
+		t.Logf("✅ Created and published %d events for tenant: %d", eventsPerTenant, tc.tenantID)
 	}
 
 	// 等待所有 ACK 处理完成
@@ -117,12 +117,12 @@ func TestMultiTenantACKChannel_MemoryEventBus(t *testing.T) {
 		publishedCount, err := tc.repo.Count(ctx, outbox.EventStatusPublished, tc.tenantID)
 		require.NoError(t, err)
 
-		t.Logf("📊 Tenant %s: %d/%d events published", tc.tenantID, publishedCount, eventsPerTenant)
+		t.Logf("📊 Tenant %d: %d/%d events published", tc.tenantID, publishedCount, eventsPerTenant)
 
 		// 如果有未发布的事件，打印详细信息
 		if publishedCount < int64(eventsPerTenant) {
 			allEvents, _ := tc.repo.FindPendingEvents(ctx, 100, tc.tenantID)
-			t.Logf("  ⚠️  Tenant %s has %d pending events", tc.tenantID, len(allEvents))
+			t.Logf("  ⚠️  Tenant %d has %d pending events", tc.tenantID, len(allEvents))
 		}
 
 		assert.Equal(t, int64(eventsPerTenant), publishedCount,
@@ -137,8 +137,8 @@ func TestMultiTenantACKChannel_MemoryEventBus(t *testing.T) {
 	// 注销所有租户
 	for _, tenantID := range tenants {
 		err := adapter.UnregisterTenant(tenantID)
-		require.NoError(t, err, "Failed to unregister tenant %s", tenantID)
-		t.Logf("✅ Unregistered tenant: %s", tenantID)
+		require.NoError(t, err, "Failed to unregister tenant %d", tenantID)
+		t.Logf("✅ Unregistered tenant: %d", tenantID)
 	}
 
 	t.Log("✅ Multi-tenant ACK Channel test passed (Memory EventBus)")
@@ -164,8 +164,8 @@ func TestMultiTenantACKChannel_Isolation(t *testing.T) {
 	defer adapter.Close()
 
 	// 注册两个租户
-	tenantA := "tenant-isolation-a"
-	tenantB := "tenant-isolation-b"
+	tenantA := 10
+	tenantB := 20
 
 	err = adapter.RegisterTenant(tenantA, 1000)
 	require.NoError(t, err)
@@ -258,16 +258,16 @@ func TestMultiTenantACKChannel_ConcurrentPublish(t *testing.T) {
 	eventsPerTenant := 20
 
 	// 注册所有租户
-	tenants := make([]string, numTenants)
+	tenants := make([]int, numTenants)
 	for i := 0; i < numTenants; i++ {
-		tenants[i] = fmt.Sprintf("tenant-concurrent-%d", i)
+		tenants[i] = i + 1 // Use 1-based tenant IDs
 		err := adapter.RegisterTenant(tenants[i], 1000)
 		require.NoError(t, err)
 	}
 
 	// 为每个租户创建 Publisher
 	type TenantPublisher struct {
-		tenantID  string
+		tenantID  int
 		repo      *MockRepository
 		publisher *outbox.OutboxPublisher
 	}
@@ -298,7 +298,7 @@ func TestMultiTenantACKChannel_ConcurrentPublish(t *testing.T) {
 				event := helper.CreateTestEvent(
 					tp.tenantID,
 					"Order",
-					fmt.Sprintf("order-%s-%d", tp.tenantID, j),
+					fmt.Sprintf("order-%d-%d", tp.tenantID, j),
 					"OrderCreated",
 				)
 				err := tp.repo.Save(context.Background(), event)
@@ -334,7 +334,7 @@ func TestMultiTenantACKChannel_ConcurrentPublish(t *testing.T) {
 		publishedCount, err := tp.repo.Count(context.Background(), outbox.EventStatusPublished, tp.tenantID)
 		require.NoError(t, err)
 		assert.Equal(t, int64(eventsPerTenant), publishedCount,
-			"Tenant %s should have %d published events", tp.tenantID, eventsPerTenant)
+			"Tenant %d should have %d published events", tp.tenantID, eventsPerTenant)
 	}
 
 	// 清理

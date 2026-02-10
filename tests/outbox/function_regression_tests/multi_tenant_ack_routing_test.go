@@ -31,18 +31,18 @@ func TestMultiTenantACKRouting(t *testing.T) {
 	adapter := outboxadapters.NewEventBusAdapter(eventBus)
 
 	// 定义租户列表
-	tenants := []string{"tenant-routing-a", "tenant-routing-b", "tenant-routing-c"}
+	tenants := []int{1, 2, 3}
 
 	// 注册租户
 	for _, tenantID := range tenants {
 		err := adapter.RegisterTenant(tenantID, 100)
-		require.NoError(t, err, "Failed to register tenant %s", tenantID)
-		t.Logf("✅ Registered tenant: %s", tenantID)
+		require.NoError(t, err, "Failed to register tenant %d", tenantID)
+		t.Logf("tenant: %d", tenantID)
 	}
 
 	// 为每个租户创建 ACK Channel 和接收计数器
 	type TenantACKReceiver struct {
-		tenantID   string
+		tenantID   int
 		ackChan    <-chan *outbox.PublishResult
 		receivedMu sync.Mutex
 		received   []*outbox.PublishResult
@@ -51,7 +51,7 @@ func TestMultiTenantACKRouting(t *testing.T) {
 	receivers := make([]*TenantACKReceiver, len(tenants))
 	for i, tenantID := range tenants {
 		ackChan := adapter.GetTenantPublishResultChannel(tenantID)
-		require.NotNil(t, ackChan, "ACK channel should not be nil for tenant %s", tenantID)
+		require.NotNil(t, ackChan, "ACK channel should not be nil for tenant %d", tenantID)
 
 		receiver := &TenantACKReceiver{
 			tenantID: tenantID,
@@ -66,12 +66,12 @@ func TestMultiTenantACKRouting(t *testing.T) {
 				r.receivedMu.Lock()
 				r.received = append(r.received, result)
 				r.receivedMu.Unlock()
-				t.Logf("📨 Tenant %s received ACK: EventID=%s, Success=%v",
+				t.Logf("📨 Tenant %d received ACK: EventID=%s, Success=%v",
 					r.tenantID, result.EventID, result.Success)
 			}
 		}(receiver)
 
-		t.Logf("✅ Created ACK receiver for tenant: %s", tenantID)
+		t.Logf("tenant: %d", tenantID)
 	}
 
 	// 模拟发送 ACK 到 EventBus 的全局 Channel
@@ -88,10 +88,10 @@ func TestMultiTenantACKRouting(t *testing.T) {
 	t.Log("📊 Testing tenant ACK channel registration and retrieval...")
 
 	// 验证每个租户都有独立的 Channel
-	channelMap := make(map[string]<-chan *outbox.PublishResult)
+	channelMap := make(map[int]<-chan *outbox.PublishResult)
 	for _, tenantID := range tenants {
 		ch := adapter.GetTenantPublishResultChannel(tenantID)
-		require.NotNil(t, ch, "Channel should not be nil for tenant %s", tenantID)
+		require.NotNil(t, ch, "Channel should not be nil for tenant %d", tenantID)
 		channelMap[tenantID] = ch
 	}
 
@@ -105,7 +105,7 @@ func TestMultiTenantACKRouting(t *testing.T) {
 				// 但我们可以验证它们确实是独立的
 				assert.NotNil(t, ch1, "Channel 1 should not be nil")
 				assert.NotNil(t, ch2, "Channel 2 should not be nil")
-				t.Logf("✅ Tenant %s and %s have independent channels", tenant1, tenant2)
+				t.Logf("✅ Tenant %d and %d have independent channels", tenant1, tenant2)
 			}
 		}
 	}
@@ -114,20 +114,20 @@ func TestMultiTenantACKRouting(t *testing.T) {
 	registeredTenants := adapter.GetRegisteredTenants()
 	assert.Equal(t, len(tenants), len(registeredTenants), "Should have %d registered tenants", len(tenants))
 	for _, tenantID := range tenants {
-		assert.Contains(t, registeredTenants, tenantID, "Tenant %s should be registered", tenantID)
+		assert.Contains(t, registeredTenants, tenantID, "Tenant %d should be registered", tenantID)
 	}
 	t.Logf("✅ GetRegisteredTenants returned: %v", registeredTenants)
 
 	// 测试注销租户
 	tenantToUnregister := tenants[0]
 	err = adapter.UnregisterTenant(tenantToUnregister)
-	require.NoError(t, err, "Failed to unregister tenant %s", tenantToUnregister)
-	t.Logf("✅ Unregistered tenant: %s", tenantToUnregister)
+	require.NoError(t, err, "Failed to unregister tenant %d", tenantToUnregister)
+	t.Logf("✅ Unregistered tenant: %d", tenantToUnregister)
 
 	// 验证注销后的租户列表
 	registeredTenants = adapter.GetRegisteredTenants()
 	assert.Equal(t, len(tenants)-1, len(registeredTenants), "Should have %d registered tenants after unregister", len(tenants)-1)
-	assert.NotContains(t, registeredTenants, tenantToUnregister, "Tenant %s should not be registered", tenantToUnregister)
+	assert.NotContains(t, registeredTenants, tenantToUnregister, "Tenant %d should not be registered", tenantToUnregister)
 	t.Logf("✅ After unregister, registered tenants: %v", registeredTenants)
 
 	// 等待一下，确保所有 goroutine 都处理完了
@@ -137,8 +137,8 @@ func TestMultiTenantACKRouting(t *testing.T) {
 	for _, tenantID := range tenants {
 		if tenantID != tenantToUnregister {
 			err := adapter.UnregisterTenant(tenantID)
-			require.NoError(t, err, "Failed to unregister tenant %s", tenantID)
-			t.Logf("✅ Unregistered tenant: %s", tenantID)
+			require.NoError(t, err, "Failed to unregister tenant %d", tenantID)
+			t.Logf("✅ Unregistered tenant: %d", tenantID)
 		}
 	}
 

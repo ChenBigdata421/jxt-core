@@ -29,7 +29,7 @@ func TestAsyncACK_PublishEnvelopeSuccess(t *testing.T) {
 	defer outboxPublisher.StopACKListener()
 
 	// 创建测试事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	err := repo.Save(ctx, event)
 	helper.RequireNoError(err)
 
@@ -70,7 +70,7 @@ func TestAsyncACK_PublishEnvelopeFailure(t *testing.T) {
 	defer outboxPublisher.StopACKListener()
 
 	// 创建测试事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	err := repo.Save(ctx, event)
 	helper.RequireNoError(err)
 
@@ -112,9 +112,9 @@ func TestAsyncACK_BatchPublish(t *testing.T) {
 
 	// 创建多个测试事件
 	events := []*outbox.OutboxEvent{
-		helper.CreateTestEvent("tenant1", "Order", "order-1", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "Order", "order-2", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "Order", "order-3", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-1", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-2", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-3", "OrderCreated"),
 	}
 
 	for _, event := range events {
@@ -178,7 +178,7 @@ func TestAsyncACK_ConcurrentPublish(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			for j := 0; j < eventsPerGoroutine; j++ {
-				event := helper.CreateTestEvent("tenant1", "Order", "order-"+string(rune(index*eventsPerGoroutine+j)), "OrderCreated")
+				event := helper.CreateTestEvent(1, "Order", "order-"+string(rune(index*eventsPerGoroutine+j)), "OrderCreated")
 				err := repo.Save(ctx, event)
 				if err != nil {
 					return
@@ -235,7 +235,7 @@ func TestAsyncACK_ListenerStartStop(t *testing.T) {
 	outboxPublisher.StartACKListener(ctx)
 
 	// 创建并发布事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	err := repo.Save(ctx, event)
 	helper.RequireNoError(err)
 
@@ -259,7 +259,7 @@ func TestAsyncACK_ListenerStartStop(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 创建新事件并发布
-	event2 := helper.CreateTestEvent("tenant1", "Order", "order-456", "OrderCreated")
+	event2 := helper.CreateTestEvent(1, "Order", "order-456", "OrderCreated")
 	err = repo.Save(ctx, event2)
 	helper.RequireNoError(err)
 
@@ -296,7 +296,7 @@ func TestAsyncACK_EnvelopeConversion(t *testing.T) {
 	defer outboxPublisher.StopACKListener()
 
 	// 创建测试事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	err := repo.Save(ctx, event)
 	helper.RequireNoError(err)
 

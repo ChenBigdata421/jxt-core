@@ -98,8 +98,8 @@ type SchedulerConfig struct {
 	// BatchSize 每次处理的事件数量
 	BatchSize int
 
-	// TenantID 租户 ID（可选，空字符串表示处理所有租户）
-	TenantID string
+	// TenantID 租户 ID（可选，0 表示处理所有租户）
+	TenantID int
 
 	// CleanupInterval 清理间隔
 	CleanupInterval time.Duration
@@ -253,7 +253,7 @@ func DefaultSchedulerConfig() *SchedulerConfig {
 	return &SchedulerConfig{
 		PollInterval:        10 * time.Second,
 		BatchSize:           100,
-		TenantID:            "",
+		TenantID:            0,
 		CleanupInterval:     1 * time.Hour,
 		CleanupRetention:    24 * time.Hour,
 		HealthCheckInterval: 30 * time.Second,

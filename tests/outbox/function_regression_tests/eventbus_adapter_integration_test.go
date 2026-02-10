@@ -38,7 +38,7 @@ func TestEventBusAdapter_Integration_PublishSuccess(t *testing.T) {
 	defer publisher.StopACKListener()
 
 	// 创建测试事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	err := repo.Save(ctx, event)
 	helper.RequireNoError(err)
 
@@ -93,7 +93,7 @@ func TestEventBusAdapter_Integration_PublishFailure(t *testing.T) {
 	defer publisher.StopACKListener()
 
 	// 创建测试事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	err := repo.Save(ctx, event)
 	helper.RequireNoError(err)
 
@@ -140,9 +140,9 @@ func TestEventBusAdapter_Integration_BatchPublish(t *testing.T) {
 
 	// 创建多个测试事件
 	events := []*outbox.OutboxEvent{
-		helper.CreateTestEvent("tenant1", "Order", "order-1", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "Order", "order-2", "OrderCreated"),
-		helper.CreateTestEvent("tenant1", "Order", "order-3", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-1", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-2", "OrderCreated"),
+		helper.CreateTestEvent(1, "Order", "order-3", "OrderCreated"),
 	}
 
 	for _, event := range events {
@@ -240,7 +240,7 @@ func TestEventBusAdapter_Integration_EnvelopeConversion(t *testing.T) {
 	defer publisher.StopACKListener()
 
 	// 创建测试事件（带完整字段）
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	err := repo.Save(ctx, event)
 	helper.RequireNoError(err)
 

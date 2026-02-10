@@ -13,7 +13,7 @@ import (
 func TestEventLifecycle_InitialState(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证初始状态
 	helper.AssertEqual(outbox.EventStatusPending, event.Status, "Initial status should be Pending")
@@ -44,7 +44,7 @@ func TestEventLifecycle_PublishSuccess(t *testing.T) {
 	defer outboxPublisher.StopACKListener()
 
 	// 创建事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 保存事件到仓储
 	err := repo.Save(ctx, event)
@@ -86,7 +86,7 @@ func TestEventLifecycle_PublishFailure(t *testing.T) {
 	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
 	// 创建事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 保存事件到仓储
 	err := repo.Save(ctx, event)
@@ -126,7 +126,7 @@ func TestEventLifecycle_RetryMechanism(t *testing.T) {
 	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, config)
 
 	// 创建事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	event.MaxRetries = 3
 
 	// 保存事件到仓储
@@ -171,7 +171,7 @@ func TestEventLifecycle_RetryMechanism(t *testing.T) {
 func TestEventLifecycle_StatusTransitions(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// Pending -> Published
 	helper.AssertTrue(event.IsPending(), "Should be pending")
@@ -213,7 +213,7 @@ func TestEventLifecycle_StatusTransitions(t *testing.T) {
 func TestEventLifecycle_ScheduledPublish(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 设置延迟发布时间
 	scheduledAt := time.Now().Add(1 * time.Hour)
@@ -228,7 +228,7 @@ func TestEventLifecycle_ScheduledPublish(t *testing.T) {
 func TestEventLifecycle_Timestamps(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证创建时间
 	helper.AssertTrue(!event.CreatedAt.IsZero(), "CreatedAt should be set")
@@ -249,7 +249,7 @@ func TestEventLifecycle_Timestamps(t *testing.T) {
 func TestEventLifecycle_MaxRetriesExceeded(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	event.MaxRetries = 3
 
 	// 模拟多次重试
@@ -272,7 +272,7 @@ func TestEventLifecycle_MaxRetriesExceeded(t *testing.T) {
 func TestEventLifecycle_ErrorTracking(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 模拟第一次错误
 	event.Status = outbox.EventStatusFailed
@@ -299,7 +299,7 @@ func TestEventLifecycle_ErrorTracking(t *testing.T) {
 func TestEventLifecycle_VersionTracking(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证初始版本
 	helper.AssertEqual(int64(1), event.Version, "Initial version should be 1")
@@ -313,7 +313,7 @@ func TestEventLifecycle_VersionTracking(t *testing.T) {
 func TestEventLifecycle_TraceAndCorrelation(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 设置追踪 ID
 	event.TraceID = "trace-12345"

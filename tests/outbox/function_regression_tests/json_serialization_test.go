@@ -27,7 +27,7 @@ func TestOutbox_UsesEventComponentSerialization(t *testing.T) {
 
 	// 创建 OutboxEvent（应该使用 event 组件的序列化方法）
 	outboxEvent, err := outbox.NewOutboxEvent(
-		"tenant-001",
+		1,
 		"order-123",
 		"Order",
 		"OrderCreated",
@@ -61,7 +61,7 @@ func TestOutbox_PayloadContainsFullDomainEvent(t *testing.T) {
 
 	// 创建 OutboxEvent
 	outboxEvent, err := outbox.NewOutboxEvent(
-		"tenant-001",
+		1,
 		"archive-123",
 		"Archive",
 		"ArchiveCreated",
@@ -128,7 +128,7 @@ func TestOutbox_GetPayloadAsReturnsFullDomainEvent(t *testing.T) {
 	domainEvent := jxtevent.NewBaseDomainEvent("UserRegistered", "user-123", "User", payload)
 
 	outboxEvent, err := outbox.NewOutboxEvent(
-		"tenant-001",
+		1,
 		"user-123",
 		"User",
 		"UserRegistered",
@@ -161,7 +161,7 @@ func TestOutbox_RawMessageCompatibility(t *testing.T) {
 	domainEvent := jxtevent.NewBaseDomainEvent("TestEvent", "test-123", "Test", payload)
 
 	outboxEvent, err := outbox.NewOutboxEvent(
-		"tenant-001",
+		1,
 		"test-123",
 		"Test",
 		"TestEvent",
@@ -199,7 +199,7 @@ func TestOutbox_PerformanceWithEventSerialization(t *testing.T) {
 
 	for i := 0; i < iterations; i++ {
 		_, err := outbox.NewOutboxEvent(
-			"tenant-001",
+			1,
 			"order-123",
 			"Order",
 			"OrderCreated",
@@ -239,7 +239,7 @@ func TestOutbox_ConcurrentSerialization(t *testing.T) {
 				domainEvent := jxtevent.NewBaseDomainEvent("TestEvent", "test-123", "Test", payload)
 
 				_, err := outbox.NewOutboxEvent(
-					"tenant-001",
+					1,
 					"test-123",
 					"Test",
 					"TestEvent",
@@ -275,7 +275,7 @@ func TestOutbox_ComplexPayloadSerialization(t *testing.T) {
 
 	// 创建 OutboxEvent
 	outboxEvent, err := outbox.NewOutboxEvent(
-		"tenant-001",
+		1,
 		"test-123",
 		"Test",
 		"ComplexEvent",

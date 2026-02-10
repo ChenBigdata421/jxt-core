@@ -72,7 +72,7 @@ func WithBatchSize(size int) SchedulerOption {
 }
 
 // WithTenantID 设置租户 ID
-func WithTenantID(tenantID string) SchedulerOption {
+func WithTenantID(tenantID int) SchedulerOption {
 	return func(opts *schedulerOptions) {
 		if opts.schedulerConfig == nil {
 			opts.schedulerConfig = DefaultSchedulerConfig()
