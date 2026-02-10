@@ -1,6 +1,7 @@
 package outbox
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,7 +31,7 @@ type OutboxEvent struct {
 	ID string
 
 	// TenantID 租户 ID（多租户支持）
-	TenantID string
+	TenantID int
 
 	// AggregateID 聚合根 ID
 	AggregateID string
@@ -95,7 +96,7 @@ type OutboxEvent struct {
 // payload 必须是 jxtevent.BaseEvent 类型（BaseDomainEvent 或 EnterpriseDomainEvent）
 // 使用 event 组件的序列化方法确保统一性和性能
 func NewOutboxEvent(
-	tenantID string,
+	tenantID int,
 	aggregateID string,
 	aggregateType string,
 	eventType string,
@@ -347,11 +348,12 @@ func generateID() string {
 //
 // 示例：
 //
-//	tenant-1:Archive:archive-123:ArchiveCreated:019a04f8-cf89-78d0-b643-beda84a98a59
-func generateIdempotencyKey(tenantID, aggregateType, aggregateID, eventType, eventID string) string {
+//	1:Archive:archive-123:ArchiveCreated:019a04f8-cf89-78d0-b643-beda84a98a59
+func generateIdempotencyKey(tenantID int, aggregateType, aggregateID, eventType, eventID string) string {
 	// 使用冒号分隔各个部分，便于解析和调试
 	// 注意：如果业务需要自定义幂等性键，可以通过 WithIdempotencyKey 方法设置
-	return tenantID + ":" + aggregateType + ":" + aggregateID + ":" + eventType + ":" + eventID
+	tenantIDStr := fmt.Sprintf("%d", tenantID)
+	return tenantIDStr + ":" + aggregateType + ":" + aggregateID + ":" + eventType + ":" + eventID
 }
 
 // WithIdempotencyKey 设置自定义幂等性键（支持链式调用）
