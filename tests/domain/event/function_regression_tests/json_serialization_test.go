@@ -165,7 +165,7 @@ func TestEnterpriseDomainEvent_UsesUnifiedJSON(t *testing.T) {
 	// 创建 EnterpriseDomainEvent
 	payload := helper.CreateTestPayload()
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", payload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 	event.SetTraceId("trace-123")
 	event.SetCorrelationId("corr-456")
 
@@ -178,7 +178,7 @@ func TestEnterpriseDomainEvent_UsesUnifiedJSON(t *testing.T) {
 	helper.AssertNoError(err, "UnmarshalDomainEvent should succeed")
 
 	// 验证企业级字段
-	helper.AssertEqual("tenant-001", result.GetTenantId(), "TenantId should match")
+	helper.AssertEqual(1, result.GetTenantId(), "TenantId should match")
 	helper.AssertEqual("trace-123", result.GetTraceId(), "TraceId should match")
 	helper.AssertEqual("corr-456", result.GetCorrelationId(), "CorrelationId should match")
 }

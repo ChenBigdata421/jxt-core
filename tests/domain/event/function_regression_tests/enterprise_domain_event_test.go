@@ -24,7 +24,7 @@ func TestEnterpriseDomainEvent_Creation(t *testing.T) {
 	helper.AssertNotNil(event.Payload, "Payload should not be nil")
 
 	// 验证企业级字段
-	helper.AssertEqual("*", event.TenantId, "Default TenantId should be '*'")
+	helper.AssertEqual(0, event.TenantId, "Default TenantId should be 0")
 	helper.AssertEqual("", event.CorrelationId, "Default CorrelationId should be empty")
 	helper.AssertEqual("", event.CausationId, "Default CausationId should be empty")
 	helper.AssertEqual("", event.TraceId, "Default TraceId should be empty")
@@ -36,9 +36,9 @@ func TestEnterpriseDomainEvent_DefaultTenantId(t *testing.T) {
 
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
 
-	// 验证默认租户ID是 "*"（全局租户）
-	helper.AssertEqual("*", event.TenantId, "Default TenantId should be '*'")
-	helper.AssertEqual("*", event.GetTenantId(), "GetTenantId should return '*'")
+	// 验证默认租户ID是 0（系统租户）
+	helper.AssertEqual(0, event.TenantId, "Default TenantId should be 0")
+	helper.AssertEqual(0, event.GetTenantId(), "GetTenantId should return 0")
 }
 
 // TestEnterpriseDomainEvent_SetTenantId 测试设置租户ID
@@ -48,11 +48,11 @@ func TestEnterpriseDomainEvent_SetTenantId(t *testing.T) {
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
 
 	// 设置租户ID
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 验证
-	helper.AssertEqual("tenant-001", event.TenantId, "TenantId should be set")
-	helper.AssertEqual("tenant-001", event.GetTenantId(), "GetTenantId should return set value")
+	helper.AssertEqual(1, event.TenantId, "TenantId should be set")
+	helper.AssertEqual(1, event.GetTenantId(), "GetTenantId should return set value")
 }
 
 // TestEnterpriseDomainEvent_MultiTenantScenario 测试多租户场景
@@ -61,18 +61,18 @@ func TestEnterpriseDomainEvent_MultiTenantScenario(t *testing.T) {
 
 	// 创建不同租户的事件
 	event1 := helper.CreateEnterpriseDomainEvent("Order.Created", "order-1", "Order", nil)
-	event1.SetTenantId("tenant-001")
+	event1.SetTenantId(1)
 
 	event2 := helper.CreateEnterpriseDomainEvent("Order.Created", "order-2", "Order", nil)
-	event2.SetTenantId("tenant-002")
+	event2.SetTenantId(2)
 
 	event3 := helper.CreateEnterpriseDomainEvent("Order.Created", "order-3", "Order", nil)
-	// event3 使用默认租户 "*"
+	// event3 使用默认租户 0
 
 	// 验证租户隔离
-	helper.AssertEqual("tenant-001", event1.GetTenantId(), "Event1 should belong to tenant-001")
-	helper.AssertEqual("tenant-002", event2.GetTenantId(), "Event2 should belong to tenant-002")
-	helper.AssertEqual("*", event3.GetTenantId(), "Event3 should belong to global tenant")
+	helper.AssertEqual(1, event1.GetTenantId(), "Event1 should belong to tenant 1")
+	helper.AssertEqual(2, event2.GetTenantId(), "Event2 should belong to tenant 2")
+	helper.AssertEqual(0, event3.GetTenantId(), "Event3 should belong to system tenant")
 
 	helper.AssertNotEqual(event1.GetTenantId(), event2.GetTenantId(), "Different tenants should have different IDs")
 }
@@ -135,13 +135,13 @@ func TestEnterpriseDomainEvent_ObservabilityFields(t *testing.T) {
 	event := helper.CreateEnterpriseDomainEvent("Order.Created", "order-123", "Order", nil)
 
 	// 设置所有可观测性字段
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 	event.SetCorrelationId("workflow-12345")
 	event.SetCausationId("trigger-event-67890")
 	event.SetTraceId("trace-abc-def-123")
 
 	// 验证所有字段
-	helper.AssertEqual("tenant-001", event.GetTenantId(), "TenantId should be set")
+	helper.AssertEqual(1, event.GetTenantId(), "TenantId should be set")
 	helper.AssertEqual("workflow-12345", event.GetCorrelationId(), "CorrelationId should be set")
 	helper.AssertEqual("trigger-event-67890", event.GetCausationId(), "CausationId should be set")
 	helper.AssertEqual("trace-abc-def-123", event.GetTraceId(), "TraceId should be set")
@@ -218,7 +218,7 @@ func TestEnterpriseDomainEvent_ConcurrentFieldAccess(t *testing.T) {
 
 		go func(idx int) {
 			defer wg.Done()
-			event.SetTenantId("tenant-" + string(rune(idx)))
+			event.SetTenantId(idx)
 		}(i)
 
 		go func(idx int) {
@@ -252,14 +252,14 @@ func TestEnterpriseDomainEvent_EmptyObservabilityFields(t *testing.T) {
 
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
 
-	// 设置空字符串
-	event.SetTenantId("")
+	// 设置零值
+	event.SetTenantId(0)
 	event.SetCorrelationId("")
 	event.SetCausationId("")
 	event.SetTraceId("")
 
-	// 验证可以设置空字符串
-	helper.AssertEqual("", event.GetTenantId(), "TenantId can be empty")
+	// 验证可以设置零值
+	helper.AssertEqual(0, event.GetTenantId(), "TenantId can be 0")
 	helper.AssertEqual("", event.GetCorrelationId(), "CorrelationId can be empty")
 	helper.AssertEqual("", event.GetCausationId(), "CausationId can be empty")
 	helper.AssertEqual("", event.GetTraceId(), "TraceId can be empty")
@@ -279,7 +279,7 @@ func TestEnterpriseDomainEvent_CompleteWorkflow(t *testing.T) {
 	event := helper.CreateEnterpriseDomainEvent("Order.Created", "order-12345", "Order", payload)
 
 	// 设置租户信息
-	event.SetTenantId("tenant-acme-corp")
+	event.SetTenantId(1)
 
 	// 设置可观测性信息
 	event.SetCorrelationId("checkout-workflow-001")
@@ -291,7 +291,7 @@ func TestEnterpriseDomainEvent_CompleteWorkflow(t *testing.T) {
 	helper.AssertEqual("Order.Created", event.GetEventType(), "EventType should match")
 	helper.AssertEqual("order-12345", event.GetAggregateID(), "AggregateID should match")
 	helper.AssertEqual("Order", event.GetAggregateType(), "AggregateType should match")
-	helper.AssertEqual("tenant-acme-corp", event.GetTenantId(), "TenantId should match")
+	helper.AssertEqual(1, event.GetTenantId(), "TenantId should match")
 	helper.AssertEqual("checkout-workflow-001", event.GetCorrelationId(), "CorrelationId should match")
 	helper.AssertEqual("cart-checkout-event-123", event.GetCausationId(), "CausationId should match")
 	helper.AssertEqual("trace-xyz-789", event.GetTraceId(), "TraceId should match")
@@ -306,13 +306,13 @@ func TestEnterpriseDomainEvent_FieldIndependence(t *testing.T) {
 	event2 := helper.CreateEnterpriseDomainEvent("Test.Event", "test-2", "Test", nil)
 
 	// 设置 event1 的字段
-	event1.SetTenantId("tenant-001")
+	event1.SetTenantId(1)
 	event1.SetCorrelationId("correlation-001")
 	event1.SetCausationId("causation-001")
 	event1.SetTraceId("trace-001")
 
 	// 设置 event2 的字段
-	event2.SetTenantId("tenant-002")
+	event2.SetTenantId(2)
 	event2.SetCorrelationId("correlation-002")
 	event2.SetCausationId("causation-002")
 	event2.SetTraceId("trace-002")

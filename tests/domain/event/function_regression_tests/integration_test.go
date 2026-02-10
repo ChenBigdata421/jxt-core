@@ -15,7 +15,7 @@ func TestIntegration_CompleteEventLifecycle(t *testing.T) {
 	// 1. 创建事件
 	payload := helper.CreateTestPayload()
 	event := helper.CreateEnterpriseDomainEvent("Order.Created", "order-12345", "Order", payload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 	event.SetCorrelationId("workflow-001")
 	event.SetCausationId("cart-checkout-123")
 	event.SetTraceId("trace-xyz-789")
@@ -58,7 +58,7 @@ func TestIntegration_EventCausationChain(t *testing.T) {
 		CreatedBy: "customer",
 		Count:     1,
 	})
-	event1.SetTenantId("tenant-001")
+	event1.SetTenantId(1)
 	event1.SetCorrelationId(correlationID)
 	event1.SetTraceId("trace-001")
 
@@ -68,7 +68,7 @@ func TestIntegration_EventCausationChain(t *testing.T) {
 		CreatedBy: "payment-gateway",
 		Count:     1,
 	})
-	event2.SetTenantId("tenant-001")
+	event2.SetTenantId(1)
 	event2.SetCorrelationId(correlationID)
 	event2.SetCausationId(event1.GetEventID())
 	event2.SetTraceId("trace-001")
@@ -79,7 +79,7 @@ func TestIntegration_EventCausationChain(t *testing.T) {
 		CreatedBy: "warehouse",
 		Count:     1,
 	})
-	event3.SetTenantId("tenant-001")
+	event3.SetTenantId(1)
 	event3.SetCorrelationId(correlationID)
 	event3.SetCausationId(event2.GetEventID())
 	event3.SetTraceId("trace-001")
@@ -93,16 +93,16 @@ func TestIntegration_EventCausationChain(t *testing.T) {
 	helper.AssertEqual(event2.GetEventID(), event3.GetCausationId(), "Event3 caused by Event2")
 
 	// 验证租户隔离
-	helper.AssertEqual("tenant-001", event1.GetTenantId(), "All events should belong to same tenant")
-	helper.AssertEqual("tenant-001", event2.GetTenantId(), "All events should belong to same tenant")
-	helper.AssertEqual("tenant-001", event3.GetTenantId(), "All events should belong to same tenant")
+	helper.AssertEqual(1, event1.GetTenantId(), "All events should belong to same tenant")
+	helper.AssertEqual(1, event2.GetTenantId(), "All events should belong to same tenant")
+	helper.AssertEqual(1, event3.GetTenantId(), "All events should belong to same tenant")
 }
 
 // TestIntegration_MultiTenantEventProcessing 测试多租户事件处理
 func TestIntegration_MultiTenantEventProcessing(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	tenants := []string{"tenant-001", "tenant-002", "tenant-003"}
+	tenants := []int{1, 2, 3}
 	eventsPerTenant := 10
 
 	var allEvents []*jxtevent.EnterpriseDomainEvent
@@ -112,7 +112,7 @@ func TestIntegration_MultiTenantEventProcessing(t *testing.T) {
 		for i := 0; i < eventsPerTenant; i++ {
 			event := helper.CreateEnterpriseDomainEvent(
 				"Order.Created",
-				"order-"+tenantID+"-"+string(rune(i)),
+				"order-"+string(rune('0'+tenantID))+"-"+string(rune('0'+i)),
 				"Order",
 				nil,
 			)
@@ -167,7 +167,7 @@ func TestIntegration_ConcurrentEventCreationAndValidation(t *testing.T) {
 					"Test",
 					payload,
 				)
-				event.SetTenantId("tenant-" + string(rune(idx)))
+				event.SetTenantId(idx)
 
 				// 序列化 Payload
 				payloadBytes, err := jxtevent.MarshalPayload(payload)
@@ -320,7 +320,7 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 	helper.AssertError(err, "Should handle nil envelope error")
 
 	// 测试 nil event 的错误处理
-	envelope := helper.CreateEnvelope("Test.Event", "test-123", "", []byte("{}"))
+	envelope := helper.CreateEnvelope("Test.Event", "test-123", 0, []byte("{}"))
 	err = jxtevent.ValidateConsistency(envelope, nil)
 	helper.AssertError(err, "Should handle nil event error")
 
@@ -334,7 +334,7 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 func TestIntegration_RealWorldScenario_OrderProcessing(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	tenantID := "tenant-acme-corp"
+	tenantID := 1
 	correlationID := "order-processing-workflow-12345"
 	traceID := "trace-abc-def-123"
 

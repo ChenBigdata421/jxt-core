@@ -22,7 +22,7 @@ func TestEnterpriseDomainEvent_BasicSerialization(t *testing.T) {
 	// 创建事件
 	payload := helper.CreateTestPayload()
 	event := helper.CreateEnterpriseDomainEvent("Media.Uploaded", "media-123", "Media", payload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化
 	bytes, err := jxtevent.MarshalDomainEvent(event)
@@ -35,7 +35,7 @@ func TestEnterpriseDomainEvent_BasicSerialization(t *testing.T) {
 	helper.AssertNoError(err, "Should be valid JSON")
 	helper.AssertEqual("Media.Uploaded", jsonMap["eventType"], "EventType should be serialized")
 	helper.AssertEqual("media-123", jsonMap["aggregateId"], "AggregateId should be serialized")
-	helper.AssertEqual("tenant-001", jsonMap["tenantId"], "TenantId should be serialized")
+	helper.AssertEqual(float64(1), jsonMap["tenantId"], "TenantId should be serialized")
 }
 
 // TestEnterpriseDomainEvent_BasicDeserialization 测试基本反序列化
@@ -45,7 +45,7 @@ func TestEnterpriseDomainEvent_BasicDeserialization(t *testing.T) {
 	// 创建并序列化事件
 	payload := helper.CreateTestPayload()
 	originalEvent := helper.CreateEnterpriseDomainEvent("Media.Uploaded", "media-123", "Media", payload)
-	originalEvent.SetTenantId("tenant-001")
+	originalEvent.SetTenantId(1)
 
 	bytes, err := jxtevent.MarshalDomainEvent(originalEvent)
 	helper.AssertNoError(err, "MarshalDomainEvent should succeed")
@@ -68,7 +68,7 @@ func TestEnterpriseDomainEvent_AllEnterpriseFieldsSerialization(t *testing.T) {
 
 	// 创建事件并设置所有企业级字段
 	event := helper.CreateEnterpriseDomainEvent("Order.Created", "order-123", "Order", nil)
-	event.SetTenantId("tenant-acme")
+	event.SetTenantId(1)
 	event.SetCorrelationId("correlation-xyz")
 	event.SetCausationId("causation-abc")
 	event.SetTraceId("trace-def")
@@ -82,7 +82,7 @@ func TestEnterpriseDomainEvent_AllEnterpriseFieldsSerialization(t *testing.T) {
 	helper.AssertNoError(err, "UnmarshalDomainEvent should succeed")
 
 	// 验证所有企业级字段
-	helper.AssertEqual("tenant-acme", deserializedEvent.GetTenantId(), "TenantId should match")
+	helper.AssertEqual(1, deserializedEvent.GetTenantId(), "TenantId should match")
 	helper.AssertEqual("correlation-xyz", deserializedEvent.GetCorrelationId(), "CorrelationId should match")
 	helper.AssertEqual("causation-abc", deserializedEvent.GetCausationId(), "CausationId should match")
 	helper.AssertEqual("trace-def", deserializedEvent.GetTraceId(), "TraceId should match")
@@ -95,7 +95,7 @@ func TestEnterpriseDomainEvent_PayloadSerialization(t *testing.T) {
 	// 创建带复杂 Payload 的事件
 	payload := helper.CreateComplexPayload()
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", payload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化
 	bytes, err := jxtevent.MarshalDomainEvent(event)
@@ -119,7 +119,7 @@ func TestEnterpriseDomainEvent_JSONFieldNames(t *testing.T) {
 
 	// 创建事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 	event.SetCorrelationId("corr-123")
 
 	// 序列化
@@ -144,7 +144,7 @@ func TestEnterpriseDomainEvent_EmptyOptionalFields(t *testing.T) {
 
 	// 创建事件，不设置可选字段
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 	// CorrelationId, CausationId, TraceId 保持为空
 
 	// 序列化
@@ -167,7 +167,7 @@ func TestEnterpriseDomainEvent_OmitEmptyFields(t *testing.T) {
 
 	// 创建事件，不设置可选字段
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化
 	bytes, err := jxtevent.MarshalDomainEvent(event)
@@ -188,7 +188,7 @@ func TestEnterpriseDomainEvent_RoundTripSerialization(t *testing.T) {
 	// 创建原始事件
 	payload := helper.CreateTestPayload()
 	originalEvent := helper.CreateEnterpriseDomainEvent("Archive.Created", "archive-123", "Archive", payload)
-	originalEvent.SetTenantId("tenant-001")
+	originalEvent.SetTenantId(1)
 	originalEvent.SetCorrelationId("workflow-123")
 	originalEvent.SetCausationId("trigger-456")
 	originalEvent.SetTraceId("trace-789")
@@ -224,7 +224,7 @@ func TestEnterpriseDomainEvent_StringSerialization(t *testing.T) {
 
 	// 创建事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化为字符串
 	jsonStr, err := jxtevent.MarshalDomainEventToString(event)
@@ -266,7 +266,7 @@ func TestEnterpriseDomainEvent_NilPayloadSerialization(t *testing.T) {
 
 	// 创建没有 Payload 的事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化
 	bytes, err := jxtevent.MarshalDomainEvent(event)
@@ -297,7 +297,7 @@ func TestEnterpriseDomainEvent_ConcurrentSerialization(t *testing.T) {
 			for j := 0; j < iterations; j++ {
 				// 创建事件
 				event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-				event.SetTenantId("tenant-001")
+				event.SetTenantId(1)
 
 				// 序列化
 				bytes, err := jxtevent.MarshalDomainEvent(event)
@@ -320,7 +320,7 @@ func TestEnterpriseDomainEvent_PerformanceBenchmark(t *testing.T) {
 	// 创建事件
 	payload := helper.CreateTestPayload()
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", payload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 	event.SetCorrelationId("correlation-123")
 	event.SetTraceId("trace-456")
 
@@ -375,7 +375,7 @@ func TestEnterpriseDomainEvent_LargePayloadSerialization(t *testing.T) {
 
 	// 创建事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", largePayload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化
 	start := time.Now()
@@ -415,7 +415,7 @@ func TestEnterpriseDomainEvent_SpecialCharactersSerialization(t *testing.T) {
 
 	// 创建事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", payload)
-	event.SetTenantId("tenant-中文")
+	event.SetTenantId(1)
 	event.SetCorrelationId("correlation-😀")
 
 	// 序列化
@@ -427,7 +427,7 @@ func TestEnterpriseDomainEvent_SpecialCharactersSerialization(t *testing.T) {
 	helper.AssertNoError(err, "Special characters deserialization should succeed")
 
 	// 验证特殊字符保持不变
-	helper.AssertEqual("tenant-中文", deserializedEvent.GetTenantId(), "Chinese characters should be preserved")
+	helper.AssertEqual(1, deserializedEvent.GetTenantId(), "TenantId should match")
 	helper.AssertEqual("correlation-😀", deserializedEvent.GetCorrelationId(), "Emoji should be preserved")
 }
 
@@ -450,7 +450,7 @@ func TestEnterpriseDomainEvent_NestedStructureSerialization(t *testing.T) {
 
 	// 创建事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nestedPayload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化
 	bytes, err := jxtevent.MarshalDomainEvent(event)
@@ -477,7 +477,7 @@ func TestEnterpriseDomainEvent_ArrayPayloadSerialization(t *testing.T) {
 
 	// 创建事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", arrayPayload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 序列化
 	bytes, err := jxtevent.MarshalDomainEvent(event)
@@ -498,7 +498,7 @@ func TestEnterpriseDomainEvent_JSONCompatibility(t *testing.T) {
 	// 创建事件
 	payload := helper.CreateTestPayload()
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", payload)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 使用 jxtevent 序列化
 	jxtBytes, err := jxtevent.MarshalDomainEvent(event)
@@ -532,7 +532,7 @@ func TestEnterpriseDomainEvent_UnifiedJSONUsage(t *testing.T) {
 
 	// 创建事件
 	event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-	event.SetTenantId("tenant-001")
+	event.SetTenantId(1)
 
 	// 使用 jxtjson 序列化
 	bytes, err := jxtjson.Marshal(event)
@@ -573,7 +573,7 @@ func TestEnterpriseDomainEvent_MultiTenantSerialization(t *testing.T) {
 	events := make([]*jxtevent.EnterpriseDomainEvent, 0, 10)
 	for i := 0; i < 10; i++ {
 		event := helper.CreateEnterpriseDomainEvent("Test.Event", "test-123", "Test", nil)
-		event.SetTenantId("tenant-" + string(rune('0'+i)))
+		event.SetTenantId(i)
 		events = append(events, event)
 	}
 
@@ -589,7 +589,6 @@ func TestEnterpriseDomainEvent_MultiTenantSerialization(t *testing.T) {
 	for i, bytes := range serializedEvents {
 		deserializedEvent, err := jxtevent.UnmarshalDomainEvent[*jxtevent.EnterpriseDomainEvent](bytes)
 		helper.AssertNoError(err, "Deserialization should succeed")
-		expectedTenantId := "tenant-" + string(rune('0'+i))
-		helper.AssertEqual(expectedTenantId, deserializedEvent.GetTenantId(), "TenantId should match")
+		helper.AssertEqual(i, deserializedEvent.GetTenantId(), "TenantId should match")
 	}
 }
