@@ -161,20 +161,20 @@ func (m *MockEventBus) SubscribeEnvelope(ctx context.Context, topic string, hand
 }
 
 // ========== 多租户 ACK 支持 ==========
-func (m *MockEventBus) RegisterTenant(tenantID string, bufferSize int) error {
+func (m *MockEventBus) RegisterTenant(tenantID int, bufferSize int) error {
 	return nil
 }
 
-func (m *MockEventBus) UnregisterTenant(tenantID string) error {
+func (m *MockEventBus) UnregisterTenant(tenantID int) error {
 	return nil
 }
 
-func (m *MockEventBus) GetTenantPublishResultChannel(tenantID string) <-chan *eventbus.PublishResult {
+func (m *MockEventBus) GetTenantPublishResultChannel(tenantID int) <-chan *eventbus.PublishResult {
 	return m.resultChan
 }
 
-func (m *MockEventBus) GetRegisteredTenants() []string {
-	return []string{}
+func (m *MockEventBus) GetRegisteredTenants() []int {
+	return []int{}
 }
 
 // ========== 测试用例 ==========

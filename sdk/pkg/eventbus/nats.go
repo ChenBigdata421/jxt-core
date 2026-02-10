@@ -115,8 +115,8 @@ type natsEventBus struct {
 	enablePublishResult bool
 
 	// 多租户 ACK 通道支持
-	tenantPublishResultChans map[string]chan *PublishResult // key: tenantID, value: ACK channel
-	tenantChannelsMu         sync.RWMutex                   // 保护 tenantPublishResultChans 的读写锁
+	tenantPublishResultChans map[int]chan *PublishResult // key: tenantID, value: ACK channel
+	tenantChannelsMu         sync.RWMutex                // 保护 tenantPublishResultChans 的读写锁
 
 	// ✅ 方案2：共享 ACK 处理器（避免 per-message goroutine）
 	ackChan        chan *ackTask  // ACK 任务通道
@@ -132,7 +132,7 @@ type ackTask struct {
 	topic       string
 	aggregateID string
 	eventType   string
-	tenantID    string // 租户ID（多租户支持，用于Outbox ACK路由）
+	tenantID    int // 租户ID（多租户支持，用于Outbox ACK路由）
 }
 
 // NewNATSEventBus 创建NATS JetStream事件总线
@@ -2375,7 +2375,7 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 			topic:       topic,
 			aggregateID: envelope.AggregateID,
 			eventType:   envelope.EventType,
-			tenantID:    fmt.Sprintf("%d", envelope.TenantID), // ← 租户ID（多租户支持，用于Outbox ACK路由）
+			tenantID:    envelope.TenantID, // ← 租户ID（多租户支持，用于Outbox ACK路由）
 		}
 
 		select {
@@ -3357,7 +3357,7 @@ func (n *natsEventBus) processACKTask(task *ackTask) {
 // sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
 func (n *natsEventBus) sendResultToChannel(result *PublishResult) {
 	// 优先发送到租户专属通道
-	if result.TenantID != "" {
+	if result.TenantID != 0 {
 		n.tenantChannelsMu.RLock()
 		tenantChan, exists := n.tenantPublishResultChans[result.TenantID]
 		n.tenantChannelsMu.RUnlock()
@@ -3370,14 +3370,14 @@ func (n *natsEventBus) sendResultToChannel(result *PublishResult) {
 			default:
 				// 租户通道满，记录警告
 				n.logger.Warn("Tenant ACK channel full, falling back to global channel",
-					zap.String("tenantID", result.TenantID),
+					zap.Int("tenantID", result.TenantID),
 					zap.String("eventID", result.EventID),
 					zap.String("topic", result.Topic))
 			}
 		} else {
 			// 租户未注册，记录警告
 			n.logger.Warn("Tenant not registered, falling back to global channel",
-				zap.String("tenantID", result.TenantID),
+				zap.Int("tenantID", result.TenantID),
 				zap.String("eventID", result.EventID))
 		}
 	}
@@ -3389,7 +3389,7 @@ func (n *natsEventBus) sendResultToChannel(result *PublishResult) {
 	default:
 		// 全局通道也满，记录错误
 		n.logger.Error("Both tenant and global ACK channels full, dropping result",
-			zap.String("tenantID", result.TenantID),
+			zap.Int("tenantID", result.TenantID),
 			zap.String("eventID", result.EventID),
 			zap.String("topic", result.Topic),
 			zap.Bool("success", result.Success))
@@ -3397,9 +3397,9 @@ func (n *natsEventBus) sendResultToChannel(result *PublishResult) {
 }
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
-func (n *natsEventBus) RegisterTenant(tenantID string, bufferSize int) error {
-	if tenantID == "" {
-		return fmt.Errorf("tenantID cannot be empty")
+func (n *natsEventBus) RegisterTenant(tenantID int, bufferSize int) error {
+	if tenantID == 0 {
+		return fmt.Errorf("tenantID cannot be zero")
 	}
 
 	if bufferSize <= 0 {
@@ -3411,28 +3411,28 @@ func (n *natsEventBus) RegisterTenant(tenantID string, bufferSize int) error {
 
 	// 延迟初始化 map
 	if n.tenantPublishResultChans == nil {
-		n.tenantPublishResultChans = make(map[string]chan *PublishResult)
+		n.tenantPublishResultChans = make(map[int]chan *PublishResult)
 	}
 
 	// 检查租户是否已注册
 	if _, exists := n.tenantPublishResultChans[tenantID]; exists {
-		return fmt.Errorf("tenant %s already registered", tenantID)
+		return fmt.Errorf("tenant %d already registered", tenantID)
 	}
 
 	// 创建租户专属 ACK Channel
 	n.tenantPublishResultChans[tenantID] = make(chan *PublishResult, bufferSize)
 
 	n.logger.Info("Tenant ACK channel registered",
-		zap.String("tenantID", tenantID),
+		zap.Int("tenantID", tenantID),
 		zap.Int("bufferSize", bufferSize))
 
 	return nil
 }
 
 // UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
-func (n *natsEventBus) UnregisterTenant(tenantID string) error {
-	if tenantID == "" {
-		return fmt.Errorf("tenantID cannot be empty")
+func (n *natsEventBus) UnregisterTenant(tenantID int) error {
+	if tenantID == 0 {
+		return fmt.Errorf("tenantID cannot be zero")
 	}
 
 	n.tenantChannelsMu.Lock()
@@ -3441,7 +3441,7 @@ func (n *natsEventBus) UnregisterTenant(tenantID string) error {
 	// 检查租户是否已注册
 	ch, exists := n.tenantPublishResultChans[tenantID]
 	if !exists {
-		return fmt.Errorf("tenant %s not registered", tenantID)
+		return fmt.Errorf("tenant %d not registered", tenantID)
 	}
 
 	// 关闭并删除租户 Channel
@@ -3449,14 +3449,14 @@ func (n *natsEventBus) UnregisterTenant(tenantID string) error {
 	delete(n.tenantPublishResultChans, tenantID)
 
 	n.logger.Info("Tenant ACK channel unregistered",
-		zap.String("tenantID", tenantID))
+		zap.Int("tenantID", tenantID))
 
 	return nil
 }
 
 // GetTenantPublishResultChannel 获取租户专属的异步发布结果通道
-func (n *natsEventBus) GetTenantPublishResultChannel(tenantID string) <-chan *PublishResult {
-	if tenantID == "" {
+func (n *natsEventBus) GetTenantPublishResultChannel(tenantID int) <-chan *PublishResult {
+	if tenantID == 0 {
 		// 返回全局通道（向后兼容）
 		return n.publishResultChan
 	}
@@ -3470,16 +3470,16 @@ func (n *natsEventBus) GetTenantPublishResultChannel(tenantID string) <-chan *Pu
 
 	// 租户未注册，返回 nil
 	n.logger.Warn("Tenant not registered, returning nil channel",
-		zap.String("tenantID", tenantID))
+		zap.Int("tenantID", tenantID))
 	return nil
 }
 
 // GetRegisteredTenants 获取所有已注册的租户ID列表
-func (n *natsEventBus) GetRegisteredTenants() []string {
+func (n *natsEventBus) GetRegisteredTenants() []int {
 	n.tenantChannelsMu.RLock()
 	defer n.tenantChannelsMu.RUnlock()
 
-	tenants := make([]string, 0, len(n.tenantPublishResultChans))
+	tenants := make([]int, 0, len(n.tenantPublishResultChans))
 	for tenantID := range n.tenantPublishResultChans {
 		tenants = append(tenants, tenantID)
 	}

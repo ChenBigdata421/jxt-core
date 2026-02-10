@@ -32,6 +32,7 @@ type EventBusEnvelope struct {
 	Timestamp     string `json:"timestamp"`
 	TraceID       string `json:"trace_id,omitempty"`
 	CorrelationID string `json:"correlation_id,omitempty"`
+	TenantID      int    `json:"tenant_id,omitempty"`
 }
 
 // EventBusPublishResult EventBus 发布结果（与 eventbus.PublishResult 兼容）
@@ -43,6 +44,7 @@ type EventBusPublishResult struct {
 	Timestamp   string
 	AggregateID string
 	EventType   string
+	TenantID    int
 }
 
 // EventBusAdapter EventBus 适配器
@@ -193,7 +195,7 @@ func (s *OutboxService) PublishEvent(ctx context.Context, event *outbox.OutboxEv
 }
 
 // PublishPendingEvents 发布待发布的事件
-func (s *OutboxService) PublishPendingEvents(ctx context.Context, limit int, tenantID string) (int, error) {
+func (s *OutboxService) PublishPendingEvents(ctx context.Context, limit int, tenantID int) (int, error) {
 	// 批量发布待发布的事件
 	// ✅ 查询待发布的事件
 	// ✅ 批量发布到 EventBus
@@ -249,7 +251,7 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			count, err := service.PublishPendingEvents(ctx, 100, "")
+			count, err := service.PublishPendingEvents(ctx, 100, 0)
 			if err != nil {
 				log.Printf("Failed to publish pending events: %v", err)
 			} else if count > 0 {

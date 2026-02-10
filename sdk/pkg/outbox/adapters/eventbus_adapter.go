@@ -2,7 +2,6 @@ package adapters
 
 import (
 	"context"
-	"strconv"
 	"sync"
 	"time"
 
@@ -121,13 +120,13 @@ func (a *EventBusAdapter) GetPublishResultChannel() <-chan *outbox.PublishResult
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
 // 委托给底层 EventBus 实现
-func (a *EventBusAdapter) RegisterTenant(tenantID string, bufferSize int) error {
+func (a *EventBusAdapter) RegisterTenant(tenantID int, bufferSize int) error {
 	return a.eventBus.RegisterTenant(tenantID, bufferSize)
 }
 
 // UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
 // 委托给底层 EventBus 实现
-func (a *EventBusAdapter) UnregisterTenant(tenantID string) error {
+func (a *EventBusAdapter) UnregisterTenant(tenantID int) error {
 	return a.eventBus.UnregisterTenant(tenantID)
 }
 
@@ -136,7 +135,7 @@ func (a *EventBusAdapter) UnregisterTenant(tenantID string) error {
 //
 // 注意：此方法返回的是 EventBus 的租户通道，需要调用者自行转换类型
 // 推荐使用 CreateTenantResultChannel() 方法，它会自动创建转换通道
-func (a *EventBusAdapter) GetTenantPublishResultChannel(tenantID string) <-chan *outbox.PublishResult {
+func (a *EventBusAdapter) GetTenantPublishResultChannel(tenantID int) <-chan *outbox.PublishResult {
 	// 获取 EventBus 的租户专属通道
 	eventBusResultChan := a.eventBus.GetTenantPublishResultChannel(tenantID)
 	if eventBusResultChan == nil {
@@ -154,7 +153,7 @@ func (a *EventBusAdapter) GetTenantPublishResultChannel(tenantID string) <-chan 
 
 // GetRegisteredTenants 获取所有已注册的租户ID列表
 // 委托给底层 EventBus 实现
-func (a *EventBusAdapter) GetRegisteredTenants() []string {
+func (a *EventBusAdapter) GetRegisteredTenants() []int {
 	return a.eventBus.GetRegisteredTenants()
 }
 
@@ -270,16 +269,6 @@ func (a *EventBusAdapter) resultConversionLoop() {
 
 // toEventBusEnvelope 转换 Outbox Envelope 为 EventBus Envelope
 func (a *EventBusAdapter) toEventBusEnvelope(envelope *outbox.Envelope) *eventbus.Envelope {
-	// 转换 TenantID: string → int
-	// 空字符串或"0" → 0，其他 → atoi 解析
-	tenantID := 0
-	if envelope.TenantID != "" {
-		if id, err := strconv.Atoi(envelope.TenantID); err == nil {
-			tenantID = id
-		}
-		// 如果转换失败，保持为 0
-	}
-
 	return &eventbus.Envelope{
 		EventID:       envelope.EventID,
 		AggregateID:   envelope.AggregateID,
@@ -288,7 +277,7 @@ func (a *EventBusAdapter) toEventBusEnvelope(envelope *outbox.Envelope) *eventbu
 		Timestamp:     envelope.Timestamp,
 		TraceID:       envelope.TraceID,
 		CorrelationID: envelope.CorrelationID,
-		TenantID:      tenantID, // ✅ 传递租户ID (string → int 转换)
+		TenantID:      envelope.TenantID, // ✅ 传递租户ID (int)
 		Payload:       jxtjson.RawMessage(envelope.Payload),
 	}
 }
