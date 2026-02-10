@@ -13,7 +13,7 @@ import (
 func TestBasic_UUIDGeneration(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证 UUID 已生成
 	helper.AssertNotEmpty(event.ID, "UUID should be generated")
@@ -30,7 +30,7 @@ func TestBasic_UUIDUniqueness(t *testing.T) {
 	uuids := make(map[string]bool, count)
 
 	for i := 0; i < count; i++ {
-		event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+		event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 		uuids[event.ID] = true
 	}
 
@@ -56,7 +56,7 @@ func TestBasic_UUIDConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < eventsPerGoroutine; j++ {
-				event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+				event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 				mu.Lock()
 				uuids[event.ID] = true
 				mu.Unlock()
@@ -74,13 +74,13 @@ func TestBasic_UUIDConcurrent(t *testing.T) {
 func TestBasic_IdempotencyKeyGeneration(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证幂等性键已生成
 	helper.AssertNotEmpty(event.IdempotencyKey, "IdempotencyKey should be generated")
 
 	// 验证幂等性键包含所有必要字段
-	helper.AssertContains(event.IdempotencyKey, "tenant1", "Should contain tenant ID")
+	helper.AssertContains(event.IdempotencyKey, "1", "Should contain tenant ID")
 	helper.AssertContains(event.IdempotencyKey, "Order", "Should contain aggregate type")
 	helper.AssertContains(event.IdempotencyKey, "order-123", "Should contain aggregate ID")
 	helper.AssertContains(event.IdempotencyKey, "OrderCreated", "Should contain event type")
@@ -91,9 +91,9 @@ func TestBasic_IdempotencyKeyGeneration(t *testing.T) {
 func TestBasic_IdempotencyKeyUniqueness(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event1 := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
-	event2 := helper.CreateTestEvent("tenant1", "Order", "order-456", "OrderCreated")
-	event3 := helper.CreateTestEvent("tenant2", "Order", "order-123", "OrderCreated")
+	event1 := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
+	event2 := helper.CreateTestEvent(1, "Order", "order-456", "OrderCreated")
+	event3 := helper.CreateTestEvent(2, "Order", "order-123", "OrderCreated")
 
 	// 验证不同事件的幂等性键不同
 	helper.AssertNotEqual(event1.IdempotencyKey, event2.IdempotencyKey, "Different aggregate IDs should have different keys")
@@ -104,7 +104,7 @@ func TestBasic_IdempotencyKeyUniqueness(t *testing.T) {
 func TestBasic_EventInitialState(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证初始状态
 	helper.AssertEqual(outbox.EventStatusPending, event.Status, "Initial status should be Pending")
@@ -119,7 +119,7 @@ func TestBasic_EventInitialState(t *testing.T) {
 func TestBasic_EventStatusTransitions(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	now := time.Now()
 
 	// 初始状态：Pending
@@ -161,7 +161,7 @@ func TestBasic_EventTimestamps(t *testing.T) {
 	helper := NewTestHelper(t)
 
 	before := time.Now()
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 	after := time.Now()
 
 	// 验证创建时间
@@ -179,7 +179,7 @@ func TestBasic_EventTimestamps(t *testing.T) {
 func TestBasic_EventScheduledPublish(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 设置延迟发布时间
 	scheduledTime := time.Now().Add(1 * time.Hour)
@@ -194,7 +194,7 @@ func TestBasic_EventScheduledPublish(t *testing.T) {
 func TestBasic_EventErrorTracking(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 模拟发布失败
 	testErr := context.DeadlineExceeded
@@ -211,7 +211,7 @@ func TestBasic_EventErrorTracking(t *testing.T) {
 func TestBasic_EventVersionTracking(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 验证版本字段（Version 是 int64 类型）
 	helper.AssertEqual(int64(1), event.Version, "Default version should be 1")
@@ -221,7 +221,7 @@ func TestBasic_EventVersionTracking(t *testing.T) {
 func TestBasic_EventTraceAndCorrelation(t *testing.T) {
 	helper := NewTestHelper(t)
 
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 设置追踪和关联 ID
 	event.TraceID = "trace-123"
@@ -252,7 +252,7 @@ func TestBasic_PublishSuccess(t *testing.T) {
 	defer outboxPublisher.StopACKListener()
 
 	// 创建事件
-	event := helper.CreateTestEvent("tenant1", "Order", "order-123", "OrderCreated")
+	event := helper.CreateTestEvent(1, "Order", "order-123", "OrderCreated")
 
 	// 保存事件到仓储
 	err := repo.Save(ctx, event)
