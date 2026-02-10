@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -269,6 +270,16 @@ func (a *EventBusAdapter) resultConversionLoop() {
 
 // toEventBusEnvelope 转换 Outbox Envelope 为 EventBus Envelope
 func (a *EventBusAdapter) toEventBusEnvelope(envelope *outbox.Envelope) *eventbus.Envelope {
+	// 转换 TenantID: string → int
+	// 空字符串或"0" → 0，其他 → atoi 解析
+	tenantID := 0
+	if envelope.TenantID != "" {
+		if id, err := strconv.Atoi(envelope.TenantID); err == nil {
+			tenantID = id
+		}
+		// 如果转换失败，保持为 0
+	}
+
 	return &eventbus.Envelope{
 		EventID:       envelope.EventID,
 		AggregateID:   envelope.AggregateID,
@@ -277,7 +288,7 @@ func (a *EventBusAdapter) toEventBusEnvelope(envelope *outbox.Envelope) *eventbu
 		Timestamp:     envelope.Timestamp,
 		TraceID:       envelope.TraceID,
 		CorrelationID: envelope.CorrelationID,
-		TenantID:      envelope.TenantID, // ✅ 传递租户ID
+		TenantID:      tenantID, // ✅ 传递租户ID (string → int 转换)
 		Payload:       jxtjson.RawMessage(envelope.Payload),
 	}
 }
