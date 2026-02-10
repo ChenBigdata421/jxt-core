@@ -1009,7 +1009,7 @@ func (m *eventBusManager) PublishEnvelope(ctx context.Context, topic string, env
 			Timestamp:   time.Now(),
 			AggregateID: envelope.AggregateID,
 			EventType:   envelope.EventType,
-			TenantID:    envelope.TenantID,
+			TenantID:    fmt.Sprintf("%d", envelope.TenantID),
 		}
 
 		// 异步发送到租户专属通道或全局通道

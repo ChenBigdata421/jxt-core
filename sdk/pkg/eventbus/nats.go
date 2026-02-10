@@ -2375,7 +2375,7 @@ func (n *natsEventBus) PublishEnvelope(ctx context.Context, topic string, envelo
 			topic:       topic,
 			aggregateID: envelope.AggregateID,
 			eventType:   envelope.EventType,
-			tenantID:    envelope.TenantID, // ← 租户ID（多租户支持，用于Outbox ACK路由）
+			tenantID:    fmt.Sprintf("%d", envelope.TenantID), // ← 租户ID（多租户支持，用于Outbox ACK路由）
 		}
 
 		select {
