@@ -55,7 +55,7 @@ func TestOutbox_PayloadContainsFullDomainEvent(t *testing.T) {
 		"createdBy": "user-001",
 	}
 	domainEvent := jxtevent.NewEnterpriseDomainEvent("ArchiveCreated", "archive-123", "Archive", payload)
-	domainEvent.SetTenantId("tenant-001")
+	domainEvent.SetTenantId(1)
 	domainEvent.SetTraceId("trace-123")
 	domainEvent.SetCorrelationId("corr-456")
 
@@ -79,7 +79,7 @@ func TestOutbox_PayloadContainsFullDomainEvent(t *testing.T) {
 	helper.AssertEqual("ArchiveCreated", decodedEvent.EventType, "EventType should match")
 	helper.AssertEqual("archive-123", decodedEvent.AggregateID, "AggregateID should match")
 	helper.AssertEqual("Archive", decodedEvent.AggregateType, "AggregateType should match")
-	helper.AssertEqual("tenant-001", decodedEvent.GetTenantId(), "TenantId should match")
+	helper.AssertEqual(1, decodedEvent.GetTenantId(), "TenantId should match")
 	helper.AssertEqual("trace-123", decodedEvent.GetTraceId(), "TraceId should match")
 	helper.AssertEqual("corr-456", decodedEvent.GetCorrelationId(), "CorrelationId should match")
 
