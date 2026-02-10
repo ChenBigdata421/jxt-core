@@ -2528,13 +2528,13 @@ type Envelope struct {
     TraceID       string            `json:"trace_id,omitempty"`       // 链路追踪ID
     CorrelationID string            `json:"correlation_id,omitempty"` // 关联ID
 
-    // ========== 多租户支持（方案 B）==========
-    TenantID      string            `json:"tenant_id,omitempty"`      // 租户ID（多租户场景必填，单租户使用 "*"）
+    // ========== 多租户支持 ==========
+    TenantID      int              `json:"tenant_id,omitempty"`      // 租户ID（类型：int）
     // ✅ 用于租户专属 ACK Channel 路由
     // ✅ EventBus 根据此字段自动路由 ACK 到对应租户的 Channel
-    // ✅ 多租户场景：设置为租户标识（如 "tenant-001"）
-    // ✅ 单租户场景：设置为 "*"（默认租户）
-    // ⚠️ 如果为空，ACK 会发送到全局 Channel（向后兼容）
+    // ✅ 多租户场景：设置为租户ID（如 1, 2, 3）
+    // ✅ 单租户/系统级：设置为 0（默认）
+    // ⚠️ 与 EnterpriseDomainEvent.TenantId 类型一致，避免类型转换
 }
 
 // 创建新的Envelope

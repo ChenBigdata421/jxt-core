@@ -42,10 +42,15 @@ event := jxtevent.NewBaseDomainEvent(
 在 BaseDomainEvent 基础上增加企业级通用字段，适用于多租户 SaaS 系统和企业级应用。
 
 **额外字段：**
-- `TenantId`: 租户ID（默认为 "*"，表示全局租户）
+- `TenantId`: 租户ID（类型：int，默认为 0 表示全局/无租户）
 - `CorrelationId`: 业务关联ID（用于业务流程追踪）
 - `CausationId`: 因果事件ID（用于事件因果链分析）
 - `TraceId`: 分布式追踪ID（集成分布式追踪系统）
+
+**TenantId 类型说明：**
+- `0`: 表示系统级/无租户事件
+- `1, 2, 3, ...`: 表示具体租户ID
+- 与租户中间件类型一致，避免类型转换
 
 **使用示例：**
 
