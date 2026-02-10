@@ -69,7 +69,7 @@ func (r *GormOutboxRepository) RollbackTx(tx interface{}) error {
 }
 
 // FindPendingEvents 查找待发布的事件
-func (r *GormOutboxRepository) FindPendingEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (r *GormOutboxRepository) FindPendingEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var models []*OutboxEventModel
 
 	query := r.db.WithContext(ctx).
@@ -78,7 +78,7 @@ func (r *GormOutboxRepository) FindPendingEvents(ctx context.Context, limit int,
 		Limit(limit)
 
 	// 如果指定了租户 ID，添加租户过滤
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -102,12 +102,12 @@ func (r *GormOutboxRepository) FindByID(ctx context.Context, id string) (*outbox
 }
 
 // FindByAggregateID 根据聚合根 ID 查找事件
-func (r *GormOutboxRepository) FindByAggregateID(ctx context.Context, aggregateID string, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (r *GormOutboxRepository) FindByAggregateID(ctx context.Context, aggregateID string, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var models []*OutboxEventModel
 
 	query := r.db.WithContext(ctx).Where("aggregate_id = ?", aggregateID)
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -119,7 +119,7 @@ func (r *GormOutboxRepository) FindByAggregateID(ctx context.Context, aggregateI
 }
 
 // FindPendingEventsWithDelay 查找创建时间超过指定延迟的待发布事件
-func (r *GormOutboxRepository) FindPendingEventsWithDelay(ctx context.Context, tenantID string, delaySeconds int, limit int) ([]*outbox.OutboxEvent, error) {
+func (r *GormOutboxRepository) FindPendingEventsWithDelay(ctx context.Context, tenantID int, delaySeconds int, limit int) ([]*outbox.OutboxEvent, error) {
 	var models []*OutboxEventModel
 
 	// 计算延迟时间点
@@ -131,7 +131,7 @@ func (r *GormOutboxRepository) FindPendingEventsWithDelay(ctx context.Context, t
 		Order("created_at ASC").
 		Limit(limit)
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -272,12 +272,12 @@ func (r *GormOutboxRepository) DeleteBatch(ctx context.Context, ids []string) er
 }
 
 // DeletePublishedBefore 删除指定时间之前已发布的事件
-func (r *GormOutboxRepository) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error) {
+func (r *GormOutboxRepository) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	query := r.db.WithContext(ctx).
 		Where("status = ?", outbox.EventStatusPublished).
 		Where("published_at < ?", before)
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -286,12 +286,12 @@ func (r *GormOutboxRepository) DeletePublishedBefore(ctx context.Context, before
 }
 
 // DeleteFailedBefore 删除指定时间之前失败的事件
-func (r *GormOutboxRepository) DeleteFailedBefore(ctx context.Context, before time.Time, tenantID string) (int64, error) {
+func (r *GormOutboxRepository) DeleteFailedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	query := r.db.WithContext(ctx).
 		Where("status = ?", outbox.EventStatusFailed).
 		Where("updated_at < ?", before)
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -300,7 +300,7 @@ func (r *GormOutboxRepository) DeleteFailedBefore(ctx context.Context, before ti
 }
 
 // Count 统计事件数量
-func (r *GormOutboxRepository) Count(ctx context.Context, status outbox.EventStatus, tenantID string) (int64, error) {
+func (r *GormOutboxRepository) Count(ctx context.Context, status outbox.EventStatus, tenantID int) (int64, error) {
 	var count int64
 
 	query := r.db.WithContext(ctx).Model(&OutboxEventModel{})
@@ -309,7 +309,7 @@ func (r *GormOutboxRepository) Count(ctx context.Context, status outbox.EventSta
 		query = query.Where("status = ?", status)
 	}
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -321,7 +321,7 @@ func (r *GormOutboxRepository) Count(ctx context.Context, status outbox.EventSta
 }
 
 // CountByStatus 按状态统计事件数量
-func (r *GormOutboxRepository) CountByStatus(ctx context.Context, tenantID string) (map[outbox.EventStatus]int64, error) {
+func (r *GormOutboxRepository) CountByStatus(ctx context.Context, tenantID int) (map[outbox.EventStatus]int64, error) {
 	type StatusCount struct {
 		Status string
 		Count  int64
@@ -334,7 +334,7 @@ func (r *GormOutboxRepository) CountByStatus(ctx context.Context, tenantID strin
 		Select("status, COUNT(*) as count").
 		Group("status")
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -351,7 +351,7 @@ func (r *GormOutboxRepository) CountByStatus(ctx context.Context, tenantID strin
 }
 
 // GetStats 获取统计信息（实现 RepositoryStatsProvider 接口）
-func (r *GormOutboxRepository) GetStats(ctx context.Context, tenantID string) (*outbox.RepositoryStats, error) {
+func (r *GormOutboxRepository) GetStats(ctx context.Context, tenantID int) (*outbox.RepositoryStats, error) {
 	counts, err := r.CountByStatus(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -373,7 +373,7 @@ func (r *GormOutboxRepository) GetStats(ctx context.Context, tenantID string) (*
 		Order("created_at ASC").
 		Limit(1)
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
@@ -425,7 +425,7 @@ func (r *GormOutboxRepository) ExistsByIdempotencyKey(ctx context.Context, idemp
 }
 
 // FindMaxRetryEvents 查找超过最大重试次数的事件
-func (r *GormOutboxRepository) FindMaxRetryEvents(ctx context.Context, limit int, tenantID string) ([]*outbox.OutboxEvent, error) {
+func (r *GormOutboxRepository) FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var models []*OutboxEventModel
 
 	query := r.db.WithContext(ctx).
@@ -433,7 +433,7 @@ func (r *GormOutboxRepository) FindMaxRetryEvents(ctx context.Context, limit int
 		Order("created_at ASC").
 		Limit(limit)
 
-	if tenantID != "" {
+	if tenantID != 0 {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
 
