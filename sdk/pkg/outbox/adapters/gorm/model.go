@@ -14,7 +14,7 @@ type OutboxEventModel struct {
 	ID string `gorm:"type:char(36);primary_key;comment:事件ID"`
 
 	// TenantID 租户 ID
-	TenantID string `gorm:"type:varchar(36);not null;index:idx_tenant_status;comment:租户ID"`
+	TenantID int `gorm:"type:int;not null;index:idx_tenant_status;default:0;comment:租户ID"`
 
 	// AggregateID 聚合根 ID
 	AggregateID string `gorm:"type:varchar(255);not null;index:idx_aggregate;comment:聚合根ID"`
