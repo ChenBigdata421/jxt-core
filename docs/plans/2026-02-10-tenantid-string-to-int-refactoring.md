@@ -2,7 +2,7 @@
 
 **日期**: 2026-02-10
 **作者**: Claude Code
-**状态**: 设计阶段
+**状态**: 已完成 (2026-02-10)
 
 ## 1. 背景分析
 
@@ -227,6 +227,90 @@ func TestEnterpriseDomainEvent_TenantId(t *testing.T) {
 }
 ```
 
+### 3.5 Outbox 模块修改
+
+#### 3.5.1 OutboxEvent 修改
+
+**文件**: `sdk/pkg/outbox/event.go`
+
+```go
+// 修改前
+type OutboxEvent struct {
+    TenantID string
+}
+
+// 修改后
+type OutboxEvent struct {
+    TenantID int
+}
+```
+
+#### 3.5.2 OutboxRepository 接口修改
+
+所有方法的 `tenantID string` 参数改为 `tenantID int`:
+
+**文件**: `sdk/pkg/outbox/repository.go`
+
+```go
+type OutboxRepository interface {
+    Create(ctx context.Context, event *OutboxEvent) error
+    FindPendingEvents(ctx context.Context, tenantID int, limit int) ([]*OutboxEvent, error)
+    FindPendingEventsWithDelay(ctx context.Context, tenantID int, limit int) ([]*OutboxEvent, error)
+    FindByAggregateID(ctx context.Context, tenantID int, aggregateID string) ([]*OutboxEvent, error)
+    Update(ctx context.Context, event *OutboxEvent) error
+    DeletePublishedBefore(ctx context.Context, tenantID int, before time.Time) (int64, error)
+    DeleteFailedBefore(ctx context.Context, tenantID int, before time.Time) (int64, error)
+    Count(ctx context.Context, tenantID int) (int64, error)
+    CountByStatus(ctx context.Context, tenantID int, Status string) (int64, error)
+    FindMaxRetryEvents(ctx context.Context, tenantID int) ([]*OutboxEvent, error)
+    GetStats(ctx context.Context, tenantID int) (*OutboxStats, error)
+}
+```
+
+#### 3.5.3 EventPublisher Envelope 修改
+
+**文件**: `sdk/pkg/outbox/event_publisher.go`
+
+```go
+// 修改前
+type Envelope struct {
+    TenantID string `json:"tenant_id,omitempty"`
+}
+
+// 修改后
+type Envelope struct {
+    TenantID int `json:"tenant_id,omitempty"`
+}
+```
+
+#### 3.5.4 GORM Adapter 修改
+
+**文件**: `sdk/pkg/outbox/adapters/gorm/model.go`
+
+```go
+// 修改前
+type OutboxEventModel struct {
+    TenantID string `gorm:"type:varchar(255);not null;index:idx_tenant_id;column:tenant_id"`
+}
+
+// 修改后
+type OutboxEventModel struct {
+    TenantID int `gorm:"type:int;not null;index:idx_tenant_id;column:tenant_id;default:0"`
+}
+```
+
+#### 3.5.5 Publisher 修改
+
+**文件**: `sdk/pkg/outbox/publisher.go`
+
+```go
+// 修改前
+func (p *Publisher) PublishPendingEvents(ctx context.Context, tenantID string) error
+
+// 修改后
+func (p *Publisher) PublishPendingEvents(ctx context.Context, tenantID int) error
+```
+
 ## 4. JSON 序列化兼容性分析
 
 ### 4.1 JSON 格式变化
@@ -356,11 +440,31 @@ UPDATE outbox SET tenant_id = 0 WHERE tenant_id NOT REGEXP '^[0-9]+$';
 
 ## 8. 验证清单
 
-- [ ] jxt-core 所有测试通过
+### jxt-core 基础库
+- [x] `sdk/pkg/domain/event/event_interface.go` - EnterpriseEvent 接口 TenantId 类型改为 int
+- [x] `sdk/pkg/domain/event/enterprise_domain_event.go` - EnterpriseDomainEvent.TenantId 字段改为 int
+- [x] `sdk/pkg/domain/event/enterprise_domain_event_test.go` - 单元测试更新为 int 类型
+- [x] `sdk/pkg/domain/event/README.md` - 示例代码使用 int 类型
+
+### Outbox 模块
+- [x] `sdk/pkg/outbox/event.go` - OutboxEvent.TenantID 是 int
+- [x] `sdk/pkg/outbox/repository.go` - 所有接口方法 tenantID 参数是 int
+- [x] `sdk/pkg/outbox/adapters/gorm/model.go` - OutboxEventModel.TenantID 是 int
+- [x] `sdk/pkg/outbox/adapters/gorm/repository.go` - 实现方法 tenantID 参数是 int
+- [x] `sdk/pkg/outbox/event_publisher.go` - Envelope.TenantID 是 int
+- [x] `sdk/pkg/outbox/publisher.go` - PublishPendingEvents tenantID 参数是 int
+- [x] eventbus.Envelope.TenantID (int) 与 outbox.Envelope.TenantID (int) 类型一致
+
+### 测试验证
+- [x] 所有单元测试通过
+- [x] 所有回归测试通过
+- [x] Outbox 功能测试通过
+- [x] 领域事件序列化测试通过
+
+### 待完成 (其他服务)
 - [ ] evidence-management/command 所有测试通过
 - [ ] evidence-management/query 所有测试通过
 - [ ] file-storage-service 所有测试通过
-- [ ] 集成测试验证事件发布和消费
 - [ ] 检查 Outbox 表数据兼容性
 - [ ] 检查消息队列兼容性
 - [ ] 性能测试验证无退化
