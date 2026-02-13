@@ -41,19 +41,19 @@ type OutboxEventModel struct {
 	LastError string `gorm:"type:text;comment:最后错误"`
 
 	// CreatedAt 创建时间
-	CreatedAt time.Time `gorm:"type:datetime;not null;index:idx_created_at;comment:创建时间"`
+	CreatedAt time.Time `gorm:"not null;index:idx_created_at;comment:创建时间"`
 
 	// UpdatedAt 更新时间
-	UpdatedAt time.Time `gorm:"type:datetime;not null;comment:更新时间"`
+	UpdatedAt time.Time `gorm:"not null;comment:更新时间"`
 
 	// PublishedAt 发布时间
-	PublishedAt *time.Time `gorm:"type:datetime;comment:发布时间"`
+	PublishedAt *time.Time `gorm:"comment:发布时间"`
 
 	// ScheduledAt 计划发布时间
-	ScheduledAt *time.Time `gorm:"type:datetime;index:idx_scheduled_at;comment:计划发布时间"`
+	ScheduledAt *time.Time `gorm:"index:idx_scheduled_at;comment:计划发布时间"`
 
 	// LastRetryAt 最后重试时间
-	LastRetryAt *time.Time `gorm:"type:datetime;comment:最后重试时间"`
+	LastRetryAt *time.Time `gorm:"comment:最后重试时间"`
 
 	// Version 事件版本
 	Version int64 `gorm:"type:bigint;not null;default:1;comment:事件版本"`
