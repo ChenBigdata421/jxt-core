@@ -46,25 +46,25 @@ const (
 	ResolverTypePath   ResolverType = "path"   // Extract from path segment
 )
 
-// ContinueMode defines the behavior after successful tenant extraction
-type ContinueMode string
+// MissingTenantMode defines the behavior when tenant ID is missing or invalid
+type MissingTenantMode string
 
 const (
-	// ContinueModeAbort calls c.Abort() after setting tenant ID (default)
-	// Use this when you want to stop the middleware chain
-	ContinueModeAbort ContinueMode = "Abort"
-	// ContinueModeNext calls c.Next() after setting tenant ID
-	// Use this when you want to continue to the next middleware/handler
-	ContinueModeNext ContinueMode = "Next"
+	// MissingTenantAbort calls c.Abort() when tenant ID is missing (default)
+	// Use this when tenant ID is required
+	MissingTenantAbort MissingTenantMode = "Abort"
+	// MissingTenantContinue calls c.Next() when tenant ID is missing
+	// Use this when tenant ID is optional and you want to continue processing
+	MissingTenantContinue MissingTenantMode = "Continue"
 )
 
 // Config holds the middleware configuration
 type Config struct {
-	resolverType ResolverType
-	headerName   string // For type=header
-	queryParam   string // For type=query
-	pathIndex    int    // For type=path
-	continueMode ContinueMode // Behavior after successful extraction
+	resolverType     ResolverType
+	headerName       string            // For type=header
+	queryParam       string            // For type=query
+	pathIndex        int               // For type=path
+	onMissingTenant  MissingTenantMode // Behavior when tenant ID is missing
 }
 
 // Option is a function that configures the tenant ID extraction
@@ -103,25 +103,25 @@ func WithPathIndex(index int) Option {
 	}
 }
 
-// WithContinueMode sets the behavior after successful tenant extraction
+// WithOnMissingTenant sets the behavior when tenant ID is missing or invalid
 // Default: "Abort" (calls c.Abort())
 // Options:
-//   - "Abort": calls c.Abort() to stop the middleware chain
-//   - "Next": calls c.Next() to continue to the next middleware/handler
-func WithContinueMode(mode string) Option {
+//   - "Abort": calls c.Abort() to stop the middleware chain (tenant required)
+//   - "Continue": calls c.Next() to continue to the next middleware/handler (tenant optional)
+func WithOnMissingTenant(mode string) Option {
 	return func(c *Config) {
-		c.continueMode = ContinueMode(mode)
+		c.onMissingTenant = MissingTenantMode(mode)
 	}
 }
 
 // defaultConfig returns the default configuration
 func defaultConfig() *Config {
 	return &Config{
-		resolverType:  ResolverTypeHeader,
-		headerName:    "X-Tenant-ID",
-		queryParam:    "tenant",
-		pathIndex:     0,
-		continueMode:  ContinueModeAbort, // Default: call c.Abort()
+		resolverType:    ResolverTypeHeader,
+		headerName:      "X-Tenant-ID",
+		queryParam:      "tenant",
+		pathIndex:       0,
+		onMissingTenant: MissingTenantAbort, // Default: call c.Abort()
 	}
 }
 
@@ -141,35 +141,50 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tenantIDStr, ok := extractTenantID(c, cfg)
 		if !ok {
-			c.JSON(400, gin.H{
-				"error":        "tenant ID missing or invalid",
-				"resolver":     string(cfg.resolverType),
-				"resolver_type": string(cfg.resolverType),
-			})
-			c.Abort()
+			// Tenant ID missing - handle based on onMissingTenant setting
+			if cfg.onMissingTenant == MissingTenantContinue {
+				c.Next()
+			} else {
+				c.JSON(400, gin.H{
+					"error":         "tenant ID missing or invalid",
+					"resolver":      string(cfg.resolverType),
+					"resolver_type": string(cfg.resolverType),
+				})
+				c.Abort()
+			}
 			return
 		}
 
 		// Convert string to int
 		tenantID, err := strconv.Atoi(tenantIDStr)
 		if err != nil {
-			c.JSON(400, gin.H{
-				"error":        "tenant ID must be numeric",
-				"resolver":     string(cfg.resolverType),
-				"resolver_type": string(cfg.resolverType),
-			})
-			c.Abort()
+			// Invalid tenant ID format - handle based on onMissingTenant setting
+			if cfg.onMissingTenant == MissingTenantContinue {
+				c.Next()
+			} else {
+				c.JSON(400, gin.H{
+					"error":         "tenant ID must be numeric",
+					"resolver":      string(cfg.resolverType),
+					"resolver_type": string(cfg.resolverType),
+				})
+				c.Abort()
+			}
 			return
 		}
 
 		// Validate tenantID (0 means invalid/not found)
 		if tenantID == 0 {
-			c.JSON(400, gin.H{
-				"error":        "tenant ID cannot be 0",
-				"resolver":     string(cfg.resolverType),
-				"resolver_type": string(cfg.resolverType),
-			})
-			c.Abort()
+			// Tenant ID is 0 - handle based on onMissingTenant setting
+			if cfg.onMissingTenant == MissingTenantContinue {
+				c.Next()
+			} else {
+				c.JSON(400, gin.H{
+					"error":         "tenant ID cannot be 0",
+					"resolver":      string(cfg.resolverType),
+					"resolver_type": string(cfg.resolverType),
+				})
+				c.Abort()
+			}
 			return
 		}
 
@@ -182,12 +197,8 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 		ctx := context.WithValue(c.Request.Context(), TenantContextKey, tenantID)
 		c.Request = c.Request.WithContext(ctx)
 
-		// Handle continue mode
-		if cfg.continueMode == ContinueModeNext {
-			c.Next()
-		} else {
-			c.Abort()
-		}
+		// Tenant ID found and valid - always continue to next handler
+		c.Next()
 	}
 }
 
