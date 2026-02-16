@@ -46,12 +46,25 @@ const (
 	ResolverTypePath   ResolverType = "path"   // Extract from path segment
 )
 
+// ContinueMode defines the behavior after successful tenant extraction
+type ContinueMode string
+
+const (
+	// ContinueModeAbort calls c.Abort() after setting tenant ID (default)
+	// Use this when you want to stop the middleware chain
+	ContinueModeAbort ContinueMode = "Abort"
+	// ContinueModeNext calls c.Next() after setting tenant ID
+	// Use this when you want to continue to the next middleware/handler
+	ContinueModeNext ContinueMode = "Next"
+)
+
 // Config holds the middleware configuration
 type Config struct {
 	resolverType ResolverType
 	headerName   string // For type=header
 	queryParam   string // For type=query
 	pathIndex    int    // For type=path
+	continueMode ContinueMode // Behavior after successful extraction
 }
 
 // Option is a function that configures the tenant ID extraction
@@ -90,13 +103,25 @@ func WithPathIndex(index int) Option {
 	}
 }
 
+// WithContinueMode sets the behavior after successful tenant extraction
+// Default: "Abort" (calls c.Abort())
+// Options:
+//   - "Abort": calls c.Abort() to stop the middleware chain
+//   - "Next": calls c.Next() to continue to the next middleware/handler
+func WithContinueMode(mode string) Option {
+	return func(c *Config) {
+		c.continueMode = ContinueMode(mode)
+	}
+}
+
 // defaultConfig returns the default configuration
 func defaultConfig() *Config {
 	return &Config{
-		resolverType: ResolverTypeHeader,
-		headerName:   "X-Tenant-ID",
-		queryParam:   "tenant",
-		pathIndex:    0,
+		resolverType:  ResolverTypeHeader,
+		headerName:    "X-Tenant-ID",
+		queryParam:    "tenant",
+		pathIndex:     0,
+		continueMode:  ContinueModeAbort, // Default: call c.Abort()
 	}
 }
 
@@ -157,7 +182,12 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 		ctx := context.WithValue(c.Request.Context(), TenantContextKey, tenantID)
 		c.Request = c.Request.WithContext(ctx)
 
-		c.Next()
+		// Handle continue mode
+		if cfg.continueMode == ContinueModeNext {
+			c.Next()
+		} else {
+			c.Abort()
+		}
 	}
 }
 
