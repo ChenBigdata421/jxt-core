@@ -20,12 +20,21 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+// contextKey is the type for context keys in this package
+type contextKey string
+
+// TenantContextKey is the context key for tenant ID in request context
+// Business code can use this key to retrieve tenant ID via ctx.Value()
+// Example: tenantID := ctx.Value(middleware.TenantContextKey).(int)
+const TenantContextKey contextKey = "JXT-Tenant"
 
 // ResolverType defines the tenant ID extraction strategy
 type ResolverType string
@@ -139,9 +148,15 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 			return
 		}
 
-		// Store as int in context
+		// Store as int in Gin context (for c.Get("tenant_id"))
 		c.Set("tenant_id", tenantID)
 		c.Set("tenant_resolver_type", string(cfg.resolverType))
+
+		// Also store in request context (for ctx.Value(TenantContextKey))
+		// This allows business logic to access tenant ID via context.Context
+		ctx := context.WithValue(c.Request.Context(), TenantContextKey, tenantID)
+		c.Request = c.Request.WithContext(ctx)
+
 		c.Next()
 	}
 }
