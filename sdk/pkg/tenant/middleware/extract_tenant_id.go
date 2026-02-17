@@ -58,6 +58,13 @@ const (
 	MissingTenantContinue MissingTenantMode = "Continue"
 )
 
+// DomainLookuper defines the domain lookup interface for tenant ID resolution.
+// It is implicitly implemented by provider.Provider (duck typing).
+// This interface follows the Go convention of "consumer defines interface".
+type DomainLookuper interface {
+	GetTenantIDByDomain(domain string) (int, bool)
+}
+
 // Config holds the middleware configuration
 type Config struct {
 	resolverType     ResolverType
@@ -65,6 +72,7 @@ type Config struct {
 	queryParam       string            // For type=query
 	pathIndex        int               // For type=path
 	onMissingTenant  MissingTenantMode // Behavior when tenant ID is missing
+	domainLookup     DomainLookuper    // Domain lookup for host-based resolution
 }
 
 // Option is a function that configures the tenant ID extraction
@@ -111,6 +119,17 @@ func WithPathIndex(index int) Option {
 func WithOnMissingTenant(mode string) Option {
 	return func(c *Config) {
 		c.onMissingTenant = MissingTenantMode(mode)
+	}
+}
+
+// WithDomainLookup enables domain lookup for host-based tenant resolution.
+// When resolverType is "host", it will first attempt to find tenant ID by
+// exact domain match using the provided lookup. If lookup fails, it falls
+// back to subdomain extraction.
+// The lookup parameter should implement DomainLookuper interface (e.g., provider.Provider).
+func WithDomainLookup(lookup DomainLookuper) Option {
+	return func(c *Config) {
+		c.domainLookup = lookup
 	}
 }
 
@@ -206,7 +225,7 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 func extractTenantID(c *gin.Context, cfg *Config) (string, bool) {
 	switch cfg.resolverType {
 	case ResolverTypeHost:
-		return extractFromHost(c)
+		return extractFromHost(c, cfg.domainLookup)
 	case ResolverTypeHeader:
 		return extractFromHeader(c, cfg.headerName)
 	case ResolverTypeQuery:
@@ -219,9 +238,12 @@ func extractTenantID(c *gin.Context, cfg *Config) (string, bool) {
 }
 
 // extractFromHost extracts tenant ID from Host header
-// Supports both subdomain extraction (tenant1.example.com -> tenant1)
-// and full domain mapping when used with a domain lookup service
-func extractFromHost(c *gin.Context) (string, bool) {
+// Priority:
+//  1. If domainLookup is configured, attempt exact domain match first
+//  2. Fall back to subdomain extraction (e.g., tenant1.example.com -> tenant1)
+//
+// Exact domain matching does not support wildcards.
+func extractFromHost(c *gin.Context, lookup DomainLookuper) (string, bool) {
 	host := c.Request.Host
 	if host == "" {
 		return "", false
@@ -232,7 +254,14 @@ func extractFromHost(c *gin.Context) (string, bool) {
 		host = host[:idx]
 	}
 
-	// Extract subdomain (first part before first dot)
+	// 1. If domain lookup is configured, try exact domain match first
+	if lookup != nil {
+		if tenantID, ok := lookup.GetTenantIDByDomain(host); ok {
+			return strconv.Itoa(tenantID), true
+		}
+	}
+
+	// 2. Fall back to subdomain extraction
 	parts := strings.Split(host, ".")
 	if len(parts) < 2 {
 		return "", false
