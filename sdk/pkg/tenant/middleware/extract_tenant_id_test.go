@@ -8,6 +8,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// mockDomainLookuper is a mock implementation of DomainLookuper for testing
+type mockDomainLookuper struct {
+	domains map[string]int
+}
+
+func (m *mockDomainLookuper) GetTenantIDByDomain(domain string) (int, bool) {
+	id, ok := m.domains[domain]
+	return id, ok
+}
+
 func TestExtractTenantID_Header_Default(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -414,6 +424,227 @@ func TestExtractTenantID_StoresIntInContext(t *testing.T) {
 
 		if w.Code != http.StatusOK {
 			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+}
+
+// ========== Domain Lookup Tests ==========
+
+func TestExtractFromHost_WithDomainLookup(t *testing.T) {
+	// Create mock domain lookup
+	mockLookup := &mockDomainLookuper{
+		domains: map[string]int{
+			"tenant-alpha.example.com": 100,
+			"tenant-beta.example.com":  200,
+			"alias.example.com":        100,
+			"internal.local":           300,
+		},
+	}
+
+	gin.SetMode(gin.TestMode)
+
+	t.Run("Domain lookup success with exact match", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "tenant-alpha.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d, body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Domain lookup with alias", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "alias.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d, body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Domain lookup with port", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "tenant-alpha.example.com:8080"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d, body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Fallback to subdomain when domain lookup fails", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		// "999" is not in mockLookup, but it's a valid numeric subdomain
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "999.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Should succeed via subdomain fallback (extracts "999")
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200 (subdomain fallback), got %d", w.Code)
+		}
+	})
+
+	t.Run("No domainLookup configured - use subdomain extraction", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ExtractTenantID(WithResolverType("host")))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		// Without domainLookup, only numeric subdomains work
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "789.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("Domain lookup fails and subdomain is non-numeric", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		// Domain not in lookup, and subdomain is non-numeric
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "unknown.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Should fail because both lookup and subdomain parsing fail
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("Domain lookup returns correct tenant ID", func(t *testing.T) {
+		router := gin.New()
+		var capturedTenantID int
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			capturedTenantID = GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": capturedTenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "tenant-beta.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+		if capturedTenantID != 200 {
+			t.Errorf("expected tenant ID 200, got %d", capturedTenantID)
+		}
+	})
+}
+
+func TestExtractTenantID_WithContinueMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("Abort mode (default) - returns 400 on missing tenant", func(t *testing.T) {
+		router := gin.New()
+		var handlerCalled bool
+		router.Use(ExtractTenantID(WithResolverType("header")))
+		router.GET("/test", func(c *gin.Context) {
+			handlerCalled = true
+			c.JSON(200, gin.H{"message": "ok"})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		// No X-Tenant-ID header
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+		if handlerCalled {
+			t.Error("handler should not be called in abort mode")
+		}
+	})
+
+	t.Run("Continue mode - continues on missing tenant", func(t *testing.T) {
+		router := gin.New()
+		var handlerCalled bool
+		router.Use(ExtractTenantID(
+			WithResolverType("header"),
+			WithOnMissingTenant("Continue"),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			handlerCalled = true
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID, "message": "ok"})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		// No X-Tenant-ID header
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+		if !handlerCalled {
+			t.Error("handler should be called in continue mode")
 		}
 	})
 }
