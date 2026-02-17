@@ -92,11 +92,12 @@ type Provider struct {
 
 // tenantData 租户数据（新格式）
 type tenantData struct {
-	Metas     map[int]*TenantMeta                      `json:"metas"`
-	Databases map[int]map[string]*ServiceDatabaseConfig `json:"databases"` // tenantID -> serviceCode -> config
-	Ftps      map[int][]*FtpConfigDetail                 `json:"ftps"`      // tenantID -> configs[]
-	Storages  map[int]*StorageConfig                     `json:"storages"`
-	Domains   map[int]*DomainConfig                       `json:"domains"`   // 新增：域名配置
+	Metas       map[int]*TenantMeta                       `json:"metas"`
+	Databases   map[int]map[string]*ServiceDatabaseConfig `json:"databases"` // tenantID -> serviceCode -> config
+	Ftps        map[int][]*FtpConfigDetail                `json:"ftps"`      // tenantID -> configs[]
+	Storages    map[int]*StorageConfig                    `json:"storages"`
+	Domains     map[int]*DomainConfig                     `json:"domains"`     // 域名配置
+	domainIndex map[string]int                            // 内嵌：域名反向索引 domain -> tenantID（不导出，不序列化）
 }
 
 // Option configures Provider
@@ -226,13 +227,15 @@ func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 		configTypes: []ConfigType{ConfigTypeDatabase}, // default
 		data:        atomic.Value{},
 	}
-	p.data.Store(&tenantData{
+	initialData := &tenantData{
 		Metas:     make(map[int]*TenantMeta),
 		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
 		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
 		Domains:   make(map[int]*DomainConfig),
-	})
+	}
+	initialData.domainIndex = buildDomainIndex(initialData) // 构建初始索引
+	p.data.Store(initialData)
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -300,9 +303,11 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 		}
 	}
 
-	p.data.Store(newData)
-	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs from ETCD",
-		len(newData.Metas), countServiceDatabases(newData.Databases), countFtpConfigs(newData.Ftps))
+	newData.domainIndex = buildDomainIndex(newData) // 构建索引
+	p.data.Store(newData)                           // 一次原子替换
+	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs, %d domain mappings from ETCD",
+		len(newData.Metas), countServiceDatabases(newData.Databases), countFtpConfigs(newData.Ftps),
+		len(newData.domainIndex))
 
 	// 同步到缓存
 	if p.cache != nil {
@@ -604,7 +609,8 @@ func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
 		p.handleDomainChange(ev, keyStr, newData)
 	}
 
-	p.data.Store(newData)
+	newData.domainIndex = buildDomainIndex(newData) // 重建索引
+	p.data.Store(newData)                           // 一次原子替换
 
 	// 同步到缓存
 	if p.cache != nil {
@@ -801,6 +807,9 @@ func (d *tenantData) copyData() *tenantData {
 		newData.Domains[k] = v
 	}
 
+	// domainIndex 在 copyData 时不复制，由调用方重建
+	// 因为索引可以从 Domains 派生
+
 	return newData
 }
 
@@ -966,5 +975,89 @@ func countFtpConfigs(ftps map[int][]*FtpConfigDetail) int {
 		count += len(configs)
 	}
 	return count
+}
+
+// normalizeDomain 规范化域名：小写 + 去除空白
+func normalizeDomain(domain string) string {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return ""
+	}
+	return domain
+}
+
+// buildDomainIndex 构建域名反向索引
+// 返回 map[domain]tenantID，所有域名已规范化为小写
+// 检测并记录域名冲突（不同租户声明相同域名）
+func buildDomainIndex(data *tenantData) map[string]int {
+	// 预估容量：每个租户约 4 个域名（Primary + 2 Aliases + Internal）
+	estimatedSize := len(data.Domains) * 4
+	if estimatedSize == 0 {
+		estimatedSize = 8 // 最小容量
+	}
+	index := make(map[string]int, estimatedSize)
+
+	for tenantID, cfg := range data.Domains {
+		// Primary 域名
+		if cfg.Primary != "" {
+			domain := normalizeDomain(cfg.Primary)
+			if domain != "" {
+				if existingID, exists := index[domain]; exists && existingID != tenantID {
+					logger.Warnf("domain conflict: %s claimed by tenant %d and %d, using %d",
+						domain, existingID, tenantID, tenantID)
+				}
+				index[domain] = tenantID
+			}
+		}
+
+		// Aliases 别名列表
+		for _, alias := range cfg.Aliases {
+			if alias != "" {
+				domain := normalizeDomain(alias)
+				if domain != "" {
+					if existingID, exists := index[domain]; exists && existingID != tenantID {
+						logger.Warnf("domain conflict: %s claimed by tenant %d and %d, using %d",
+							domain, existingID, tenantID, tenantID)
+					}
+					index[domain] = tenantID
+				}
+			}
+		}
+
+		// Internal 内网域名
+		if cfg.Internal != "" {
+			domain := normalizeDomain(cfg.Internal)
+			if domain != "" {
+				if existingID, exists := index[domain]; exists && existingID != tenantID {
+					logger.Warnf("domain conflict: %s claimed by tenant %d and %d, using %d",
+						domain, existingID, tenantID, tenantID)
+				}
+				index[domain] = tenantID
+			}
+		}
+	}
+
+	return index
+}
+
+// GetTenantIDByDomain 根据域名查找租户ID
+// 查找复杂度 O(1)，无锁，线程安全
+// 支持 Primary、Aliases、Internal 三种域名类型
+// 域名匹配不区分大小写（RFC 4343）
+// 注意：仅支持精确匹配，不支持通配符域名（如 *.tenant.com）
+func (p *Provider) GetTenantIDByDomain(domain string) (int, bool) {
+	if domain == "" {
+		return 0, false
+	}
+
+	normalizedDomain := normalizeDomain(domain)
+	if normalizedDomain == "" {
+		return 0, false
+	}
+
+	// O(1) 查找，无锁
+	data := p.data.Load().(*tenantData)
+	tenantID, ok := data.domainIndex[normalizedDomain]
+	return tenantID, ok
 }
 
