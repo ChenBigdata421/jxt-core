@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"testing"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -438,5 +439,93 @@ func TestNewProviderWithRetry(t *testing.T) {
 	}
 
 	p.StopWatch()
+}
+
+// ========== Performance Benchmarks ==========
+
+// BenchmarkGetTenantIDByDomain measures the performance of domain lookup.
+// Target: < 50ns/op for O(1) hash map lookup
+func BenchmarkGetTenantIDByDomain(b *testing.B) {
+	// Create a provider with test data
+	p := NewProvider(nil)
+
+	// Build test data with 1000 tenants
+	// Each tenant has: Primary + Alias + Internal = ~3 domains
+	// Total: ~3000 domains in the index
+	testData := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+	}
+
+	for i := 0; i < 1000; i++ {
+		testData.Domains[i] = &DomainConfig{
+			TenantID: i,
+			Code:     fmt.Sprintf("tenant-%d", i),
+			Name:     fmt.Sprintf("Tenant %d", i),
+			Primary:  fmt.Sprintf("tenant-%d.example.com", i),
+			Aliases:  []string{fmt.Sprintf("alias-%d.example.com", i)},
+			Internal: fmt.Sprintf("internal-%d.local", i),
+		}
+	}
+
+	// Build the domain index
+	testData.domainIndex = buildDomainIndex(testData)
+	p.data.Store(testData)
+
+	// Reset timer before the actual benchmark loop
+	b.ResetTimer()
+
+	// Benchmark lookup of a middle-domain to avoid edge cases
+	for i := 0; i < b.N; i++ {
+		p.GetTenantIDByDomain("tenant-500.example.com")
+	}
+}
+
+// BenchmarkGetTenantIDByDomain_Parallel measures parallel performance
+func BenchmarkGetTenantIDByDomain_Parallel(b *testing.B) {
+	// Create a provider with test data
+	p := NewProvider(nil)
+
+	// Build test data with 1000 tenants
+	testData := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+	}
+
+	for i := 0; i < 1000; i++ {
+		testData.Domains[i] = &DomainConfig{
+			TenantID: i,
+			Code:     fmt.Sprintf("tenant-%d", i),
+			Name:     fmt.Sprintf("Tenant %d", i),
+			Primary:  fmt.Sprintf("tenant-%d.example.com", i),
+			Aliases:  []string{fmt.Sprintf("alias-%d.example.com", i)},
+			Internal: fmt.Sprintf("internal-%d.local", i),
+		}
+	}
+
+	testData.domainIndex = buildDomainIndex(testData)
+	p.data.Store(testData)
+
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		domains := []string{
+			"tenant-500.example.com",
+			"alias-100.example.com",
+			"internal-200.local",
+			"tenant-999.example.com",
+		}
+		for pb.Next() {
+			p.GetTenantIDByDomain(domains[i%len(domains)])
+			i++
+		}
+	})
 }
 
