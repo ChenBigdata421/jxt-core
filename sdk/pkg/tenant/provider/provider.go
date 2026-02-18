@@ -495,17 +495,13 @@ func (p *Provider) parseDomainConfig(key string, value string, data *tenantData)
 
 	// 根据不同的 key 类型更新对应字段
 	if isDomainPrimaryKey(key) {
-		var primary string
-		json.Unmarshal([]byte(value), &primary)
-		domain.Primary = primary
+		domain.Primary = parseStringOrJSON(value)
 	} else if isDomainAliasesKey(key) {
 		var aliases []string
 		json.Unmarshal([]byte(value), &aliases)
 		domain.Aliases = aliases
 	} else if isDomainInternalKey(key) {
-		var internal string
-		json.Unmarshal([]byte(value), &internal)
-		domain.Internal = internal
+		domain.Internal = parseStringOrJSON(value)
 	}
 
 	// 填充租户信息（如果已有）
@@ -514,6 +510,18 @@ func (p *Provider) parseDomainConfig(key string, value string, data *tenantData)
 		domain.Code = meta.Code
 		domain.Name = meta.Name
 	}
+}
+
+// parseStringOrJSON 解析字符串值，支持纯字符串或 JSON 字符串格式
+// ETCD 中可能存储为 "app.jxt.com" 或 "\"app.jxt.com\""
+func parseStringOrJSON(value string) string {
+	// 先尝试 JSON 解析
+	var jsonStr string
+	if err := json.Unmarshal([]byte(value), &jsonStr); err == nil {
+		return jsonStr
+	}
+	// JSON 解析失败，直接使用原始字符串
+	return strings.TrimSpace(value)
 }
 
 // StartWatch begins watching ETCD for changes
@@ -722,19 +730,16 @@ func (p *Provider) handleDomainChange(ev *clientv3.Event, key string, data *tena
 			domain.Internal = ""
 		}
 	} else {
-		// Handle put/update
+		// Handle put/update - 使用 parseStringOrJSON 支持 JSON 和纯字符串格式
+		value := string(ev.Kv.Value)
 		if isDomainPrimaryKey(key) {
-			var primary string
-			json.Unmarshal(ev.Kv.Value, &primary)
-			domain.Primary = primary
+			domain.Primary = parseStringOrJSON(value)
 		} else if isDomainAliasesKey(key) {
 			var aliases []string
 			json.Unmarshal(ev.Kv.Value, &aliases)
 			domain.Aliases = aliases
 		} else if isDomainInternalKey(key) {
-			var internal string
-			json.Unmarshal(ev.Kv.Value, &internal)
-			domain.Internal = internal
+			domain.Internal = parseStringOrJSON(value)
 		}
 	}
 
