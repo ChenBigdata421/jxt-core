@@ -1,6 +1,7 @@
 package config
 
 // Database 数据库配置
+/*
 type Database struct {
 	MasterDB  DBConfig `mapstructure:"masterDB"`
 	CommandDB DBConfig `mapstructure:"commandDB"`
@@ -9,7 +10,9 @@ type Database struct {
 }
 
 // DBConfig 数据库具体配置
-type DBConfig struct {
+*/
+
+type Database struct {
 	Driver          string     `mapstructure:"driver"`
 	Source          string     `mapstructure:"source"`
 	ConnMaxIdleTime int        `mapstructure:"connmaxidletime"`
