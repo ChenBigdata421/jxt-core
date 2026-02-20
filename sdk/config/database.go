@@ -1,16 +1,6 @@
 package config
 
 // Database 数据库配置
-/*
-type Database struct {
-	MasterDB  DBConfig `mapstructure:"masterDB"`
-	CommandDB DBConfig `mapstructure:"commandDB"`
-	QueryDB   DBConfig `mapstructure:"queryDB"`
-	ProcessDB DBConfig `mapstructure:"processDB"`
-}
-
-// DBConfig 数据库具体配置
-*/
 
 type Database struct {
 	Driver          string     `mapstructure:"driver"`

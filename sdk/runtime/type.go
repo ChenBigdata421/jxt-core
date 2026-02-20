@@ -14,16 +14,16 @@ import (
 )
 
 type Runtime interface {
-	// SetDb 非CQRS时，多db设置，⚠️SetDbs不允许并发,可以根据自己的业务，例如app分库（用分表分库，或不同微服务实现）、host分库（多租户）
+	// SetTenantDb 多db设置，⚠️SetTenantDbs不允许并发,可以根据自己的业务，例如app分库（用分表分库，或不同微服务实现）、host分库（多租户）
 	SetTenantDB(tenantID int, db *gorm.DB)
 	GetTenantDB(tenantID int) *gorm.DB
 	GetTenantDBs(fn func(tenantID int, db *gorm.DB) bool)
 
-	// SetTenantServiceDB 设置租户指定服务的数据库连接
+	// SetTenantServiceDB 设置租户指定服务的数据库连接，预留暂未使用
 	SetTenantServiceDB(tenantID int, serviceCode string, db *gorm.DB)
-	// GetTenantServiceDB 获取租户指定服务的数据库连接
+	// GetTenantServiceDB 获取租户指定服务的数据库连接，预留暂未使用
 	GetTenantServiceDB(tenantID int, serviceCode string) *gorm.DB
-	// GetTenantServiceDBs 遍历所有租户服务数据库连接
+	// GetTenantServiceDBs 遍历所有租户服务数据库连接，预留暂未使用
 	GetTenantServiceDBs(fn func(tenantID int, serviceCode string, db *gorm.DB) bool)
 
 	// SetTenantCasbin 设置对应租户的casbin
