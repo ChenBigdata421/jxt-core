@@ -21,8 +21,6 @@ import (
 
 type Application struct {
 	tenantDBs        sync.Map                                                        //租户数据库连接，非CQRS
-	tenantCommandDBs sync.Map                                                        //租户命令数据库连接，CQRS
-	tenantQueryDBs   sync.Map                                                        //租户查询数据库连接，CQRS
 	tenantServiceDBs sync.Map                                                        //服务级数据库连接（key: "tenantID:serviceCode"）
 	casbins          sync.Map                                                        //casbin
 	engine           http.Handler                                                    //路由引擎
@@ -66,32 +64,6 @@ func (e *Application) GetTenantDB(tenantID int) *gorm.DB {
 	return nil
 }
 
-// SetTenantCommandDB CQRS时，设置租户的CommandDB
-func (e *Application) SetTenantCommandDB(tenantID int, db *gorm.DB) {
-	e.tenantCommandDBs.Store(tenantID, db)
-}
-
-// GetTenantCommandDB CQRS时，根据租户id获取CommandDB
-func (e *Application) GetTenantCommandDB(tenantID int) *gorm.DB {
-	if db, ok := e.tenantCommandDBs.Load(tenantID); ok {
-		return db.(*gorm.DB)
-	}
-	return nil
-}
-
-// SetTenantQueryDB CQRS时，设置租户的QueryDB
-func (e *Application) SetTenantQueryDB(tenantID int, db *gorm.DB) {
-	e.tenantQueryDBs.Store(tenantID, db)
-}
-
-// GetTenantQueryDB CQRS时，根据租户id获取QueryDB
-func (e *Application) GetTenantQueryDB(tenantID int) *gorm.DB {
-	if db, ok := e.tenantQueryDBs.Load(tenantID); ok {
-		return db.(*gorm.DB)
-	}
-	return nil
-}
-
 // GetTenantDBs 遍历所有租户数据库连接
 // 使用举例，统计活跃的数据库连接数
 // count := 0
@@ -106,20 +78,6 @@ func (e *Application) GetTenantQueryDB(tenantID int) *gorm.DB {
 // fmt.Printf("活跃租户数量: %d\n", count)
 func (e *Application) GetTenantDBs(fn func(tenantID int, db *gorm.DB) bool) {
 	e.tenantDBs.Range(func(key, value interface{}) bool {
-		return fn(key.(int), value.(*gorm.DB))
-	})
-}
-
-// GetTenantCommandDBs 遍历所有租户命令数据库连接
-func (e *Application) GetTenantCommandDBs(fn func(tenantID int, db *gorm.DB) bool) {
-	e.tenantCommandDBs.Range(func(key, value interface{}) bool {
-		return fn(key.(int), value.(*gorm.DB))
-	})
-}
-
-// GetTenantQueryDBs 遍历所有租户查询数据库连接
-func (e *Application) GetTenantQueryDBs(fn func(tenantID int, db *gorm.DB) bool) {
-	e.tenantQueryDBs.Range(func(key, value interface{}) bool {
 		return fn(key.(int), value.(*gorm.DB))
 	})
 }
@@ -227,9 +185,7 @@ func (e *Application) GetLogger() *zap.Logger {
 func NewConfig() *Application {
 	return &Application{
 		tenantDBs:        sync.Map{},
-		tenantCommandDBs: sync.Map{},
-		tenantQueryDBs:   sync.Map{},
-		tenantServiceDBs: sync.Map{}, // NEW: 初始化服务级数据库存储
+		tenantServiceDBs: sync.Map{}, // 服务级数据库存储
 		casbins:          sync.Map{},
 		crontabs:         sync.Map{},
 		middlewares:      make(map[string]interface{}),

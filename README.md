@@ -250,8 +250,6 @@ app.GetTenantServiceDBs(func(tenantID int, serviceCode string, db *gorm.DB) bool
 ```go
 // 这些方法仍然可用，内部映射到服务级配置
 db := app.GetTenantDB(tenantID)              // 映射到 security-management
-cmdDB := app.GetTenantCommandDB(tenantID)    // 映射到 evidence-command
-queryDB := app.GetTenantQueryDB(tenantID)    // 映射到 evidence-query
 ```
 
 详细文档参见: [服务级数据库配置指南](sdk/config/SERVICE_DATABASE_CONFIG.md)

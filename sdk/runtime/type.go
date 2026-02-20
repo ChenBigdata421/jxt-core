@@ -19,16 +19,6 @@ type Runtime interface {
 	GetTenantDB(tenantID int) *gorm.DB
 	GetTenantDBs(fn func(tenantID int, db *gorm.DB) bool)
 
-	// SetTenantCommandDB CQRS时，设置对应租户的Command db
-	SetTenantCommandDB(tenantID int, db *gorm.DB)
-	GetTenantCommandDB(tenantID int) *gorm.DB
-	GetTenantCommandDBs(fn func(tenantID int, db *gorm.DB) bool)
-
-	// SetTenantQueryDB CQRS时，设置对应租户的Query db
-	SetTenantQueryDB(tenantID int, db *gorm.DB)
-	GetTenantQueryDB(tenantID int) *gorm.DB
-	GetTenantQueryDBs(fn func(tenantID int, db *gorm.DB) bool)
-
 	// SetTenantServiceDB 设置租户指定服务的数据库连接
 	SetTenantServiceDB(tenantID int, serviceCode string, db *gorm.DB)
 	// GetTenantServiceDB 获取租户指定服务的数据库连接

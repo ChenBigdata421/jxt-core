@@ -51,32 +51,6 @@ func TestApplication_TenantDB_Iteration(t *testing.T) {
 	assert.True(t, tenantIDs[2])
 }
 
-func TestApplication_TenantCommandDB_Int(t *testing.T) {
-	app := NewConfig()
-	db := &gorm.DB{}
-
-	app.SetTenantCommandDB(1, db)
-
-	result := app.GetTenantCommandDB(1)
-	assert.Same(t, db, result)
-
-	result = app.GetTenantCommandDB(999)
-	assert.Nil(t, result)
-}
-
-func TestApplication_TenantQueryDB_Int(t *testing.T) {
-	app := NewConfig()
-	db := &gorm.DB{}
-
-	app.SetTenantQueryDB(1, db)
-
-	result := app.GetTenantQueryDB(1)
-	assert.Same(t, db, result)
-
-	result = app.GetTenantQueryDB(999)
-	assert.Nil(t, result)
-}
-
 func TestApplication_Casbin_Int(t *testing.T) {
 	app := NewConfig()
 	enforcer := &casbin.SyncedEnforcer{}
