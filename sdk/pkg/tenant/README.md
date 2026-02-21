@@ -186,6 +186,37 @@ WithConfigTypes(types ...ConfigType) Option
 WithCache(cache FileCache) Option
 ```
 
+### 中间件配置选项
+
+```go
+// ========== 统一配置（推荐） ==========
+
+// 从 Provider 自动读取全部配置（httpType、httpHostMode 等）
+// 这是推荐的方式，所有配置由 ETCD 统一管理
+WithProviderConfig(provider ProviderConfigurer) Option
+
+// ========== 解析类型配置 ==========
+
+// 设置解析类型：host/header/query/path
+WithResolverType(resolverType string) Option
+
+// Header 模式：设置 Header 名称（默认: X-Tenant-ID）
+WithHeaderName(name string) Option
+
+// Query 模式：设置查询参数名（默认: tenant）
+WithQueryParam(param string) Option
+
+// Path 模式：设置路径索引（默认: 0）
+WithPathIndex(index int) Option
+
+// ========== 行为配置 ==========
+
+// 设置租户缺失时的行为
+// - "Abort"（默认）：返回 400 错误，中断请求
+// - "Continue"：继续执行，租户 ID 为 0
+WithOnMissingTenant(mode string) Option
+```
+
 ### 核心方法
 
 | 方法 | 描述 | 返回值 |
@@ -203,6 +234,17 @@ WithCache(cache FileCache) Option
 | `IsTenantEnabled(id)` | 检查租户是否激活 | `bool` |
 | `NewFileCache()` | 创建默认文件缓存 | `FileCache` |
 | `NewFileCacheWithPath(path)` | 创建指定路径的文件缓存 | `FileCache` |
+| `GetResolverConfig()` | 获取租户识别配置 | `*ResolverConfig` |
+| `GetTenantIDByDomain(domain)` | 通过域名查找租户 ID | `int, bool` |
+| `GetTenantIDByCode(code)` | 通过租户代码查找租户 ID | `int, bool` |
+
+### 中间件辅助函数
+
+| 函数 | 描述 | 返回值 |
+|------|------|--------|
+| `GetTenantID(c)` | 从 Gin Context 获取租户 ID | `int`（未找到返回 0） |
+| `GetTenantIDAsInt(c)` | 从 Gin Context 获取租户 ID（带错误） | `int, error` |
+| `MustGetTenantID(c)` | 获取租户 ID，不存在则 panic | `int` |
 
 ### Cache API
 
@@ -328,6 +370,20 @@ router.Use(middleware.ExtractTenantID(
     middleware.WithProviderConfig(provider),
 ))
 ```
+
+**ProviderConfigurer 接口**：
+
+`WithProviderConfig` 需要传入实现了 `ProviderConfigurer` 接口的对象。该接口组合了三个子接口：
+
+```go
+type ProviderConfigurer interface {
+    DomainLookuper         // GetTenantIDByDomain(domain string) (int, bool)
+    CodeLookuper           // GetTenantIDByCode(code string) (int, bool)
+    ResolverConfigProvider // GetResolverConfig() *ResolverConfig
+}
+```
+
+`provider.Provider` 已隐式实现该接口（鸭子类型），可直接使用。
 
 #### host 模式的三种子模式（httpHostMode）
 
