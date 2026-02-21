@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -11,10 +12,19 @@ import (
 // mockDomainLookuper is a mock implementation of DomainLookuper for testing
 type mockDomainLookuper struct {
 	domains map[string]int
+	codes   map[string]int // Added for CodeLookuper support
 }
 
 func (m *mockDomainLookuper) GetTenantIDByDomain(domain string) (int, bool) {
 	id, ok := m.domains[domain]
+	return id, ok
+}
+
+func (m *mockDomainLookuper) GetTenantIDByCode(code string) (int, bool) {
+	if m.codes == nil {
+		return 0, false
+	}
+	id, ok := m.codes[strings.ToLower(code)]
 	return id, ok
 }
 
