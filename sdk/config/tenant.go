@@ -25,6 +25,7 @@ type HTTPResolverConfig struct {
 	HeaderName string `mapstructure:"headerName" yaml:"headerName"` // 当 type 为 header 时使用的 header 名称
 	QueryParam string `mapstructure:"queryParam" yaml:"queryParam"` // 当 type 为 query 时使用的查询参数名
 	PathIndex  int    `mapstructure:"pathIndex" yaml:"pathIndex"`   // 当 type 为 path 时使用的路径索引
+	HostMode   string `mapstructure:"hostMode" yaml:"hostMode"`     // 【新增】host 模式下的识别方式：numeric, domain, code
 }
 
 // FTPResolverConfig FTP 租户识别配置
@@ -150,6 +151,14 @@ func (hrc *HTTPResolverConfig) GetPathIndex() int {
 		return 0
 	}
 	return hrc.PathIndex
+}
+
+// GetHostModeOrDefault 获取 host 模式，默认为 "numeric"
+func (hrc *HTTPResolverConfig) GetHostModeOrDefault() string {
+	if hrc == nil || hrc.HostMode == "" {
+		return "numeric"
+	}
+	return hrc.HostMode
 }
 
 // GetType 获取 FTP 租户识别方式
