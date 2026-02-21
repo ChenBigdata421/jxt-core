@@ -977,3 +977,145 @@ func TestExtractFromHost_DomainMode(t *testing.T) {
 		}
 	})
 }
+
+func TestExtractFromHost_CodeMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("Tenant code match succeeds in code mode", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				codes: map[string]int{"acmecorp": 100},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "acmecorp.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("Code mode is case insensitive", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				codes: map[string]int{"techinc": 200},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "TECHINC.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200 (case insensitive), got %d", w.Code)
+		}
+	})
+
+	t.Run("Numeric subdomain fails in code mode", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				codes: map[string]int{},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			c.JSON(200, nil)
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "123.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 400 {
+			t.Errorf("expected status 400 (code mode ignores numeric), got %d", w.Code)
+		}
+	})
+
+	t.Run("Unknown code fails in code mode", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				codes: map[string]int{"known": 100},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			c.JSON(200, nil)
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "unknown.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 400 {
+			t.Errorf("expected status 400 for unknown code, got %d", w.Code)
+		}
+	})
+
+	t.Run("Code mode ignores domain match", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{"tenant-alpha.example.com": 500},
+				codes:   map[string]int{},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			c.JSON(200, nil)
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "tenant-alpha.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 400 {
+			t.Errorf("expected status 400 (code mode ignores domain), got %d", w.Code)
+		}
+	})
+}
