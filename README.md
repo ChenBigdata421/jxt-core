@@ -423,6 +423,13 @@ router.Use(ExtractTenantID(
     WithResolverType("query"),
     WithQueryParam("tenant"),
 ))
+
+// 方式5：URL 路径识别
+// 例如: /123/users -> 提取第0段 "123" 作为租户 ID
+router.Use(ExtractTenantID(
+    WithResolverType("path"),
+    WithPathIndex(0),
+))
 ```
 
 #### 使用示例
