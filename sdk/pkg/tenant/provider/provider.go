@@ -387,6 +387,8 @@ func (p *Provider) processKey(key, value string, data *tenantData) {
 	key = strings.TrimPrefix(key, p.namespace)
 
 	switch {
+	case isResolverConfigKey(key):
+		p.parseResolverConfig(key, value, data)
 	case isTenantMetaKey(key):
 		p.parseTenantMeta(key, value, data)
 	case isServiceDatabaseKey(key):
