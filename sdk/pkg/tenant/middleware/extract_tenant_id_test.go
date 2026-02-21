@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -441,7 +442,7 @@ func TestExtractTenantID_StoresIntInContext(t *testing.T) {
 
 // ========== Domain Lookup Tests ==========
 
-func TestExtractFromHost_WithDomainLookup(t *testing.T) {
+func TestExtractFromHost_WithProviderConfig(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Run("Domain lookup success with exact match (domain mode)", func(t *testing.T) {
@@ -454,14 +455,11 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 					"internal.local":           300,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -487,14 +485,11 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 					"internal.local":           300,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -517,14 +512,11 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 					"tenant-alpha.example.com": 100,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -547,14 +539,11 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 					"tenant-alpha.example.com": 100,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "numeric"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "numeric"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -598,14 +587,11 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 					"tenant-alpha.example.com": 100,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -630,15 +616,12 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 					"tenant-beta.example.com": 200,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
 		var capturedTenantID int
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			capturedTenantID = GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": capturedTenantID})
@@ -751,6 +734,231 @@ func TestProviderConfigurerInterface(t *testing.T) {
 	var _ ProviderConfigurer = (*mockResolverConfigProvider)(nil)
 }
 
+// ========== WithProviderConfig Tests ==========
+
+// assertTenantIDInResponse verifies the response body contains expected tenant_id
+func assertTenantIDInResponse(t *testing.T, w *httptest.ResponseRecorder, expected int) {
+	t.Helper()
+	var resp struct {
+		TenantID int `json:"tenant_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v (body: %s)", err, w.Body.String())
+	}
+	if resp.TenantID != expected {
+		t.Errorf("expected tenant_id %d, got %d (body: %s)", expected, resp.TenantID, w.Body.String())
+	}
+}
+
+// TestWithProviderConfig_HeaderMode tests header mode with custom header name
+func TestWithProviderConfig_HeaderMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockProvider := &mockResolverConfigProvider{
+		config: &provider.ResolverConfig{
+			HTTPType:       "header",
+			HTTPHeaderName: "X-Custom-Tenant",
+		},
+	}
+
+	router := gin.New()
+	router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
+	router.GET("/test", func(c *gin.Context) {
+		tenantID := GetTenantID(c)
+		c.JSON(200, gin.H{"tenant_id": tenantID})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Custom-Tenant", "123")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	assertTenantIDInResponse(t, w, 123)
+}
+
+// TestWithProviderConfig_QueryMode tests query mode with custom param name
+func TestWithProviderConfig_QueryMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockProvider := &mockResolverConfigProvider{
+		config: &provider.ResolverConfig{
+			HTTPType:       "query",
+			HTTPQueryParam: "org_id",
+		},
+	}
+
+	router := gin.New()
+	router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
+	router.GET("/test", func(c *gin.Context) {
+		tenantID := GetTenantID(c)
+		c.JSON(200, gin.H{"tenant_id": tenantID})
+	})
+
+	req := httptest.NewRequest("GET", "/test?org_id=456", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	assertTenantIDInResponse(t, w, 456)
+}
+
+// TestWithProviderConfig_PathMode tests path mode with custom index
+func TestWithProviderConfig_PathMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockProvider := &mockResolverConfigProvider{
+		config: &provider.ResolverConfig{
+			HTTPType:      "path",
+			HTTPPathIndex: 1,
+		},
+	}
+
+	router := gin.New()
+	router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
+	router.GET("/api/:tenant_id/users", func(c *gin.Context) {
+		tenantID := GetTenantID(c)
+		c.JSON(200, gin.H{"tenant_id": tenantID})
+	})
+
+	// Path: /api/789/users -> index 1 = "789"
+	req := httptest.NewRequest("GET", "/api/789/users", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	assertTenantIDInResponse(t, w, 789)
+}
+
+// TestWithProviderConfig_HostMode_Domain tests host mode with domain lookup
+func TestWithProviderConfig_HostMode_Domain(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockProvider := &mockResolverConfigProvider{
+		domainLookuper: mockDomainLookuper{
+			domains: map[string]int{
+				"tenant1.example.com": 1,
+			},
+		},
+		config: &provider.ResolverConfig{
+			HTTPType:     "host",
+			HTTPHostMode: "domain",
+		},
+	}
+
+	router := gin.New()
+	router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
+	router.GET("/test", func(c *gin.Context) {
+		tenantID := GetTenantID(c)
+		c.JSON(200, gin.H{"tenant_id": tenantID})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Host = "tenant1.example.com"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	assertTenantIDInResponse(t, w, 1)
+}
+
+// TestWithProviderConfig_HostMode_Code tests host mode with tenant code lookup
+func TestWithProviderConfig_HostMode_Code(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockProvider := &mockResolverConfigProvider{
+		domainLookuper: mockDomainLookuper{
+			codes: map[string]int{
+				"acme": 100,
+			},
+		},
+		config: &provider.ResolverConfig{
+			HTTPType:     "host",
+			HTTPHostMode: "code",
+		},
+	}
+
+	router := gin.New()
+	router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
+	router.GET("/test", func(c *gin.Context) {
+		tenantID := GetTenantID(c)
+		c.JSON(200, gin.H{"tenant_id": tenantID})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Host = "acme.example.com"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	assertTenantIDInResponse(t, w, 100)
+}
+
+// TestWithProviderConfig_HostMode_Numeric tests host mode with numeric subdomain
+func TestWithProviderConfig_HostMode_Numeric(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockProvider := &mockResolverConfigProvider{
+		config: &provider.ResolverConfig{
+			HTTPType:     "host",
+			HTTPHostMode: "numeric",
+		},
+	}
+
+	router := gin.New()
+	router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
+	router.GET("/test", func(c *gin.Context) {
+		tenantID := GetTenantID(c)
+		c.JSON(200, gin.H{"tenant_id": tenantID})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Host = "999.example.com"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	assertTenantIDInResponse(t, w, 999)
+}
+
+// TestWithProviderConfig_NilConfig tests behavior when ResolverConfig is nil
+func TestWithProviderConfig_NilConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockProvider := &mockResolverConfigProvider{
+		config: nil,
+	}
+
+	router := gin.New()
+	router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
+	router.GET("/test", func(c *gin.Context) {
+		tenantID := GetTenantID(c)
+		c.JSON(200, gin.H{"tenant_id": tenantID})
+	})
+
+	// With nil config, should use default (header mode with X-Tenant-ID)
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Tenant-ID", "123")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200 (default header mode), got %d", w.Code)
+	}
+}
+
 func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -759,14 +967,11 @@ func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				codes: map[string]int{"acmecorp": 1},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -787,14 +992,11 @@ func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				codes: map[string]int{"techinc": 2}, // lowercase in index
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -815,14 +1017,11 @@ func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				codes: map[string]int{"othercorp": 1},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
 		})
@@ -899,14 +1098,11 @@ func TestExtractFromHost_NumericMode(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				domains: map[string]int{"999.example.com": 500},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "numeric"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "numeric"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -934,14 +1130,11 @@ func TestExtractFromHost_DomainMode(t *testing.T) {
 					"tenant1.example.com": 100,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -962,14 +1155,11 @@ func TestExtractFromHost_DomainMode(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				domains: map[string]int{},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
 		})
@@ -991,14 +1181,11 @@ func TestExtractFromHost_DomainMode(t *testing.T) {
 					"known.example.com": 100,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
 		})
@@ -1020,14 +1207,11 @@ func TestExtractFromHost_DomainMode(t *testing.T) {
 					"tenant1.example.com": 100,
 				},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "domain"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -1052,14 +1236,11 @@ func TestExtractFromHost_CodeMode(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				codes: map[string]int{"acmecorp": 100},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -1080,14 +1261,11 @@ func TestExtractFromHost_CodeMode(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				codes: map[string]int{"techinc": 200},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -1108,14 +1286,11 @@ func TestExtractFromHost_CodeMode(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				codes: map[string]int{},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
 		})
@@ -1135,14 +1310,11 @@ func TestExtractFromHost_CodeMode(t *testing.T) {
 			domainLookuper: mockDomainLookuper{
 				codes: map[string]int{"known": 100},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
 		})
@@ -1163,14 +1335,11 @@ func TestExtractFromHost_CodeMode(t *testing.T) {
 				domains: map[string]int{"tenant-alpha.example.com": 500},
 				codes:   map[string]int{},
 			},
-			config: &provider.ResolverConfig{HTTPHostMode: "code"},
+			config: &provider.ResolverConfig{HTTPType: "host", HTTPHostMode: "code"},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
 		})
@@ -1202,7 +1371,7 @@ func TestExtractTenantID_ResolverConfigProvider(t *testing.T) {
 
 		router := gin.New()
 		// Note: NOT setting WithResolverType - should be overridden from config
-		router.Use(ExtractTenantID(WithDomainLookup(mockProvider)))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
@@ -1218,29 +1387,27 @@ func TestExtractTenantID_ResolverConfigProvider(t *testing.T) {
 		}
 	})
 
-	t.Run("Nil config uses default numeric mode", func(t *testing.T) {
+	t.Run("Nil config uses default header mode", func(t *testing.T) {
 		mockProvider := &mockResolverConfigProvider{
 			domainLookuper: mockDomainLookuper{},
 			config:         nil,
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
 		})
 
+		// With nil config, should use default header mode with X-Tenant-ID
 		req := httptest.NewRequest("GET", "/test", nil)
-		req.Host = "456.example.com"
+		req.Header.Set("X-Tenant-ID", "456")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
 		if w.Code != 200 {
-			t.Errorf("expected status 200 (default numeric mode), got %d", w.Code)
+			t.Errorf("expected status 200 (default header mode), got %d", w.Code)
 		}
 	})
 
@@ -1250,15 +1417,13 @@ func TestExtractTenantID_ResolverConfigProvider(t *testing.T) {
 				domains: map[string]int{"test.example.com": 100},
 			},
 			config: &provider.ResolverConfig{
+				HTTPType:     "host",
 				HTTPHostMode: "",
 			},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
 		})
@@ -1277,15 +1442,13 @@ func TestExtractTenantID_ResolverConfigProvider(t *testing.T) {
 		mockProvider := &mockResolverConfigProvider{
 			domainLookuper: mockDomainLookuper{},
 			config: &provider.ResolverConfig{
+				HTTPType:     "host",
 				HTTPHostMode: "invalid",
 			},
 		}
 
 		router := gin.New()
-		router.Use(ExtractTenantID(
-			WithResolverType("host"),
-			WithDomainLookup(mockProvider),
-		))
+		router.Use(ExtractTenantID(WithProviderConfig(mockProvider)))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})

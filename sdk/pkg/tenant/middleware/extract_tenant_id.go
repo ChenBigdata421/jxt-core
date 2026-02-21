@@ -8,8 +8,8 @@
 //
 // When httpType is "host", three mutually exclusive modes (httpHostMode) are supported:
 //   - "numeric": Only numeric subdomain (e.g., "123.example.com" -> "123", default)
-//   - "domain":  Only exact domain match via Provider (requires WithDomainLookup)
-//   - "code":    Only tenant code match via Provider (requires WithDomainLookup)
+//   - "domain":  Only exact domain match via Provider (requires WithProviderConfig)
+//   - "code":    Only tenant code match via Provider (requires WithProviderConfig)
 //
 // Usage:
 //
@@ -18,7 +18,7 @@
 //
 //	// With Provider: Automatically reads httpType and httpHostMode from ETCD
 //	router.Use(middleware.ExtractTenantID(
-//	    middleware.WithDomainLookup(provider),
+//	    middleware.WithProviderConfig(provider),
 //	))
 //
 //	// Without Provider: Explicit resolver type
@@ -161,14 +161,51 @@ func WithOnMissingTenant(mode string) Option {
 	}
 }
 
-// WithDomainLookup enables domain lookup for host-based tenant resolution.
-// When resolverType is "host", it will first attempt to find tenant ID by
-// exact domain match using the provided lookup. If lookup fails, it falls
-// back to subdomain extraction.
-// The lookup parameter should implement DomainLookuper interface (e.g., provider.Provider).
-func WithDomainLookup(lookup DomainLookuper) Option {
+// WithProviderConfig enables unified provider-based configuration for tenant ID extraction.
+// It reads all resolver settings from the Provider's ResolverConfig:
+//   - httpType: determines extraction method (host/header/query/path)
+//   - httpHeaderName: header name when httpType="header"
+//   - httpQueryParam: query param when httpType="query"
+//   - httpPathIndex: path index when httpType="path"
+//   - httpHostMode: host mode when httpType="host" (numeric/domain/code)
+//
+// This is the recommended way to configure tenant extraction when using ETCD.
+// All existing hardcoded options (WithResolverType, WithHeaderName, etc.) remain available
+// and can be placed AFTER WithProviderConfig to override specific ETCD settings.
+//
+// Note: Configuration is read once at middleware creation time (snapshot semantics).
+// Changes to ETCD configuration after middleware creation require re-creating the middleware.
+//
+// Example:
+//
+//	router.Use(middleware.ExtractTenantID(
+//	    middleware.WithProviderConfig(provider),
+//	))
+func WithProviderConfig(provider ProviderConfigurer) Option {
 	return func(c *Config) {
-		c.domainLookup = lookup
+		c.domainLookup = provider
+		if resolverCfg := provider.GetResolverConfig(); resolverCfg != nil {
+			c.resolverConfig = resolverCfg
+
+			// Set resolverType from ETCD config
+			if resolverCfg.HTTPType != "" {
+				c.resolverType = ResolverType(resolverCfg.HTTPType)
+			}
+
+			// Set field values based on httpType (only set relevant fields)
+			switch resolverCfg.HTTPType {
+			case "header":
+				if resolverCfg.HTTPHeaderName != "" {
+					c.headerName = resolverCfg.HTTPHeaderName
+				}
+			case "query":
+				if resolverCfg.HTTPQueryParam != "" {
+					c.queryParam = resolverCfg.HTTPQueryParam
+				}
+			case "path":
+				c.pathIndex = resolverCfg.HTTPPathIndex
+			}
+		}
 	}
 }
 
