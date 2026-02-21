@@ -395,19 +395,21 @@ jxt-core/
 | `query` | 从 URL 参数识别 | `?tenant=123` |
 | `path` | 从 URL 路径识别 | `/tenant-123/users` |
 
-**域名识别（host 类型）支持两种方式**：
+**域名识别（host 类型）支持三种方式**：
 
 1. **精确域名匹配**（优先）：通过 `DomainLookuper` 接口查询域名对应的租户 ID
-2. **子域名提取**（兜底）：从 Host 中提取第一部分作为租户 ID（如 `123.example.com` → `123`）
+2. **数字子域名**：从 Host 中提取数字作为租户 ID（如 `123.example.com` → `123`）
+3. **租户代码匹配**（兜底）：非数字子域名通过 `CodeLookuper` 接口匹配租户代码（如 `acmeCorp.example.com` → 查找 `code="acmecorp"`）
 
 ```go
-// 方式1：仅子域名提取（子域名必须是数字）
+// 方式1：仅数字子域名提取
 router.Use(ExtractTenantID(WithResolverType("host")))
 
-// 方式2：精确域名匹配 + 子域名 fallback
+// 方式2：精确域名匹配 + 数字子域名 + 租户代码匹配
+// Provider 自动实现 DomainLookuper 和 CodeLookuper
 router.Use(ExtractTenantID(
     WithResolverType("host"),
-    WithDomainLookup(provider),  // provider 实现了 DomainLookuper 接口
+    WithDomainLookup(provider),  // 支持: 数字子域名 + 精确域名 + 租户代码
 ))
 
 // 方式3：Header 识别
