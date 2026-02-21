@@ -770,6 +770,23 @@ func (p *Provider) handleDomainChange(ev *clientv3.Event, key string, data *tena
 	}
 }
 
+// handleResolverConfigChange 处理租户识别配置变更
+func (p *Provider) handleResolverConfigChange(ev *clientv3.Event, key string, data *tenantData) {
+	if ev.Type == clientv3.EventTypeDelete {
+		data.Resolver = nil
+		logger.Info("tenant provider: resolver config deleted")
+	} else {
+		var config ResolverConfig
+		if err := json.Unmarshal(ev.Kv.Value, &config); err != nil {
+			logger.Errorf("failed to unmarshal resolver config: %v", err)
+			return
+		}
+		data.Resolver = &config
+		logger.Infof("tenant provider: resolver config updated, id=%d, httpType=%s, ftpType=%s",
+			config.ID, config.HTTPType, config.FTPType)
+	}
+}
+
 // handleTenantMetaChange 处理租户元数据变更
 func (p *Provider) handleTenantMetaChange(ev *clientv3.Event, key string, data *tenantData) {
 	parts := strings.Split(key, "/")
