@@ -12,6 +12,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 ## 核心特性
 
 ### 🚀 基础设施组件
+
 - [x] **日志组件** - 基于 zap 的高性能结构化日志，支持多种输出格式和日志分级
 - [x] **配置管理** - 基于 viper 的多格式配置支持（YAML、JSON、TOML等）
 - [x] **缓存系统** - 支持 Memory、Redis 多种缓存后端
@@ -22,6 +23,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **多租户 Provider** - 基于 ETCD 的多租户配置管理，支持实时监听、租户识别配置缓存 ⭐ **核心组件**
 
 ### 🔧 服务治理
+
 - [x] **服务发现** - 基于 ETCD 的服务注册与发现
 - [x] **gRPC 支持** - 完整的 gRPC 服务端和客户端实现
 - [x] **HTTP 服务** - 基于 Gin 的 RESTful API 支持
@@ -29,17 +31,20 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **监控指标** - 集成 Prometheus 监控指标收集
 
 ### 🔐 安全认证
+
 - [x] **JWT 认证** - 完整的 JWT token 生成和验证
 - [x] **权限控制** - 基于 Casbin 的 RBAC 权限管理
 - [x] **验证码** - 图形验证码生成和验证
 - [x] **加密工具** - 常用的加密解密工具集
 
 ### 📡 通信协议
+
 - [x] **WebSocket** - 实时双向通信支持
 - [x] **gRPC** - 高性能 RPC 通信
 - [x] **HTTP/HTTPS** - 标准 Web API 支持
 
 ### 💾 数据存储
+
 - [x] **多数据库支持** - MySQL、PostgreSQL、SQLite、SQL Server
 - [x] **ORM 集成** - 基于 GORM 的数据库操作
 - [x] **读写分离** - 支持主从数据库配置
@@ -47,10 +52,12 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **服务级数据库配置** - 支持为每个租户的每个微服务配置独立数据库 ⭐ **新增**
 
 ### ⏰ 任务调度
+
 - [x] **定时任务** - 基于 cron 的任务调度
 - [x] **异步任务** - 基于队列的异步任务处理
 
 ### 🛠 开发工具
+
 - [x] **代码生成** - 自动生成常用代码模板
 - [x] **工具函数** - 丰富的工具函数库
 - [x] **中间件** - 常用的 HTTP 中间件
@@ -85,10 +92,10 @@ import (
 func main() {
     // 初始化配置
     cfg := config.NewConfig()
-    
+
     // 创建应用实例
     app := sdk.NewApplication(cfg)
-    
+
     // 启动应用
     app.Run()
 }
@@ -285,11 +292,11 @@ db := app.GetTenantDB(tenantID)              // 映射到 security-management
 
 ### 编码方式选型
 
-| 编码方式 | 速度 | 体积 | 时延 | 适用场景 |
-|---------|------|------|------|----------|
-| **JSON（默认）** | 基线 | 基线 | 基线 | 通用场景，快速开发 |
-| **Protobuf** | ↑↑ | ↑↑ | ↑↑ | 高吞吐、跨语言 |
-| **Cap'n Proto** | ↑↑↑ | ↑↑↑ | ↑↑↑ | 极致性能、零拷贝 |
+| 编码方式            | 速度  | 体积  | 时延  | 适用场景       |
+| --------------- | --- | --- | --- | ---------- |
+| **JSON（默认）**    | 基线  | 基线  | 基线  | 通用场景，快速开发  |
+| **Protobuf**    | ↑↑  | ↑↑  | ↑↑  | 高吞吐、跨语言    |
+| **Cap'n Proto** | ↑↑↑ | ↑↑↑ | ↑↑↑ | 极致性能、零拷贝   |
 | **FlatBuffers** | ↑↑↑ | ↑↑↑ | ↑↑↑ | 游戏、移动端、IoT |
 
 详见 [EventBus 文档](sdk/pkg/eventbus/README.md)
@@ -339,12 +346,14 @@ jxt-core/
 ## 文档
 
 ### 核心文档
+
 - [文档中心](docs/README.md) - 完整的文档索引
 - [EventBus 文档](sdk/pkg/eventbus/README.md) - 事件总线使用指南
 - [Outbox 模式快速开始](docs/outbox-pattern-quick-start.md) ⭐ - 5 分钟快速上手
 - [Outbox 模式完整设计](docs/outbox-pattern-design.md) - 完整的架构设计和使用指南
 
 ### 其他文档
+
 - [快速开始指南](docs/quickstart.md)
 - [配置文档](docs/config.md)
 - [API 文档](docs/api.md)
@@ -389,22 +398,22 @@ jxt-core/
 
 框架支持四种 HTTP 租户识别方式：
 
-| 类型 | 说明 | 示例 |
-|------|------|------|
-| `host` | 从 Host 头识别 | `123.example.com` 或精确域名匹配 |
-| `header` | 从自定义 Header 识别 | `X-Tenant-ID: 123` |
-| `query` | 从 URL 参数识别 | `?tenant=123` |
-| `path` | 从 URL 路径识别 | `/tenant-123/users` |
+| 类型       | 说明             | 示例                        |
+| -------- | -------------- | ------------------------- |
+| `host`   | 从 Host 头识别     | `123.example.com` 或精确域名匹配 |
+| `header` | 从自定义 Header 识别 | `X-Tenant-ID: 123`        |
+| `query`  | 从 URL 参数识别     | `?tenant=123`             |
+| `path`   | 从 URL 路径识别     | `/tenant-123/users`       |
 
 **域名识别（host 类型）支持三种互斥模式**：
 
 通过配置 `hostMode`（YAML）或 `httpHostMode`（ETCD）设置，三种模式**互斥**，不可同时使用：
 
-| 模式 | 说明 | 匹配规则 | 示例 |
-|------|------|----------|------|
-| `numeric` | 数字子域名（默认） | 从子域名提取数字作为租户 ID | `123.example.com` → `123` |
-| `domain` | 精确域名匹配 | 通过 `DomainLookuper` 查询完整域名 | `tenant1.example.com` → 查域名配置 → 租户 ID |
-| `code` | 租户代码匹配 | 通过 `CodeLookuper` 用子域名匹配租户代码 | `acmecorp.example.com` → 查 `code="acmecorp"` → 租户 ID |
+| 模式        | 说明        | 匹配规则                         | 示例                                                   |
+| --------- | --------- | ---------------------------- | ---------------------------------------------------- |
+| `numeric` | 数字子域名（默认） | 从子域名提取数字作为租户 ID              | `123.example.com` → `123`                            |
+| `domain`  | 精确域名匹配    | 通过 `DomainLookuper` 查询完整域名   | `tenant1.example.com` → 查域名配置 → 租户 ID                |
+| `code`    | 租户代码匹配    | 通过 `CodeLookuper` 用子域名匹配租户代码 | `acmecorp.example.com` → 查 `code="acmecorp"` → 租户 ID |
 
 **配置方式**：
 
@@ -501,8 +510,7 @@ dbConfig := p.GetDatabaseConfig(tenantID)
 
 ## 版本历史
 
-- v1.1.46 - 重构 Host 类型租户识别为三种互斥模式（numeric/domain/code），支持 hostMode 配置
-- v1.1.45 - 新增租户识别配置缓存（ResolverConfig），支持非数字子域名匹配租户代码
+- v1.1.45 - 新增租户识别配置缓存，支持基于配置缓存进行租户识别
 - v1.1.41 - 新增域名查找（DomainLookuper）支持租户 ID 解析
 - v1.1.40 - 增强租户 ID 解析能力
 - v1.1.39 - 新增域名查找支持

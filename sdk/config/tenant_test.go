@@ -83,21 +83,16 @@ func TestDefaultTenantConfig_ServiceDatabases(t *testing.T) {
 			})
 		})
 
-		Convey("向后兼容 - Database 字段应保留", func() {
+		Convey("ServiceDatabases 配置应正常工作", func() {
 			config := &DefaultTenantConfig{
-				Database: &TenantDatabaseDetailConfig{
-					Driver:   "postgres",
-					Host:     "postgres-security",
-					Database: "securitydb",
-				},
 				ServiceDatabases: map[string]TenantDatabaseDetailConfig{
 					"evidence-command": {Driver: "mysql"},
+					"evidence-query":   {Driver: "postgres"},
 				},
 			}
 
-			So(config.Database, ShouldNotBeNil)
-			So(config.Database.Driver, ShouldEqual, "postgres")
-			So(len(config.ServiceDatabases), ShouldEqual, 1)
+			So(config.HasServiceDatabases(), ShouldBeTrue)
+			So(len(config.ServiceDatabases), ShouldEqual, 2)
 		})
 	})
 }
