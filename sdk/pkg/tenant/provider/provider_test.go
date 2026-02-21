@@ -510,6 +510,37 @@ func TestIsResolverConfigKey(t *testing.T) {
 	}
 }
 
+func TestIsKnownWatchKey(t *testing.T) {
+	p := &Provider{}
+
+	tests := []struct {
+		key      string
+		expected bool
+	}{
+		// tenants/ 下的配置
+		{"tenants/1/meta", true},
+		{"tenants/1/database/evidence-command", true},
+		{"tenants/1/ftp/admin", true},
+		{"tenants/1/storage", true},
+		{"tenants/1/domain/primary", true},
+		// 公共配置
+		{"common/resolver", true},
+		{"common/storage-directory", true},
+		// 应该被过滤的 key
+		{"_health/sentinel", false},
+		{"platform/configs/some-key", false},
+		{"tenants/_index/by-code/abc", false},
+		{"tenants/_index/ftp-user/admin", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			result := p.isKnownWatchKey(tt.key)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestParseResolverConfig(t *testing.T) {
 	jsonData := `{
 		"id": 1,

@@ -617,13 +617,20 @@ func (p *Provider) watchLoop(initialWatchChan clientv3.WatchChan) {
 }
 
 func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
-	current := p.data.Load().(*tenantData)
-	newData := current.copyData()
-
 	key := string(ev.Kv.Key)
 	keyStr := strings.TrimPrefix(key, p.namespace)
 
+	// 前置过滤：只处理已知 key 类型，避免无效事件触发 copyData()
+	if !p.isKnownWatchKey(keyStr) {
+		return
+	}
+
+	current := p.data.Load().(*tenantData)
+	newData := current.copyData()
+
 	switch {
+	case isResolverConfigKey(keyStr):
+		p.handleResolverConfigChange(ev, keyStr, newData)
 	case isTenantMetaKey(keyStr):
 		p.handleTenantMetaChange(ev, keyStr, newData)
 	case isServiceDatabaseKey(keyStr):
@@ -768,6 +775,24 @@ func (p *Provider) handleDomainChange(ev *clientv3.Event, key string, data *tena
 		domain.Code = meta.Code
 		domain.Name = meta.Name
 	}
+}
+
+// isKnownWatchKey 检查是否为需要处理的 key
+// 用于前置过滤，避免无效事件（如 _health/sentinel）触发 copyData()
+func (p *Provider) isKnownWatchKey(key string) bool {
+	// tenants/ 下的配置
+	if strings.HasPrefix(key, "tenants/") {
+		// 排除内部索引 key（如 tenants/_index/by-code/abc）
+		if strings.HasPrefix(key, "tenants/_index/") {
+			return false
+		}
+		return true
+	}
+	// 公共配置
+	if key == "common/resolver" || key == "common/storage-directory" {
+		return true
+	}
+	return false
 }
 
 // handleResolverConfigChange 处理租户识别配置变更
