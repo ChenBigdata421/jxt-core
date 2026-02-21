@@ -717,3 +717,74 @@ func TestGetResolverConfigOrDefault_ReturnsValueNotPointer(t *testing.T) {
 
 	assert.Equal(t, "header", cfg2.HTTPType)
 }
+
+// TestProvider_GetTenantIDByCode tests the GetTenantIDByCode method
+func TestProvider_GetTenantIDByCode(t *testing.T) {
+	p := &Provider{namespace: "jxt/"}
+	data := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+	}
+	data.Metas[1] = &TenantMeta{TenantID: 1, Code: "acmeCorp", Name: "ACME Corp"}
+	data.Metas[2] = &TenantMeta{TenantID: 2, Code: "techInc", Name: "Tech Inc"}
+
+	// Build codeIndex manually for test
+	data.codeIndex = map[string]int{
+		"acmecorp": 1,
+		"techinc":  2,
+	}
+	p.data.Store(data)
+
+	tests := []struct {
+		name      string
+		code      string
+		wantID    int
+		wantFound bool
+	}{
+		{
+			name:      "existing code lowercase",
+			code:      "acmecorp",
+			wantID:    1,
+			wantFound: true,
+		},
+		{
+			name:      "existing code uppercase (case insensitive)",
+			code:      "ACMECORP",
+			wantID:    1,
+			wantFound: true,
+		},
+		{
+			name:      "existing code mixed case",
+			code:      "TechInc",
+			wantID:    2,
+			wantFound: true,
+		},
+		{
+			name:      "non-existing code",
+			code:      "unknown",
+			wantID:    0,
+			wantFound: false,
+		},
+		{
+			name:      "empty code",
+			code:      "",
+			wantID:    0,
+			wantFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, found := p.GetTenantIDByCode(tt.code)
+			if found != tt.wantFound {
+				t.Errorf("GetTenantIDByCode(%q) found = %v, want %v", tt.code, found, tt.wantFound)
+			}
+			if id != tt.wantID {
+				t.Errorf("GetTenantIDByCode(%q) id = %v, want %v", tt.code, id, tt.wantID)
+			}
+		})
+	}
+}

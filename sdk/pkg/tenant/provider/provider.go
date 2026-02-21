@@ -1131,6 +1131,23 @@ func (p *Provider) GetTenantIDByDomain(domain string) (int, bool) {
 	return tenantID, ok
 }
 
+// GetTenantIDByCode 通过租户代码获取租户ID
+// 用于子域名匹配场景：subdomain.example.com -> 查找 code=subdomain 的租户
+//
+// 注意：DNS 子域名不区分大小写（RFC 4343），因此 code 查找也使用小写匹配
+// 查找复杂度 O(1)，无锁，线程安全
+func (p *Provider) GetTenantIDByCode(code string) (int, bool) {
+	if code == "" {
+		return 0, false
+	}
+
+	data := p.data.Load().(*tenantData)
+
+	// 使用 codeIndex 进行 O(1) 查找，与 domainIndex 模式一致
+	tenantID, ok := data.codeIndex[strings.ToLower(code)]
+	return tenantID, ok
+}
+
 // GetResolverConfig 获取全局租户识别配置
 // 如果未配置返回 nil
 func (p *Provider) GetResolverConfig() *ResolverConfig {
