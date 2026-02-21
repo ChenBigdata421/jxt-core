@@ -529,6 +529,18 @@ func parseStringOrJSON(value string) string {
 	return strings.TrimSpace(value)
 }
 
+// parseResolverConfig 解析租户识别配置（全局配置）
+// 返回 error 以与其他解析函数保持风格一致
+// 注意：调用方（processKey）忽略返回值，解析失败时仅跳过该配置
+func (p *Provider) parseResolverConfig(key string, value string, data *tenantData) error {
+	var config ResolverConfig
+	if err := json.Unmarshal([]byte(value), &config); err != nil {
+		return fmt.Errorf("failed to unmarshal resolver config: %w", err)
+	}
+	data.Resolver = &config
+	return nil
+}
+
 // StartWatch begins watching ETCD for changes
 func (p *Provider) StartWatch(ctx context.Context) error {
 	p.mu.Lock()

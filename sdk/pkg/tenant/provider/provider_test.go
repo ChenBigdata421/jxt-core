@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -506,6 +508,36 @@ func TestIsResolverConfigKey(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseResolverConfig(t *testing.T) {
+	jsonData := `{
+		"id": 1,
+		"httpType": "header",
+		"httpHeaderName": "X-Tenant-ID",
+		"httpQueryParam": "",
+		"httpPathIndex": 0,
+		"ftpType": "username",
+		"createdAt": "2026-02-21T10:00:00Z",
+		"updatedAt": "2026-02-21T11:00:00Z"
+	}`
+
+	p := &Provider{}
+	data := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+	}
+
+	err := p.parseResolverConfig("common/resolver", jsonData, data)
+	require.NoError(t, err)
+	require.NotNil(t, data.Resolver)
+	assert.Equal(t, int64(1), data.Resolver.ID)
+	assert.Equal(t, "header", data.Resolver.HTTPType)
+	assert.Equal(t, "X-Tenant-ID", data.Resolver.HTTPHeaderName)
+	assert.Equal(t, "username", data.Resolver.FTPType)
 }
 
 // BenchmarkGetTenantIDByDomain_Parallel measures parallel performance
