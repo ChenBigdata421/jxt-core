@@ -648,3 +648,115 @@ func TestExtractTenantID_WithContinueMode(t *testing.T) {
 		}
 	})
 }
+
+// mockCodeLookuper implements both DomainLookuper and CodeLookuper
+type mockCodeLookuper struct {
+	domains map[string]int
+	codes   map[string]int
+}
+
+func (m *mockCodeLookuper) GetTenantIDByDomain(domain string) (int, bool) {
+	tenantID, ok := m.domains[domain]
+	return tenantID, ok
+}
+
+func (m *mockCodeLookuper) GetTenantIDByCode(code string) (int, bool) {
+	tenantID, ok := m.codes[code]
+	return tenantID, ok
+}
+
+func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("Non-numeric subdomain matches tenant code", func(t *testing.T) {
+		router := gin.New()
+		mockLookup := &mockCodeLookuper{
+			domains: map[string]int{},
+			codes:   map[string]int{"acmecorp": 1},
+		}
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "acmeCorp.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200, got %d, body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Non-numeric subdomain case insensitive match", func(t *testing.T) {
+		router := gin.New()
+		mockLookup := &mockCodeLookuper{
+			domains: map[string]int{},
+			codes:   map[string]int{"techinc": 2}, // lowercase in index
+		}
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "TECHINC.example.com" // uppercase in request
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("Non-numeric subdomain no match returns 400", func(t *testing.T) {
+		router := gin.New()
+		mockLookup := &mockCodeLookuper{
+			domains: map[string]int{},
+			codes:   map[string]int{"othercorp": 1},
+		}
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockLookup),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			c.JSON(200, nil)
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "unknown.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 400 {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("Numeric subdomain still works", func(t *testing.T) {
+		router := gin.New()
+		router.Use(ExtractTenantID(WithResolverType("host")))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "123.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+}

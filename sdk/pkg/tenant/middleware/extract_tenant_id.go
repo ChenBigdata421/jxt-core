@@ -247,9 +247,12 @@ func extractTenantID(c *gin.Context, cfg *Config) (string, bool) {
 // extractFromHost extracts tenant ID from Host header
 // Priority:
 //  1. If domainLookup is configured, attempt exact domain match first
-//  2. Fall back to subdomain extraction (e.g., tenant1.example.com -> tenant1)
+//  2. Fall back to subdomain extraction:
+//     2a. If subdomain is numeric, use as tenant ID directly
+//     2b. If subdomain is non-numeric and CodeLookuper available, match by tenant code
 //
 // Exact domain matching does not support wildcards.
+// DNS is case-insensitive (RFC 4343), all lookups use lowercase.
 func extractFromHost(c *gin.Context, lookup DomainLookuper) (string, bool) {
 	host := c.Request.Host
 	if host == "" {
@@ -274,14 +277,29 @@ func extractFromHost(c *gin.Context, lookup DomainLookuper) (string, bool) {
 		return "", false
 	}
 
-	// Return the subdomain as tenant ID
-	// Example: tenant1.example.com -> tenant1
 	subdomain := parts[0]
 	if subdomain == "" || subdomain == "www" {
 		return "", false
 	}
 
-	return subdomain, true
+	// 2a. If subdomain is numeric, return directly (e.g., "123.example.com" -> "123")
+	if _, err := strconv.Atoi(subdomain); err == nil {
+		return subdomain, true
+	}
+
+	// 2b. Subdomain is non-numeric, try to match by tenant code
+	//     e.g., "acmeCorp.example.com" -> lookup by code "acmecorp" (lowercase)
+	//     Uses type assertion for backward compatibility - only Provider supports this
+	if lookup != nil {
+		if codeLookup, ok := lookup.(CodeLookuper); ok {
+			// DNS is case-insensitive, normalize to lowercase
+			if tenantID, ok := codeLookup.GetTenantIDByCode(strings.ToLower(subdomain)); ok {
+				return strconv.Itoa(tenantID), true
+			}
+		}
+	}
+
+	return "", false
 }
 
 // extractFromHeader extracts tenant ID from a custom header
