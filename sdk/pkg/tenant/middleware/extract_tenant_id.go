@@ -88,6 +88,7 @@ type Config struct {
 	pathIndex        int               // For type=path
 	onMissingTenant  MissingTenantMode // Behavior when tenant ID is missing
 	domainLookup     DomainLookuper    // Domain lookup for host-based resolution
+	resolverConfig   *provider.ResolverConfig // Resolver config from Provider (for httpHostMode)
 }
 
 // Option is a function that configures the tenant ID extraction
@@ -172,6 +173,19 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 		opt(cfg)
 	}
 
+	// Try to get ResolverConfig from Provider (if domainLookup implements ResolverConfigProvider)
+	if cfg.domainLookup != nil {
+		if rcp, ok := cfg.domainLookup.(ResolverConfigProvider); ok {
+			if resolverCfg := rcp.GetResolverConfig(); resolverCfg != nil {
+				cfg.resolverConfig = resolverCfg
+				// Override resolverType from ETCD config if set
+				if resolverCfg.HTTPType != "" {
+					cfg.resolverType = ResolverType(resolverCfg.HTTPType)
+				}
+			}
+		}
+	}
+
 	return func(c *gin.Context) {
 		tenantIDStr, ok := extractTenantID(c, cfg)
 		if !ok {
@@ -240,7 +254,7 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 func extractTenantID(c *gin.Context, cfg *Config) (string, bool) {
 	switch cfg.resolverType {
 	case ResolverTypeHost:
-		return extractFromHost(c, cfg.domainLookup)
+		return extractFromHost(c, cfg.domainLookup, cfg.resolverConfig)
 	case ResolverTypeHeader:
 		return extractFromHeader(c, cfg.headerName)
 	case ResolverTypeQuery:
@@ -261,7 +275,8 @@ func extractTenantID(c *gin.Context, cfg *Config) (string, bool) {
 //
 // Exact domain matching does not support wildcards.
 // DNS is case-insensitive (RFC 4343), all lookups use lowercase.
-func extractFromHost(c *gin.Context, lookup DomainLookuper) (string, bool) {
+func extractFromHost(c *gin.Context, lookup DomainLookuper, resolverCfg *provider.ResolverConfig) (string, bool) {
+	// Mode logic will be added in Task 5 - for now keep existing behavior
 	host := c.Request.Host
 	if host == "" {
 		return "", false
