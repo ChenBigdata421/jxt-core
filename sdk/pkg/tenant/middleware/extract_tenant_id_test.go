@@ -857,3 +857,123 @@ func TestExtractFromHost_NumericMode(t *testing.T) {
 		// In numeric mode, should return 999 (subdomain), not 500 (domain lookup)
 	})
 }
+
+func TestExtractFromHost_DomainMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("Domain match succeeds in domain mode", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant1.example.com": 100,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "tenant1.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("Numeric subdomain fails in domain mode", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			c.JSON(200, nil)
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "123.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 400 {
+			t.Errorf("expected status 400 (domain mode ignores numeric), got %d", w.Code)
+		}
+	})
+
+	t.Run("Unknown domain fails in domain mode", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"known.example.com": 100,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			c.JSON(200, nil)
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "unknown.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 400 {
+			t.Errorf("expected status 400 for unknown domain, got %d", w.Code)
+		}
+	})
+
+	t.Run("Domain mode with port", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant1.example.com": 100,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "tenant1.example.com:8080"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+}
