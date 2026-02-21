@@ -402,34 +402,50 @@ jxt-core/
 3. **租户代码匹配**（兜底）：非数字子域名通过 `CodeLookuper` 接口匹配租户代码（如 `acmeCorp.example.com` → 查找 `code="acmecorp"`）
 
 ```go
-// 方式1：仅数字子域名提取（无 Provider）
+// ========== Host 类型租户识别 ==========
+
+// 方式1：仅数字子域名（无 Provider）
 // - 123.example.com ✅
 // - acmeCorp.example.com ❌
 router.Use(ExtractTenantID(WithResolverType("host")))
 
-// 方式2：数字子域名 + 租户代码匹配（使用 Provider）
-// Provider 自动实现 DomainLookuper 和 CodeLookuper 接口
-// - 123.example.com ✅ (数字子域名)
+// 方式2：仅精确域名匹配（使用 Provider，仅配置域名）
+// - tenant1.example.com ✅ (精确匹配域名配置)
+// - 123.example.com ❌ (数字子域名不处理)
+// - acmeCorp.example.com ❌ (租户代码不处理)
+// 注意：Provider 需仅启用 DomainLookuper，禁用 CodeLookuper
+
+// 方式3：仅租户代码匹配（使用 Provider，仅配置代码索引）
 // - acmeCorp.example.com ✅ (匹配租户代码 acmecorp)
-// - tenant1.example.com ✅ (精确域名匹配，如已配置)
+// - 123.example.com ❌ (数字子域名不处理)
+// - tenant1.example.com ❌ (精确域名不处理)
+// 注意：Provider 需仅启用 CodeLookuper，禁用 DomainLookuper
+
+// 方式4：全功能模式（精确域名 + 数字子域名 + 租户代码）
+// 优先级：精确域名 > 数字子域名 > 租户代码
+// - tenant1.example.com ✅ (优先级1: 精确域名匹配)
+// - 123.example.com ✅ (优先级2: 数字子域名)
+// - acmeCorp.example.com ✅ (优先级3: 租户代码匹配)
 router.Use(ExtractTenantID(
     WithResolverType("host"),
-    WithDomainLookup(provider),
+    WithDomainLookup(provider),  // Provider 实现两个接口
 ))
 
-// 方式3：Header 识别
+// ========== 其他租户识别方式 ==========
+
+// 方式5：Header 识别
 router.Use(ExtractTenantID(
     WithResolverType("header"),
     WithHeaderName("X-Tenant-ID"),
 ))
 
-// 方式4：Query 参数识别
+// 方式6：Query 参数识别
 router.Use(ExtractTenantID(
     WithResolverType("query"),
     WithQueryParam("tenant"),
 ))
 
-// 方式5：URL 路径识别
+// 方式7：URL 路径识别
 // 例如: /123/users -> 提取第0段 "123" 作为租户 ID
 router.Use(ExtractTenantID(
     WithResolverType("path"),
