@@ -555,7 +555,8 @@ func (p *Provider) StartWatch(ctx context.Context) error {
 	p.watchCtx, p.watchCancel = context.WithCancel(ctx)
 
 	// Build watch prefix
-	prefix := p.namespace + "tenants/"
+	// 监听整个 namespace，包括 tenants/ 和 common/
+	prefix := p.namespace
 
 	watchChan := p.client.Watch(p.watchCtx, prefix, clientv3.WithPrefix())
 
@@ -573,7 +574,7 @@ func (p *Provider) watchLoop(initialWatchChan clientv3.WatchChan) {
 	watchChan := initialWatchChan
 
 	// Log initial watch start
-	logger.Infof("tenant provider: started watching ETCD with prefix %s", p.namespace+"tenants/")
+	logger.Infof("tenant provider: started watching ETCD with prefix %s", p.namespace)
 
 	for {
 		select {
@@ -592,7 +593,8 @@ func (p *Provider) watchLoop(initialWatchChan clientv3.WatchChan) {
 					return
 				case <-time.After(backoff):
 					// Re-create the watch
-					prefix := p.namespace + "tenants/"
+					// 保持与 StartWatch 一致，监听整个 namespace
+					prefix := p.namespace
 					watchChan = p.client.Watch(p.watchCtx, prefix, clientv3.WithPrefix())
 					logger.Infof("tenant provider: reconnected to ETCD watch, next backoff will be %v",
 						calculateBackoff(backoff))
