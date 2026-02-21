@@ -379,6 +379,10 @@ func isDomainInternalKey(key string) bool {
 	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "internal"
 }
 
+func isResolverConfigKey(key string) bool {
+	return key == "common/resolver"
+}
+
 func (p *Provider) processKey(key, value string, data *tenantData) {
 	key = strings.TrimPrefix(key, p.namespace)
 

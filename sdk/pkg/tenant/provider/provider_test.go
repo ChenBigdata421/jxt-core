@@ -484,6 +484,30 @@ func BenchmarkGetTenantIDByDomain(b *testing.B) {
 	}
 }
 
+// ========== Key Checking Function Tests ==========
+
+func TestIsResolverConfigKey(t *testing.T) {
+	tests := []struct {
+		key      string
+		expected bool
+	}{
+		{"common/resolver", true},
+		{"tenants/1/meta", false},
+		{"tenants/1/database/evidence-command", false},
+		{"common/storage-directory", false},
+		{"_health/sentinel", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			result := isResolverConfigKey(tt.key)
+			if result != tt.expected {
+				t.Errorf("isResolverConfigKey(%q) = %v, want %v", tt.key, result, tt.expected)
+			}
+		})
+	}
+}
+
 // BenchmarkGetTenantIDByDomain_Parallel measures parallel performance
 func BenchmarkGetTenantIDByDomain_Parallel(b *testing.B) {
 	// Create a provider with test data
