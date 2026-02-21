@@ -384,6 +384,47 @@ jxt-core/
 - **Watch 机制**：自动监听 ETCD 变更，实时同步配置
 - **Gin 中间件**：`ExtractTenantID` 中间件自动提取租户 ID
 
+#### 租户识别方式
+
+框架支持四种 HTTP 租户识别方式：
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `host` | 从 Host 头识别 | `tenant1.example.com` 或精确域名匹配 |
+| `header` | 从自定义 Header 识别 | `X-Tenant-ID: 123` |
+| `query` | 从 URL 参数识别 | `?tenant=123` |
+| `path` | 从 URL 路径识别 | `/tenant-123/users` |
+
+**域名识别（host 类型）支持两种方式**：
+
+1. **精确域名匹配**（优先）：通过 `DomainLookuper` 接口查询域名对应的租户 ID
+2. **子域名提取**（兜底）：从 Host 中提取第一部分作为租户 ID（如 `123.example.com` → `123`）
+
+```go
+// 方式1：仅子域名提取（子域名必须是数字）
+router.Use(ExtractTenantID(WithResolverType("host")))
+
+// 方式2：精确域名匹配 + 子域名 fallback
+router.Use(ExtractTenantID(
+    WithResolverType("host"),
+    WithDomainLookup(provider),  // provider 实现了 DomainLookuper 接口
+))
+
+// 方式3：Header 识别
+router.Use(ExtractTenantID(
+    WithResolverType("header"),
+    WithHeaderName("X-Tenant-ID"),
+))
+
+// 方式4：Query 参数识别
+router.Use(ExtractTenantID(
+    WithResolverType("query"),
+    WithQueryParam("tenant"),
+))
+```
+
+#### 使用示例
+
 ```go
 // 创建 ETCD 客户端
 client, _ := clientv3.New(clientv3.Config{
