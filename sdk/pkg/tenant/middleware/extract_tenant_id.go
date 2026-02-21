@@ -1,18 +1,27 @@
 // Package middleware provides tenant ID extraction middleware for Gin framework.
 //
-// Supported resolver types:
+// Supported resolver types (httpType):
 //   - "host":   Extract tenant ID from Host header (domain-based)
 //   - "header": Extract tenant ID from a custom header (default: X-Tenant-ID)
 //   - "query":  Extract tenant ID from URL query parameter (default: tenant)
 //   - "path":   Extract tenant ID from URL path by index
+//
+// When httpType is "host", three mutually exclusive modes (httpHostMode) are supported:
+//   - "numeric": Only numeric subdomain (e.g., "123.example.com" -> "123", default)
+//   - "domain":  Only exact domain match via Provider (requires WithDomainLookup)
+//   - "code":    Only tenant code match via Provider (requires WithDomainLookup)
 //
 // Usage:
 //
 //	// Simple: Use default header-based extraction
 //	router.Use(middleware.ExtractTenantID())
 //
-//	// Advanced: Configure resolver type and options
-//	router.Use(middleware.ExtractTenantID(middleware.WithResolverType("host")))
+//	// With Provider: Automatically reads httpType and httpHostMode from ETCD
+//	router.Use(middleware.ExtractTenantID(
+//	    middleware.WithDomainLookup(provider),
+//	))
+//
+//	// Without Provider: Explicit resolver type
 //	router.Use(middleware.ExtractTenantID(
 //	    middleware.WithResolverType("query"),
 //	    middleware.WithQueryParam("tenant_id"),
@@ -78,6 +87,20 @@ type CodeLookuper interface {
 // This allows middleware to read httpHostMode from ETCD via Provider.
 type ResolverConfigProvider interface {
 	GetResolverConfig() *provider.ResolverConfig
+}
+
+// ProviderConfigurer combines all provider interfaces needed for tenant resolution.
+// Provider implicitly implements this interface via duck typing.
+// Use this with WithProviderConfig() for unified ETCD-based configuration.
+//
+// Interface composition:
+//   - DomainLookuper: for httpHostMode="domain" (exact domain match)
+//   - CodeLookuper: for httpHostMode="code" (tenant code from subdomain)
+//   - ResolverConfigProvider: for reading httpType and related config from ETCD
+type ProviderConfigurer interface {
+	DomainLookuper
+	CodeLookuper
+	ResolverConfigProvider
 }
 
 // Config holds the middleware configuration

@@ -744,6 +744,13 @@ func (m *mockResolverConfigProvider) GetResolverConfig() *provider.ResolverConfi
 	return m.config
 }
 
+// TestProviderConfigurerInterface verifies mockResolverConfigProvider implements ProviderConfigurer
+func TestProviderConfigurerInterface(t *testing.T) {
+	// Compile-time check: mockResolverConfigProvider must implement ProviderConfigurer
+	// This ensures the interface includes DomainLookuper, CodeLookuper, and ResolverConfigProvider
+	var _ ProviderConfigurer = (*mockResolverConfigProvider)(nil)
+}
+
 func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
