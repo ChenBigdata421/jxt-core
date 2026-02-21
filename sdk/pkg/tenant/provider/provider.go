@@ -306,9 +306,9 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 
 	newData.domainIndex = buildDomainIndex(newData) // 构建索引
 	p.data.Store(newData)                           // 一次原子替换
-	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs, %d domain mappings from ETCD",
+	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs, %d domain mappings, resolver=%v from ETCD",
 		len(newData.Metas), countServiceDatabases(newData.Databases), countFtpConfigs(newData.Ftps),
-		len(newData.domainIndex))
+		len(newData.domainIndex), newData.Resolver != nil)
 
 	// 同步到缓存
 	if p.cache != nil {
