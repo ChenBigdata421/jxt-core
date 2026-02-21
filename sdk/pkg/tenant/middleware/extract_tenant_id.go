@@ -11,21 +11,31 @@
 //   - "domain":  Only exact domain match via Provider (requires WithProviderConfig)
 //   - "code":    Only tenant code match via Provider (requires WithProviderConfig)
 //
-// Usage:
+// # Usage
 //
-//	// Simple: Use default header-based extraction
-//	router.Use(middleware.ExtractTenantID())
+// Recommended: Use WithProviderConfig for unified ETCD-based configuration:
 //
-//	// With Provider: Automatically reads httpType and httpHostMode from ETCD
 //	router.Use(middleware.ExtractTenantID(
 //	    middleware.WithProviderConfig(provider),
 //	))
 //
-//	// Without Provider: Explicit resolver type
+// Hardcoded: Explicit resolver type without Provider:
+//
 //	router.Use(middleware.ExtractTenantID(
 //	    middleware.WithResolverType("query"),
 //	    middleware.WithQueryParam("tenant_id"),
 //	))
+//
+// Combined: Provider with hardcoded override (options applied in order):
+//
+//	middleware.ExtractTenantID(
+//	    middleware.WithProviderConfig(provider),
+//	    middleware.WithResolverType("host"), // overrides ETCD httpType
+//	)
+//
+// Simple: Default header-based extraction:
+//
+//	router.Use(middleware.ExtractTenantID())
 package middleware
 
 import (

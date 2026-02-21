@@ -141,6 +141,7 @@ tenants:
   resolver:
     http:
       type: host               # host/header/query/path
+      hostMode: numeric        # type=host 时的模式：numeric（默认）/domain/code
       headerName: X-Tenant-ID   # type=header 时的 Header 名
       queryParam: tenant        # type=query 时的 Query Key
       pathIndex: 0              # type=path 时的路径索引
@@ -390,68 +391,75 @@ jxt-core/
 
 | 类型 | 说明 | 示例 |
 |------|------|------|
-| `host` | 从 Host 头识别 | `tenant1.example.com` 或精确域名匹配 |
+| `host` | 从 Host 头识别 | `123.example.com` 或精确域名匹配 |
 | `header` | 从自定义 Header 识别 | `X-Tenant-ID: 123` |
 | `query` | 从 URL 参数识别 | `?tenant=123` |
 | `path` | 从 URL 路径识别 | `/tenant-123/users` |
 
-**域名识别（host 类型）支持三种方式**：
+**域名识别（host 类型）支持三种互斥模式**：
 
-1. **精确域名匹配**（优先）：通过 `DomainLookuper` 接口查询域名对应的租户 ID
-2. **数字子域名**：从 Host 中提取数字作为租户 ID（如 `123.example.com` → `123`）
-3. **租户代码匹配**（兜底）：非数字子域名通过 `CodeLookuper` 接口匹配租户代码（如 `acmeCorp.example.com` → 查找 `code="acmecorp"`）
+通过配置 `hostMode`（YAML）或 `httpHostMode`（ETCD）设置，三种模式**互斥**，不可同时使用：
+
+| 模式 | 说明 | 匹配规则 | 示例 |
+|------|------|----------|------|
+| `numeric` | 数字子域名（默认） | 从子域名提取数字作为租户 ID | `123.example.com` → `123` |
+| `domain` | 精确域名匹配 | 通过 `DomainLookuper` 查询完整域名 | `tenant1.example.com` → 查域名配置 → 租户 ID |
+| `code` | 租户代码匹配 | 通过 `CodeLookuper` 用子域名匹配租户代码 | `acmecorp.example.com` → 查 `code="acmecorp"` → 租户 ID |
+
+**配置方式**：
+
+```yaml
+# YAML 配置方式
+tenants:
+  resolver:
+    http:
+      type: host
+      hostMode: numeric  # numeric/domain/code，默认 numeric
+```
 
 ```go
-// ========== Host 类型租户识别 ==========
+// ========== Host 类型租户识别 - 三种互斥模式 ==========
 
-// 方式1：仅数字子域名（无 Provider）
-// - 123.example.com ✅
-// - acmeCorp.example.com ❌
+// 模式1：numeric（默认）- 仅数字子域名（无 Provider）
+// - 123.example.com ✅ → 租户 ID 123
+// - 456.app.example.com ✅ → 租户 ID 456
+// - acmecorp.example.com ❌ → 非数字，识别失败
 router.Use(ExtractTenantID(WithResolverType("host")))
 
-// 方式2：仅精确域名匹配（使用 Provider，仅配置域名）
-// - tenant1.example.com ✅ (精确匹配域名配置)
-// - 123.example.com ❌ (数字子域名不处理)
-// - acmeCorp.example.com ❌ (租户代码不处理)
-// 注意：Provider 需仅启用 DomainLookuper，禁用 CodeLookuper
-
-// 方式3：仅租户代码匹配（使用 Provider，仅配置代码索引）
-// - acmeCorp.example.com ✅ (匹配租户代码 acmecorp)
-// - 123.example.com ❌ (数字子域名不处理)
-// - tenant1.example.com ❌ (精确域名不处理)
-// 注意：Provider 需仅启用 CodeLookuper，禁用 DomainLookuper
-
-// 方式4：全功能模式（精确域名 + 数字子域名 + 租户代码）
-// 优先级：精确域名 > 数字子域名 > 租户代码
-// - tenant1.example.com ✅ (优先级1: 精确域名匹配)
-// - 123.example.com ✅ (优先级2: 数字子域名)
-// - acmeCorp.example.com ✅ (优先级3: 租户代码匹配)
+// 推荐方式：通过 Provider 自动从 ETCD 读取 httpType 和 httpHostMode
+// 支持三种模式（由 ETCD 配置决定）：numeric/domain/code
 router.Use(ExtractTenantID(
-    WithResolverType("host"),
-    WithDomainLookup(provider),  // Provider 实现两个接口
+    WithProviderConfig(provider),
 ))
 
-// ========== 其他租户识别方式 ==========
+// ========== 其他租户识别方式（无 Provider） ==========
 
-// 方式5：Header 识别
+// Header 识别
 router.Use(ExtractTenantID(
     WithResolverType("header"),
     WithHeaderName("X-Tenant-ID"),
 ))
 
-// 方式6：Query 参数识别
+// Query 参数识别
 router.Use(ExtractTenantID(
     WithResolverType("query"),
     WithQueryParam("tenant"),
 ))
 
-// 方式7：URL 路径识别
+// URL 路径识别
 // 例如: /123/users -> 提取第0段 "123" 作为租户 ID
 router.Use(ExtractTenantID(
     WithResolverType("path"),
     WithPathIndex(0),
 ))
 ```
+
+**重要说明**：
+
+1. **互斥性**：三种模式只能选择一种，不会回退到其他模式
+2. **默认值**：`hostMode` 默认为 `numeric`，保持向后兼容
+3. **大小写**：`code` 模式下，子域名会转为小写后匹配（DNS 大小写不敏感）
+4. **配置来源**：hostMode 优先从 Provider 的 `GetResolverConfig()` 获取，支持 ETCD 动态配置
 
 #### 使用示例
 
@@ -492,6 +500,7 @@ dbConfig := p.GetDatabaseConfig(tenantID)
 
 ## 版本历史
 
+- v1.1.46 - 重构 Host 类型租户识别为三种互斥模式（numeric/domain/code），支持 hostMode 配置
 - v1.1.45 - 新增租户识别配置缓存（ResolverConfig），支持非数字子域名匹配租户代码
 - v1.1.41 - 新增域名查找（DomainLookuper）支持租户 ID 解析
 - v1.1.40 - 增强租户 ID 解析能力

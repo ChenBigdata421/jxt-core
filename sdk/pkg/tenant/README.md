@@ -278,7 +278,16 @@ if !prov.IsTenantEnabled(tenantID) {
 
 ### 场景 4：中间件集成
 
-租户模块包含一个 Gin 中间件，用于从 HTTP 请求中提取租户 ID。支持四种解析方式：
+租户模块包含一个 Gin 中间件，用于从 HTTP 请求中提取租户 ID。支持四种解析方式（httpType）：
+
+| httpType | 说明 | 示例 |
+|----------|------|------|
+| `header` | 从 HTTP Header 提取（默认） | `X-Tenant-ID: 123` |
+| `query` | 从 URL 查询参数提取 | `?tenant_id=123` |
+| `path` | 从 URL 路径片段提取 | `/123/users` |
+| `host` | 从域名/子域名提取 | `123.example.com` |
+
+#### 基本用法（无 Provider）
 
 ```go
 import "github.com/ChenBigdata421/jxt-core/sdk/pkg/tenant/middleware"
@@ -303,16 +312,57 @@ router.Use(middleware.ExtractTenantID(
     middleware.WithPathIndex(0),
 ))
 
-// 基于域名提取（子域名）
+// 基于域名提取（仅数字子域名，无 Provider）
 router.Use(middleware.ExtractTenantID(
     middleware.WithResolverType("host"),
 ))
+```
 
-// 在处理器中获取租户 ID
+#### 集成 Provider（推荐）
+
+当传入 `WithProviderConfig(provider)` 时，中间件会自动从 ETCD 读取全部配置（`httpType`、`httpHeaderName`、`httpQueryParam`、`httpPathIndex`、`httpHostMode`），无需硬编码：
+
+```go
+// 推荐：从 ETCD 自动读取全部配置
+router.Use(middleware.ExtractTenantID(
+    middleware.WithProviderConfig(provider),
+))
+```
+
+#### host 模式的三种子模式（httpHostMode）
+
+当 `httpType = "host"` 时，支持三种互斥的子模式：
+
+| httpHostMode | 说明 | 示例 | 需要 Provider |
+|--------------|------|------|---------------|
+| `numeric`（默认） | 仅数字子域名 | `123.example.com` → `123` | 否 |
+| `domain` | 精确域名匹配 | `tenant1.example.com` → 查域名索引 | 是 |
+| `code` | 租户代码匹配 | `acmecorp.example.com` → 查代码索引 | 是 |
+
+**配置位置**：ETCD `common/resolver` 路径，由 tenant-service 管理
+
+```json
+{
+  "httpType": "host",
+  "httpHostMode": "code"
+}
+```
+
+#### 在处理器中获取租户 ID
+
+```go
 func handler(c *gin.Context) {
+    // 获取租户 ID（返回 int，未找到返回 0）
     tenantID := middleware.GetTenantID(c)
-    // 或转换为整数
+
+    // 或带错误返回
     tenantIDInt, err := middleware.GetTenantIDAsInt(c)
+    if err != nil {
+        // 处理错误
+    }
+
+    // 或直接 panic（适用于必须要有租户的场景）
+    tenantID := middleware.MustGetTenantID(c)
 }
 ```
 
