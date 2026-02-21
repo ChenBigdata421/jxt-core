@@ -426,8 +426,9 @@ tenants:
 // - acmecorp.example.com ❌ → 非数字，识别失败
 router.Use(ExtractTenantID(WithResolverType("host")))
 
-// 推荐方式：通过 Provider 自动从 ETCD 读取 httpType 和 httpHostMode
-// 支持三种模式（由 ETCD 配置决定）：numeric/domain/code
+// 推荐方式：通过 Provider 自动从 ETCD 读取全部租户识别配置
+// 支持四种 httpType：host/header/query/path（由 ETCD httpType 配置决定）
+// - host 模式支持三种子模式：numeric/domain/code（由 ETCD httpHostMode 配置决定）
 router.Use(ExtractTenantID(
     WithProviderConfig(provider),
 ))
