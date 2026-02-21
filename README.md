@@ -402,14 +402,19 @@ jxt-core/
 3. **租户代码匹配**（兜底）：非数字子域名通过 `CodeLookuper` 接口匹配租户代码（如 `acmeCorp.example.com` → 查找 `code="acmecorp"`）
 
 ```go
-// 方式1：仅数字子域名提取
+// 方式1：仅数字子域名提取（无 Provider）
+// - 123.example.com ✅
+// - acmeCorp.example.com ❌
 router.Use(ExtractTenantID(WithResolverType("host")))
 
-// 方式2：精确域名匹配 + 数字子域名 + 租户代码匹配
-// Provider 自动实现 DomainLookuper 和 CodeLookuper
+// 方式2：数字子域名 + 租户代码匹配（使用 Provider）
+// Provider 自动实现 DomainLookuper 和 CodeLookuper 接口
+// - 123.example.com ✅ (数字子域名)
+// - acmeCorp.example.com ✅ (匹配租户代码 acmecorp)
+// - tenant1.example.com ✅ (精确域名匹配，如已配置)
 router.Use(ExtractTenantID(
     WithResolverType("host"),
-    WithDomainLookup(provider),  // 支持: 数字子域名 + 精确域名 + 租户代码
+    WithDomainLookup(provider),
 ))
 
 // 方式3：Header 识别
