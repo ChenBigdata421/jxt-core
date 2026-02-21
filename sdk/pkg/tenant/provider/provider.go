@@ -843,6 +843,7 @@ func (d *tenantData) copyData() *tenantData {
 		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
 		Domains:   make(map[int]*DomainConfig),
+		Resolver:  d.Resolver, // 复制指针引用（配置被视为不可变）
 	}
 
 	// 复制 Metas
