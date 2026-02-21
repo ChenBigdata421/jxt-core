@@ -97,6 +97,7 @@ type tenantData struct {
 	Ftps        map[int][]*FtpConfigDetail                `json:"ftps"`      // tenantID -> configs[]
 	Storages    map[int]*StorageConfig                    `json:"storages"`
 	Domains     map[int]*DomainConfig                     `json:"domains"`     // 域名配置
+	Resolver    *ResolverConfig                           `json:"resolver"`    // 全局识别配置
 	domainIndex map[string]int                            // 内嵌：域名反向索引 domain -> tenantID（不导出，不序列化）
 }
 
