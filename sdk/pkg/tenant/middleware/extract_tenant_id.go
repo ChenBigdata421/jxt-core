@@ -233,19 +233,6 @@ func ExtractTenantID(opts ...Option) gin.HandlerFunc {
 		opt(cfg)
 	}
 
-	// Try to get ResolverConfig from Provider (if domainLookup implements ResolverConfigProvider)
-	if cfg.domainLookup != nil {
-		if rcp, ok := cfg.domainLookup.(ResolverConfigProvider); ok {
-			if resolverCfg := rcp.GetResolverConfig(); resolverCfg != nil {
-				cfg.resolverConfig = resolverCfg
-				// Override resolverType from ETCD config if set
-				if resolverCfg.HTTPType != "" {
-					cfg.resolverType = ResolverType(resolverCfg.HTTPType)
-				}
-			}
-		}
-	}
-
 	return func(c *gin.Context) {
 		tenantIDStr, ok := extractTenantID(c, cfg)
 		if !ok {
