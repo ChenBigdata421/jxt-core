@@ -442,23 +442,25 @@ func TestExtractTenantID_StoresIntInContext(t *testing.T) {
 // ========== Domain Lookup Tests ==========
 
 func TestExtractFromHost_WithDomainLookup(t *testing.T) {
-	// Create mock domain lookup
-	mockLookup := &mockDomainLookuper{
-		domains: map[string]int{
-			"tenant-alpha.example.com": 100,
-			"tenant-beta.example.com":  200,
-			"alias.example.com":        100,
-			"internal.local":           300,
-		},
-	}
-
 	gin.SetMode(gin.TestMode)
 
-	t.Run("Domain lookup success with exact match", func(t *testing.T) {
+	t.Run("Domain lookup success with exact match (domain mode)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant-alpha.example.com": 100,
+					"tenant-beta.example.com":  200,
+					"alias.example.com":        100,
+					"internal.local":           300,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
 		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
@@ -475,11 +477,23 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 		}
 	})
 
-	t.Run("Domain lookup with alias", func(t *testing.T) {
+	t.Run("Domain lookup with alias (domain mode)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant-alpha.example.com": 100,
+					"tenant-beta.example.com":  200,
+					"alias.example.com":        100,
+					"internal.local":           300,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
 		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
@@ -496,11 +510,20 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 		}
 	})
 
-	t.Run("Domain lookup with port", func(t *testing.T) {
+	t.Run("Domain lookup with port (domain mode)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant-alpha.example.com": 100,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
 		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
@@ -517,26 +540,35 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 		}
 	})
 
-	t.Run("Fallback to subdomain when domain lookup fails", func(t *testing.T) {
+	t.Run("Numeric subdomain succeeds in numeric mode (no fallback)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant-alpha.example.com": 100,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "numeric"},
+		}
+
 		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
 			c.JSON(200, gin.H{"tenant_id": tenantID})
 		})
 
-		// "999" is not in mockLookup, but it's a valid numeric subdomain
+		// "999" is not in mockLookup, but in numeric mode it extracts the subdomain
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.Host = "999.example.com"
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		// Should succeed via subdomain fallback (extracts "999")
+		// Should succeed via numeric subdomain extraction
 		if w.Code != http.StatusOK {
-			t.Errorf("expected status 200 (subdomain fallback), got %d", w.Code)
+			t.Errorf("expected status 200 (numeric mode), got %d", w.Code)
 		}
 	})
 
@@ -548,7 +580,7 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 			c.JSON(200, gin.H{"tenant_id": tenantID})
 		})
 
-		// Without domainLookup, only numeric subdomains work
+		// Without domainLookup, only numeric subdomains work (default numeric mode)
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.Host = "789.example.com"
 		w := httptest.NewRecorder()
@@ -559,11 +591,20 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 		}
 	})
 
-	t.Run("Domain lookup fails and subdomain is non-numeric", func(t *testing.T) {
+	t.Run("Unknown domain fails in domain mode (no fallback)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant-alpha.example.com": 100,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
 		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
@@ -576,18 +617,27 @@ func TestExtractFromHost_WithDomainLookup(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		// Should fail because both lookup and subdomain parsing fail
+		// Should fail because domain mode doesn't fall back to numeric
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("expected status 400, got %d", w.Code)
 		}
 	})
 
-	t.Run("Domain lookup returns correct tenant ID", func(t *testing.T) {
+	t.Run("Domain lookup returns correct tenant ID (domain mode)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{
+					"tenant-beta.example.com": 200,
+				},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "domain"},
+		}
+
 		router := gin.New()
 		var capturedTenantID int
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			capturedTenantID = GetTenantID(c)
@@ -697,15 +747,18 @@ func (m *mockResolverConfigProvider) GetResolverConfig() *provider.ResolverConfi
 func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	t.Run("Non-numeric subdomain matches tenant code", func(t *testing.T) {
-		router := gin.New()
-		mockLookup := &mockCodeLookuper{
-			domains: map[string]int{},
-			codes:   map[string]int{"acmecorp": 1},
+	t.Run("Non-numeric subdomain matches tenant code (code mode)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				codes: map[string]int{"acmecorp": 1},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
 		}
+
+		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
@@ -722,15 +775,18 @@ func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 		}
 	})
 
-	t.Run("Non-numeric subdomain case insensitive match", func(t *testing.T) {
-		router := gin.New()
-		mockLookup := &mockCodeLookuper{
-			domains: map[string]int{},
-			codes:   map[string]int{"techinc": 2}, // lowercase in index
+	t.Run("Non-numeric subdomain case insensitive match (code mode)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				codes: map[string]int{"techinc": 2}, // lowercase in index
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
 		}
+
+		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			tenantID := GetTenantID(c)
@@ -747,15 +803,18 @@ func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 		}
 	})
 
-	t.Run("Non-numeric subdomain no match returns 400", func(t *testing.T) {
-		router := gin.New()
-		mockLookup := &mockCodeLookuper{
-			domains: map[string]int{},
-			codes:   map[string]int{"othercorp": 1},
+	t.Run("Non-numeric subdomain no match returns 400 (code mode)", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				codes: map[string]int{"othercorp": 1},
+			},
+			config: &provider.ResolverConfig{HTTPHostMode: "code"},
 		}
+
+		router := gin.New()
 		router.Use(ExtractTenantID(
 			WithResolverType("host"),
-			WithDomainLookup(mockLookup),
+			WithDomainLookup(mockProvider),
 		))
 		router.GET("/test", func(c *gin.Context) {
 			c.JSON(200, nil)
@@ -771,7 +830,7 @@ func TestExtractFromHost_TenantCodeMatch(t *testing.T) {
 		}
 	})
 
-	t.Run("Numeric subdomain still works", func(t *testing.T) {
+	t.Run("Numeric subdomain still works in numeric mode", func(t *testing.T) {
 		router := gin.New()
 		router.Use(ExtractTenantID(WithResolverType("host")))
 		router.GET("/test", func(c *gin.Context) {
