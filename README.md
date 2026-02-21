@@ -19,7 +19,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **分布式锁** - 基于 Redis 的分布式锁实现
 - [x] **EventBus 事件总线** - 支持 Kafka、NATS JetStream、Memory 三种实现，统一 API ⭐ **核心组件**
 - [x] **Outbox 模式** - 保证业务操作与事件发布的原子性和最终一致性 ⭐ **新增**
-- [x] **多租户 Provider** - 基于 ETCD 的多租户配置管理，支持实时监听 ⭐ **新增**
+- [x] **多租户 Provider** - 基于 ETCD 的多租户配置管理，支持实时监听、租户识别配置缓存 ⭐ **核心组件**
 
 ### 🔧 服务治理
 - [x] **服务发现** - 基于 ETCD 的服务注册与发现
@@ -464,8 +464,24 @@ dbConfig := p.GetDatabaseConfig(tenantID)
 
 ## 版本历史
 
+- v1.1.45 - 新增租户识别配置缓存（ResolverConfig），支持非数字子域名匹配租户代码
+- v1.1.41 - 新增域名查找（DomainLookuper）支持租户 ID 解析
+- v1.1.40 - 增强租户 ID 解析能力
+- v1.1.39 - 新增域名查找支持
+- v1.1.38 - 新增统一迁移框架支持多租户
+- v1.1.36 - 增加 *.prof 到 gitignore
+- v1.1.35 - Casbin 缓存优化，通过 gRPC 获取策略
+- v1.1.31 - 支持每个租户多个 FTP 配置
+- v1.1.30 - 支持租户服务数据库配置
+- v1.1.29 - 新增多租户组件
+- v1.1.28 - 重构 tenants 结构，增加缺省租户
+- v1.1.27 - ETCD 增加租户配置
+- v1.1.26 - 增加 FTP 配置、存储站点配置
+- v1.1.25 - Worker pool 迁移到 Hollywood Actor Pool
+- v1.1.20 - 新增 Outbox 组件
+- v1.1.19 - 新增 EventBus 组件
+- v1.1.18 - 完善 GRPC 配置
+- v1.1.16 - 多租户支持，重构 casbin 和 crontab
+- v1.1.11 - 增加多租户配置
+- v1.1.0 - 移除本地 SDK 模块 replace 指令
 - v1.0.0 - 初始版本，提供基础框架功能
-- v1.1.0 - 新增 EventBus 组件（Kafka/NATS/Memory）
-- v1.2.0 - 新增 Outbox 模式，集成 EventBus
-- v1.3.0 - Hollywood Actor Pool 架构优化，性能提升 3 倍
-- v1.4.0 - 新增 ETCD 多租户 Provider，支持 Database/FTP/Storage 配置实时同步
