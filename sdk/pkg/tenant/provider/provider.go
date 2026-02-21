@@ -99,6 +99,7 @@ type tenantData struct {
 	Domains     map[int]*DomainConfig                     `json:"domains"`     // 域名配置
 	Resolver    *ResolverConfig                           `json:"resolver"`    // 全局识别配置
 	domainIndex map[string]int                            // 内嵌：域名反向索引 domain -> tenantID（不导出，不序列化）
+	codeIndex   map[string]int                            // 内嵌：租户代码索引 code(lowercase) -> tenantID（不导出，不序列化）
 }
 
 // Option configures Provider
