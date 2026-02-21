@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/tenant/provider"
 	"github.com/gin-gonic/gin"
 )
 
@@ -70,6 +71,13 @@ type DomainLookuper interface {
 // Using a separate interface instead of extending DomainLookuper avoids breaking changes.
 type CodeLookuper interface {
 	GetTenantIDByCode(code string) (int, bool)
+}
+
+// ResolverConfigProvider defines the interface for getting resolver configuration.
+// Provider implements this interface (GetResolverConfig method already exists).
+// This allows middleware to read httpHostMode from ETCD via Provider.
+type ResolverConfigProvider interface {
+	GetResolverConfig() *provider.ResolverConfig
 }
 
 // Config holds the middleware configuration
