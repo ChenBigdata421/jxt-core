@@ -150,9 +150,18 @@ type ResolverConfig struct {
 	HTTPHeaderName string    `json:"httpHeaderName"` // For type=header
 	HTTPQueryParam string    `json:"httpQueryParam"` // For type=query
 	HTTPPathIndex  int       `json:"httpPathIndex"`  // For type=path
+	HTTPHostMode   string    `json:"httpHostMode,omitempty"` // 【新增】host 模式：numeric, domain, code
 	FTPType        string    `json:"ftpType"`        // 目前只支持 username
 	CreatedAt      time.Time `json:"createdAt"`      // 创建时间，调试和审计用
 	UpdatedAt      time.Time `json:"updatedAt"`      // 更新时间，调试和审计用
+}
+
+// GetHTTPHostModeOrDefault 返回 host 模式，默认为 "numeric"
+func (c *ResolverConfig) GetHTTPHostModeOrDefault() string {
+	if c == nil || c.HTTPHostMode == "" {
+		return "numeric"
+	}
+	return c.HTTPHostMode
 }
 
 // ========== FTP Helper Functions ==========
