@@ -65,6 +65,13 @@ type DomainLookuper interface {
 	GetTenantIDByDomain(domain string) (int, bool)
 }
 
+// CodeLookuper defines the tenant code lookup interface for subdomain-based resolution.
+// Provider implicitly implements this interface (duck typing).
+// Using a separate interface instead of extending DomainLookuper avoids breaking changes.
+type CodeLookuper interface {
+	GetTenantIDByCode(code string) (int, bool)
+}
+
 // Config holds the middleware configuration
 type Config struct {
 	resolverType     ResolverType
