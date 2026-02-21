@@ -236,7 +236,7 @@ func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 		Storages:  make(map[int]*StorageConfig),
 		Domains:   make(map[int]*DomainConfig),
 	}
-	initialData.domainIndex = buildDomainIndex(initialData) // 构建初始索引
+	initialData.domainIndex = buildIndexes(initialData) // 构建初始索引
 	p.data.Store(initialData)
 	for _, opt := range opts {
 		opt(p)
@@ -305,7 +305,7 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 		}
 	}
 
-	newData.domainIndex = buildDomainIndex(newData) // 构建索引
+	newData.domainIndex = buildIndexes(newData) // 构建索引
 	p.data.Store(newData)                           // 一次原子替换
 	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs, %d domain mappings, resolver=%v from ETCD",
 		len(newData.Metas), countServiceDatabases(newData.Databases), countFtpConfigs(newData.Ftps),
@@ -646,7 +646,7 @@ func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
 		p.handleDomainChange(ev, keyStr, newData)
 	}
 
-	newData.domainIndex = buildDomainIndex(newData) // 重建索引
+	newData.domainIndex = buildIndexes(newData) // 重建索引
 	p.data.Store(newData)                           // 一次原子替换
 
 	// 同步到缓存
@@ -1056,59 +1056,89 @@ func normalizeDomain(domain string) string {
 	return domain
 }
 
-// buildDomainIndex 构建域名反向索引
-// 返回 map[domain]tenantID，所有域名已规范化为小写
-// 检测并记录域名冲突（不同租户声明相同域名）
-func buildDomainIndex(data *tenantData) map[string]int {
+// buildIndexes 构建 domainIndex 和 codeIndex
+// domainIndex: domain(lowercase) -> tenantID
+// codeIndex: code(lowercase) -> tenantID
+// 返回 domainIndex 以保持与现有调用的兼容性
+// 检测并记录域名冲突和代码冲突
+func buildIndexes(data *tenantData) map[string]int {
 	// 预估容量：每个租户约 4 个域名（Primary + 2 Aliases + Internal）
 	estimatedSize := len(data.Domains) * 4
 	if estimatedSize == 0 {
 		estimatedSize = 8 // 最小容量
 	}
-	index := make(map[string]int, estimatedSize)
+	domainIndex := make(map[string]int, estimatedSize)
 
+	// codeIndex 容量等于租户数量
+	codeEstimatedSize := len(data.Metas)
+	if codeEstimatedSize == 0 {
+		codeEstimatedSize = 8
+	}
+	codeIndex := make(map[string]int, codeEstimatedSize)
+
+	// 构建域名索引
 	for tenantID, cfg := range data.Domains {
 		// Primary 域名
 		if cfg.Primary != "" {
 			domain := normalizeDomain(cfg.Primary)
 			if domain != "" {
-				if existingID, exists := index[domain]; exists && existingID != tenantID {
+				if existingID, exists := domainIndex[domain]; exists && existingID != tenantID {
 					logger.Warnf("domain conflict: %s claimed by tenant %d and %d, using %d",
 						domain, existingID, tenantID, tenantID)
 				}
-				index[domain] = tenantID
+				domainIndex[domain] = tenantID
 			}
 		}
 
-		// Aliases 别名列表
+		// Aliases 域名
 		for _, alias := range cfg.Aliases {
 			if alias != "" {
 				domain := normalizeDomain(alias)
 				if domain != "" {
-					if existingID, exists := index[domain]; exists && existingID != tenantID {
-						logger.Warnf("domain conflict: %s claimed by tenant %d and %d, using %d",
+					if existingID, exists := domainIndex[domain]; exists && existingID != tenantID {
+						logger.Warnf("domain alias conflict: %s claimed by tenant %d and %d, using %d",
 							domain, existingID, tenantID, tenantID)
 					}
-					index[domain] = tenantID
+					domainIndex[domain] = tenantID
 				}
 			}
 		}
 
-		// Internal 内网域名
+		// Internal 域名
 		if cfg.Internal != "" {
 			domain := normalizeDomain(cfg.Internal)
 			if domain != "" {
-				if existingID, exists := index[domain]; exists && existingID != tenantID {
-					logger.Warnf("domain conflict: %s claimed by tenant %d and %d, using %d",
+				if existingID, exists := domainIndex[domain]; exists && existingID != tenantID {
+					logger.Warnf("internal domain conflict: %s claimed by tenant %d and %d, using %d",
 						domain, existingID, tenantID, tenantID)
 				}
-				index[domain] = tenantID
+				domainIndex[domain] = tenantID
 			}
 		}
 	}
 
-	return index
+	// 构建代码索引（小写规范化，符合 DNS 不区分大小写特性）
+	for tenantID, meta := range data.Metas {
+		if meta.Code != "" {
+			code := strings.ToLower(strings.TrimSpace(meta.Code))
+			if code != "" {
+				if existingID, exists := codeIndex[code]; exists && existingID != tenantID {
+					logger.Warnf("tenant code conflict: %s claimed by tenant %d and %d, using %d",
+						code, existingID, tenantID, tenantID)
+				}
+				codeIndex[code] = tenantID
+			}
+		}
+	}
+
+	data.domainIndex = domainIndex
+	data.codeIndex = codeIndex
+	return domainIndex
 }
+
+// buildDomainIndex 保留为别名，向后兼容
+// Deprecated: Use buildIndexes instead
+var buildDomainIndex = buildIndexes
 
 // GetTenantIDByDomain 根据域名查找租户ID
 // 查找复杂度 O(1)，无锁，线程安全

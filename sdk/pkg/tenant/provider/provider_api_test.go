@@ -788,3 +788,44 @@ func TestProvider_GetTenantIDByCode(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildIndexes tests that both domainIndex and codeIndex are built correctly
+func TestBuildIndexes(t *testing.T) {
+	data := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+	}
+
+	// Add tenant metas
+	data.Metas[1] = &TenantMeta{TenantID: 1, Code: "acmeCorp", Name: "ACME"}
+	data.Metas[2] = &TenantMeta{TenantID: 2, Code: "techInc", Name: "Tech"}
+
+	// Add domain configs
+	data.Domains[1] = &DomainConfig{
+		TenantID: 1,
+		Primary:  "acme.example.com",
+		Aliases:  []string{"www.acme.example.com"},
+	}
+	data.Domains[2] = &DomainConfig{
+		TenantID: 2,
+		Primary:  "tech.example.com",
+	}
+
+	// Build indexes
+	buildIndexes(data)
+
+	// Verify domainIndex
+	assert.Equal(t, 1, data.domainIndex["acme.example.com"])
+	assert.Equal(t, 1, data.domainIndex["www.acme.example.com"])
+	assert.Equal(t, 2, data.domainIndex["tech.example.com"])
+
+	// Verify codeIndex (lowercase)
+	assert.Equal(t, 1, data.codeIndex["acmecorp"])
+	assert.Equal(t, 2, data.codeIndex["techinc"])
+
+	// Verify case insensitivity in index keys
+	assert.NotContains(t, data.codeIndex, "ACMECORP") // Should be lowercase
+}
