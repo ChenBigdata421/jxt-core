@@ -1119,3 +1119,119 @@ func TestExtractFromHost_CodeMode(t *testing.T) {
 		}
 	})
 }
+
+func TestExtractTenantID_ResolverConfigProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("ResolverType overridden from ETCD config", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{"test.example.com": 100},
+			},
+			config: &provider.ResolverConfig{
+				HTTPType:     "host",
+				HTTPHostMode: "domain",
+			},
+		}
+
+		router := gin.New()
+		// Note: NOT setting WithResolverType - should be overridden from config
+		router.Use(ExtractTenantID(WithDomainLookup(mockProvider)))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "test.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200 (config overrode resolver type), got %d", w.Code)
+		}
+	})
+
+	t.Run("Nil config uses default numeric mode", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{},
+			config:         nil,
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "456.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200 (default numeric mode), got %d", w.Code)
+		}
+	})
+
+	t.Run("Empty HTTPHostMode defaults to numeric", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{
+				domains: map[string]int{"test.example.com": 100},
+			},
+			config: &provider.ResolverConfig{
+				HTTPHostMode: "",
+			},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			c.JSON(200, nil)
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "test.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 400 {
+			t.Errorf("expected status 400 (empty mode = numeric, ignores domain), got %d", w.Code)
+		}
+	})
+
+	t.Run("Invalid HTTPHostMode defaults to numeric", func(t *testing.T) {
+		mockProvider := &mockResolverConfigProvider{
+			domainLookuper: mockDomainLookuper{},
+			config: &provider.ResolverConfig{
+				HTTPHostMode: "invalid",
+			},
+		}
+
+		router := gin.New()
+		router.Use(ExtractTenantID(
+			WithResolverType("host"),
+			WithDomainLookup(mockProvider),
+		))
+		router.GET("/test", func(c *gin.Context) {
+			tenantID := GetTenantID(c)
+			c.JSON(200, gin.H{"tenant_id": tenantID})
+		})
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Host = "789.example.com"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != 200 {
+			t.Errorf("expected status 200 (invalid mode = numeric), got %d", w.Code)
+		}
+	})
+}
