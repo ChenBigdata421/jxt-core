@@ -266,17 +266,16 @@ func extractTenantID(c *gin.Context, cfg *Config) (string, bool) {
 	}
 }
 
-// extractFromHost extracts tenant ID from Host header
-// Priority:
-//  1. If domainLookup is configured, attempt exact domain match first
-//  2. Fall back to subdomain extraction:
-//     2a. If subdomain is numeric, use as tenant ID directly
-//     2b. If subdomain is non-numeric and CodeLookuper available, match by tenant code
+// extractFromHost extracts tenant ID from Host header based on httpHostMode.
+// Modes (mutually exclusive):
+//   - "numeric": Only numeric subdomain (e.g., "123.example.com" -> "123")
+//   - "domain":  Only exact domain match via DomainLookuper (requires Provider)
+//   - "code":    Only tenant code match via CodeLookuper (requires Provider)
 //
+// Default mode is "numeric" for backward compatibility.
 // Exact domain matching does not support wildcards.
 // DNS is case-insensitive (RFC 4343), all lookups use lowercase.
 func extractFromHost(c *gin.Context, lookup DomainLookuper, resolverCfg *provider.ResolverConfig) (string, bool) {
-	// Mode logic will be added in Task 5 - for now keep existing behavior
 	host := c.Request.Host
 	if host == "" {
 		return "", false
@@ -287,14 +286,7 @@ func extractFromHost(c *gin.Context, lookup DomainLookuper, resolverCfg *provide
 		host = host[:idx]
 	}
 
-	// 1. If domain lookup is configured, try exact domain match first
-	if lookup != nil {
-		if tenantID, ok := lookup.GetTenantIDByDomain(host); ok {
-			return strconv.Itoa(tenantID), true
-		}
-	}
-
-	// 2. Fall back to subdomain extraction
+	// Extract subdomain for numeric and code modes
 	parts := strings.Split(host, ".")
 	if len(parts) < 2 {
 		return "", false
@@ -305,24 +297,41 @@ func extractFromHost(c *gin.Context, lookup DomainLookuper, resolverCfg *provide
 		return "", false
 	}
 
-	// 2a. If subdomain is numeric, return directly (e.g., "123.example.com" -> "123")
-	if _, err := strconv.Atoi(subdomain); err == nil {
-		return subdomain, true
+	// Determine mode (default to "numeric" for backward compatibility)
+	mode := "numeric"
+	if resolverCfg != nil {
+		mode = resolverCfg.GetHTTPHostModeOrDefault()
 	}
 
-	// 2b. Subdomain is non-numeric, try to match by tenant code
-	//     e.g., "acmeCorp.example.com" -> lookup by code "acmecorp" (lowercase)
-	//     Uses type assertion for backward compatibility - only Provider supports this
-	if lookup != nil {
-		if codeLookup, ok := lookup.(CodeLookuper); ok {
-			// DNS is case-insensitive, normalize to lowercase
-			if tenantID, ok := codeLookup.GetTenantIDByCode(strings.ToLower(subdomain)); ok {
+	switch mode {
+	case "domain":
+		// Mode: domain - only exact domain match
+		if lookup != nil {
+			if tenantID, ok := lookup.GetTenantIDByDomain(host); ok {
 				return strconv.Itoa(tenantID), true
 			}
 		}
-	}
+		return "", false
 
-	return "", false
+	case "code":
+		// Mode: code - only tenant code match
+		if lookup != nil {
+			if codeLookup, ok := lookup.(CodeLookuper); ok {
+				// DNS is case-insensitive, normalize to lowercase
+				if tenantID, ok := codeLookup.GetTenantIDByCode(strings.ToLower(subdomain)); ok {
+					return strconv.Itoa(tenantID), true
+				}
+			}
+		}
+		return "", false
+
+	default:
+		// Mode: numeric - only numeric subdomain
+		if _, err := strconv.Atoi(subdomain); err == nil {
+			return subdomain, true
+		}
+		return "", false
+	}
 }
 
 // extractFromHeader extracts tenant ID from a custom header
