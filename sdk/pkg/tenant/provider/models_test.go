@@ -3,12 +3,42 @@ package provider
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/crypto"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+func TestResolverConfigJSONRoundTrip(t *testing.T) {
+	original := ResolverConfig{
+		ID:             1,
+		HTTPType:       "header",
+		HTTPHeaderName: "X-Tenant-ID",
+		HTTPQueryParam: "tenant",
+		HTTPPathIndex:  0,
+		FTPType:        "username",
+		CreatedAt:      time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:      time.Date(2026, 2, 21, 11, 0, 0, 0, time.UTC),
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var parsed ResolverConfig
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, original.ID, parsed.ID)
+	assert.Equal(t, original.HTTPType, parsed.HTTPType)
+	assert.Equal(t, original.HTTPHeaderName, parsed.HTTPHeaderName)
+	assert.Equal(t, original.HTTPQueryParam, parsed.HTTPQueryParam)
+	assert.Equal(t, original.HTTPPathIndex, parsed.HTTPPathIndex)
+	assert.Equal(t, original.FTPType, parsed.FTPType)
+}
 
 func TestServiceDatabaseConfig(t *testing.T) {
 	cfg := ServiceDatabaseConfig{

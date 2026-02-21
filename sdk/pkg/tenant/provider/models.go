@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/crypto"
 )
@@ -134,6 +135,24 @@ type DomainConfig struct {
 	Primary  string   `json:"primary"`  // 主域名
 	Aliases  []string `json:"aliases"`  // 别名列表
 	Internal string   `json:"internal"` // 内部域名
+}
+
+// ========== 新增：租户识别配置 ==========
+
+// ResolverConfig 租户识别配置（全局配置，不属于特定租户）
+// 从 ETCD key: common/resolver 加载
+//
+// 注意：通过 Provider 获取的 ResolverConfig 指针应视为只读，不可修改字段值。
+// 如需修改，请复制后使用。
+type ResolverConfig struct {
+	ID             int64     `json:"id"`             // 数据库主键，消费方不使用，仅用于反序列化兼容
+	HTTPType       string    `json:"httpType"`       // host, header, query, path
+	HTTPHeaderName string    `json:"httpHeaderName"` // For type=header
+	HTTPQueryParam string    `json:"httpQueryParam"` // For type=query
+	HTTPPathIndex  int       `json:"httpPathIndex"`  // For type=path
+	FTPType        string    `json:"ftpType"`        // 目前只支持 username
+	CreatedAt      time.Time `json:"createdAt"`      // 创建时间，调试和审计用
+	UpdatedAt      time.Time `json:"updatedAt"`      // 更新时间，调试和审计用
 }
 
 // ========== FTP Helper Functions ==========
