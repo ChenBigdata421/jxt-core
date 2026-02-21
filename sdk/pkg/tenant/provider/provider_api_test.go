@@ -2,6 +2,9 @@ package provider
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestProvider_GetServiceDatabaseConfig tests the GetServiceDatabaseConfig method
@@ -617,4 +620,100 @@ func TestProvider_IsTenantEnabled(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetResolverConfig_Nil(t *testing.T) {
+	p := &Provider{}
+	p.data.Store(&tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Resolver:  nil,
+	})
+
+	cfg := p.GetResolverConfig()
+	assert.Nil(t, cfg)
+}
+
+func TestGetResolverConfig_WithConfig(t *testing.T) {
+	expected := &ResolverConfig{
+		ID:             1,
+		HTTPType:       "host",
+		HTTPHeaderName: "X-Tenant-ID",
+		FTPType:        "username",
+	}
+	p := &Provider{}
+	p.data.Store(&tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Resolver:  expected,
+	})
+
+	cfg := p.GetResolverConfig()
+	require.NotNil(t, cfg)
+	assert.Equal(t, expected, cfg)
+}
+
+func TestGetResolverConfigOrDefault_WithConfig(t *testing.T) {
+	expected := &ResolverConfig{
+		ID:             1,
+		HTTPType:       "query",
+		HTTPHeaderName: "X-Custom-Tenant",
+		FTPType:        "username",
+	}
+	p := &Provider{}
+	p.data.Store(&tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Resolver:  expected,
+	})
+
+	cfg := p.GetResolverConfigOrDefault()
+	assert.Equal(t, "query", cfg.HTTPType)
+	assert.Equal(t, "X-Custom-Tenant", cfg.HTTPHeaderName)
+}
+
+func TestGetResolverConfigOrDefault_DefaultValues(t *testing.T) {
+	p := &Provider{}
+	p.data.Store(&tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Resolver:  nil,
+	})
+
+	cfg := p.GetResolverConfigOrDefault()
+	assert.Equal(t, "header", cfg.HTTPType)
+	assert.Equal(t, "X-Tenant-ID", cfg.HTTPHeaderName)
+	assert.Equal(t, "username", cfg.FTPType)
+}
+
+func TestGetResolverConfigOrDefault_ReturnsValueNotPointer(t *testing.T) {
+	p := &Provider{}
+	p.data.Store(&tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Resolver:  nil,
+	})
+
+	cfg1 := p.GetResolverConfigOrDefault()
+	cfg2 := p.GetResolverConfigOrDefault()
+
+	// Modify cfg1 should not affect cfg2
+	cfg1.HTTPType = "modified"
+
+	assert.Equal(t, "header", cfg2.HTTPType)
 }

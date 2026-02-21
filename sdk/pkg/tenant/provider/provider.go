@@ -1085,3 +1085,27 @@ func (p *Provider) GetTenantIDByDomain(domain string) (int, bool) {
 	return tenantID, ok
 }
 
+// GetResolverConfig 获取全局租户识别配置
+// 如果未配置返回 nil
+func (p *Provider) GetResolverConfig() *ResolverConfig {
+	data := p.data.Load().(*tenantData)
+	if data == nil {
+		return nil
+	}
+	return data.Resolver
+}
+
+// GetResolverConfigOrDefault 获取识别配置，未配置时返回默认值
+// 返回值类型（非指针），避免调用方修改污染全局默认值
+// 默认：HTTPType=header, HTTPHeaderName=X-Tenant-ID, FTPType=username
+func (p *Provider) GetResolverConfigOrDefault() ResolverConfig {
+	if cfg := p.GetResolverConfig(); cfg != nil {
+		return *cfg
+	}
+	return ResolverConfig{
+		HTTPType:       "header",
+		HTTPHeaderName: "X-Tenant-ID",
+		FTPType:        "username",
+	}
+}
+
