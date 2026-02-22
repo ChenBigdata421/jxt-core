@@ -219,11 +219,11 @@ var (
 	// RoleNameKey 角色名称  Old
 	RoleNameKey = "rolename"
 
-	// RoleIdKey 部门id
-	DeptId = "deptId"
+	// OrgId 组织id
+	OrgId = "orgId"
 
-	// RoleKey 部门名称
-	DeptName = "deptName"
+	// OrgName 组织名称
+	OrgName = "orgName"
 )
 
 // New for check error with GinJWTMiddleware

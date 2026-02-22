@@ -76,16 +76,18 @@ func GetRoleId(c *gin.Context) int {
 	return roleId
 }
 
-func GetDeptId(c *gin.Context) int {
-	deptId, err := ExtractClaims(c).Int("deptid")
+// GetOrgId 获取组织ID
+func GetOrgId(c *gin.Context) int {
+	orgId, err := ExtractClaims(c).Int("orgid")
 	if err != nil {
-		fmt.Println(pkg.GetCurrentTimeStr() + " [WARING] " + c.Request.Method + " " + c.Request.URL.Path + " GetDeptId 缺少 deptid error: " + err.Error())
+		fmt.Println(pkg.GetCurrentTimeStr() + " [WARING] " + c.Request.Method + " " + c.Request.URL.Path + " GetOrgId 缺少 orgid error: " + err.Error())
 		return 0
 	}
 
-	return deptId
+	return orgId
 }
 
-func GetDeptName(c *gin.Context) string {
-	return ExtractClaims(c).String("deptkey")
+// GetOrgName 获取组织名称
+func GetOrgName(c *gin.Context) string {
+	return ExtractClaims(c).String("orgname")
 }

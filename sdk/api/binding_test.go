@@ -21,7 +21,7 @@ type SysUserSearch struct {
 	RoleId     string `form:"roleId" search:"type:exact;column:role_id;table:sys_user" comment:"角色ID"`
 	Sex        string `form:"sex" search:"type:exact;column:sex;table:sys_user" comment:"性别"`
 	Email      string `form:"email" search:"type:contains;column:email;table:sys_user" comment:"邮箱"`
-	DeptId     string `form:"deptId" search:"type:exact;column:dept_id;table:sys_user" comment:"部门"`
+	OrgId      string `form:"orgId" search:"type:exact;column:org_id;table:sys_user" comment:"组织"`
 	PostId     string `form:"postId" search:"type:exact;column:post_id;table:sys_user" comment:"岗位"`
 	Status     string `form:"status" search:"type:exact;column:status;table:sys_user" comment:"状态"`
 	SysUserOrder
