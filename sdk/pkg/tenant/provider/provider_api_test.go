@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -828,4 +830,86 @@ func TestBuildIndexes(t *testing.T) {
 
 	// Verify case insensitivity in index keys
 	assert.NotContains(t, data.codeIndex, "ACMECORP") // Should be lowercase
+}
+
+// TestProvider_GetAllTenantIDs tests the GetAllTenantIDs method
+func TestProvider_GetAllTenantIDs(t *testing.T) {
+	p := &Provider{namespace: "jxt/"}
+
+	t.Run("empty provider returns empty slice", func(t *testing.T) {
+		data := &tenantData{
+			Metas:     make(map[int]*TenantMeta),
+			Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+			Ftps:      make(map[int][]*FtpConfigDetail),
+			Storages:  make(map[int]*StorageConfig),
+			Domains:   make(map[int]*DomainConfig),
+		}
+		p.data.Store(data)
+
+		ids := p.GetAllTenantIDs()
+		assert.NotNil(t, ids)
+		assert.Empty(t, ids)
+	})
+
+	t.Run("returns all tenant IDs", func(t *testing.T) {
+		data := &tenantData{
+			Metas:     make(map[int]*TenantMeta),
+			Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+			Ftps:      make(map[int][]*FtpConfigDetail),
+			Storages:  make(map[int]*StorageConfig),
+			Domains:   make(map[int]*DomainConfig),
+		}
+		data.Metas[1] = &TenantMeta{TenantID: 1, Code: "tenant1", Name: "Tenant 1"}
+		data.Metas[2] = &TenantMeta{TenantID: 2, Code: "tenant2", Name: "Tenant 2"}
+		data.Metas[3] = &TenantMeta{TenantID: 3, Code: "tenant3", Name: "Tenant 3"}
+		p.data.Store(data)
+
+		ids := p.GetAllTenantIDs()
+		assert.Len(t, ids, 3)
+		assert.ElementsMatch(t, []int{1, 2, 3}, ids)
+	})
+
+	t.Run("returns new slice each call", func(t *testing.T) {
+		data := &tenantData{
+			Metas:     make(map[int]*TenantMeta),
+			Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+			Ftps:      make(map[int][]*FtpConfigDetail),
+			Storages:  make(map[int]*StorageConfig),
+			Domains:   make(map[int]*DomainConfig),
+		}
+		data.Metas[1] = &TenantMeta{TenantID: 1, Code: "tenant1", Name: "Tenant 1"}
+		p.data.Store(data)
+
+		ids1 := p.GetAllTenantIDs()
+		ids2 := p.GetAllTenantIDs()
+
+		// Modify ids1 should not affect ids2
+		ids1[0] = 999
+		assert.Equal(t, 1, ids2[0])
+	})
+
+	t.Run("concurrent read is safe", func(t *testing.T) {
+		data := &tenantData{
+			Metas:     make(map[int]*TenantMeta),
+			Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+			Ftps:      make(map[int][]*FtpConfigDetail),
+			Storages:  make(map[int]*StorageConfig),
+			Domains:   make(map[int]*DomainConfig),
+		}
+		for i := 1; i <= 10; i++ {
+			data.Metas[i] = &TenantMeta{TenantID: i, Code: fmt.Sprintf("tenant%d", i), Name: fmt.Sprintf("Tenant %d", i)}
+		}
+		p.data.Store(data)
+
+		var wg sync.WaitGroup
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ids := p.GetAllTenantIDs()
+				assert.Len(t, ids, 10)
+			}()
+		}
+		wg.Wait()
+	})
 }

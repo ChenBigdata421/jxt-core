@@ -1016,6 +1016,22 @@ func (p *Provider) GetTenantMeta(tenantID int) (*TenantMeta, bool) {
 	return meta, ok
 }
 
+// GetAllTenantIDs returns all tenant IDs that have configurations loaded.
+// The returned slice is newly allocated and safe for modification by the caller.
+// Order is not guaranteed; sort the result if deterministic order is needed.
+func (p *Provider) GetAllTenantIDs() []int {
+	data := p.data.Load().(*tenantData)
+	if data == nil {
+		return []int{}
+	}
+
+	ids := make([]int, 0, len(data.Metas))
+	for id := range data.Metas {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // IsTenantEnabled returns true if the tenant is active
 func (p *Provider) IsTenantEnabled(tenantID int) bool {
 	meta, ok := p.GetTenantMeta(tenantID)
