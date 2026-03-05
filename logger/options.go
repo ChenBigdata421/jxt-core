@@ -37,7 +37,12 @@ type Options struct {
 	// Stdout enables console output
 	// Stdout 启用控制台输出
 	Stdout bool
-	
+
+	// Encoder 日志格式: json（文件）, text（控制台彩色）, console
+	Encoder string
+	// EnableCaller 是否启用调用者信息（文件名:行号）
+	EnableCaller bool
+
 	// --- 日志轮转配置 ---
 	// MaxSize 单个文件最大大小（MB），默认 100
 	MaxSize int
@@ -115,6 +120,39 @@ func WithStdout(enabled bool) Option {
 func WithPath(path string) Option {
 	return func(args *Options) {
 		args.Path = path
+	}
+}
+
+// WithEncoder sets the log encoder format (json, text, console)
+// WithEncoder 设置日志格式（json、text、console）
+func WithEncoder(encoder string) Option {
+	return func(args *Options) {
+		args.Encoder = encoder
+	}
+}
+
+// WithEnableCaller sets whether to enable caller info (file:line)
+// WithEnableCaller 设置是否启用调用者信息（文件名:行号）
+func WithEnableCaller(enabled bool) Option {
+	return func(args *Options) {
+		args.EnableCaller = enabled
+	}
+}
+
+// WithRotation sets log rotation config
+// WithRotation 设置日志轮转配置
+func WithRotation(maxSize, maxAge, maxBackups int, compress bool) Option {
+	return func(args *Options) {
+		if maxSize > 0 {
+			args.MaxSize = maxSize
+		}
+		if maxAge > 0 {
+			args.MaxAge = maxAge
+		}
+		if maxBackups > 0 {
+			args.MaxBackups = maxBackups
+		}
+		args.Compress = compress
 	}
 }
 

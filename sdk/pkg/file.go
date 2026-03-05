@@ -22,7 +22,9 @@ func PathCreate(dir string) error {
 func PathExist(addr string) bool {
 	s, err := os.Stat(addr)
 	if err != nil {
-		log.Println(err)
+		if !os.IsNotExist(err) {
+			log.Println(err)
+		}
 		return false
 	}
 	return s.IsDir()

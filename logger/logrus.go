@@ -76,11 +76,16 @@ func NewLogrusLogger(opts ...Option) Logger {
 	
 	// 文件输出（支持日志轮转）
 	if options.Path != "" {
+		// Path 可以是目录或完整文件路径，统一处理：
+		// 若末尾不含扩展名（即是目录），则追加默认文件名
+		logFile := options.Path
+		if filepath.Ext(logFile) == "" {
+			logFile = filepath.Join(logFile, "app.log")
+		}
 		// 确保目录存在
-		dir := filepath.Dir(options.Path)
-		if err := os.MkdirAll(dir, 0755); err == nil {
+		if err := os.MkdirAll(filepath.Dir(logFile), 0755); err == nil {
 			fileWriter := &lumberjack.Logger{
-				Filename:   options.Path,
+				Filename:   logFile,
 				MaxSize:    options.MaxSize,
 				MaxBackups: options.MaxBackups,
 				MaxAge:     options.MaxAge,
@@ -99,8 +104,17 @@ func NewLogrusLogger(opts ...Option) Logger {
 	}
 
 	// 设置格式化器
-	if options.Path != "" && !options.Stdout {
-		// 仅文件输出使用 JSON 格式
+	// 优先使用 Encoder 选项；否则根据输出目标自动选择
+	encoder := options.Encoder
+	if encoder == "" {
+		if options.Path != "" && !options.Stdout {
+			encoder = "json"
+		} else {
+			encoder = "text"
+		}
+	}
+	switch encoder {
+	case "json":
 		log.SetFormatter(&logrus.JSONFormatter{
 			TimestampFormat: "2006-01-02 15:04:05.000",
 			FieldMap: logrus.FieldMap{
@@ -110,8 +124,7 @@ func NewLogrusLogger(opts ...Option) Logger {
 				logrus.FieldKeyFunc:  "caller",
 			},
 		})
-	} else {
-		// 控制台输出使用自定义简洁格式
+	default: // "text" / "console"
 		log.SetFormatter(&ConsoleFormatter{
 			TimestampFormat: "2006-01-02 15:04:05.000",
 			ForceColors:     true,
