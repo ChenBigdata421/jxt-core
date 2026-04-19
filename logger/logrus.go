@@ -143,6 +143,10 @@ func NewLogrusLogger(opts ...Option) Logger {
 		entry = entry.WithFields(logrus.Fields(options.Fields))
 	}
 
+	// PII mask Hook：全局 Masker 注册时，对每条 entry.Message 和 Data 中 string 做脱敏。
+	// 未注册时无任何开销（Hook.Fire 直接返回）。
+	log.AddHook(&piiMaskHook{})
+
 	// 创建基础 logger
 	baseLogger := &logrusAdapter{
 		logger: log,
@@ -204,9 +208,14 @@ func (l *logrusAdapter) Fields(fields map[string]interface{}) Logger {
 }
 
 func (l *logrusAdapter) Log(level Level, v ...interface{}) {
-	// 获取真实调用者位置（跳过 logger 包装层）
-	entry := l.getEntryWithCaller(2)
-	
+	// 仅在 EnableCaller=true 时获取调用者位置
+	var entry *logrus.Entry
+	if l.opts.EnableCaller {
+		entry = l.getEntryWithCaller(2)
+	} else {
+		entry = l.entry
+	}
+
 	switch level {
 	case TraceLevel, DebugLevel:
 		entry.Debug(v...)
@@ -222,9 +231,14 @@ func (l *logrusAdapter) Log(level Level, v ...interface{}) {
 }
 
 func (l *logrusAdapter) Logf(level Level, format string, v ...interface{}) {
-	// 获取真实调用者位置（跳过 logger 包装层）
-	entry := l.getEntryWithCaller(2)
-	
+	// 仅在 EnableCaller=true 时获取调用者位置
+	var entry *logrus.Entry
+	if l.opts.EnableCaller {
+		entry = l.getEntryWithCaller(2)
+	} else {
+		entry = l.entry
+	}
+
 	switch level {
 	case TraceLevel, DebugLevel:
 		entry.Debugf(format, v...)

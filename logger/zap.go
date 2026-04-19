@@ -77,7 +77,8 @@ func NewZapLogger(opts ...Option) Logger {
 
 	// 配置日志级别
 	zapLevel := toZapLevel(options.Level)
-	core := zapcore.NewCore(encoder, writer, zapLevel)
+	// 外层包一个 maskingCore，Masker 通过 SetMasker 注册；未注册时 0 开销直接委托。
+	core := newMaskingCore(zapcore.NewCore(encoder, writer, zapLevel))
 
 	// 创建 logger
 	zapLog := zap.New(core,
