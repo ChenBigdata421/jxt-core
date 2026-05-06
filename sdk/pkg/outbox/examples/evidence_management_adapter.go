@@ -368,3 +368,71 @@ func extractCorrelationIDFromContext(ctx context.Context) string {
     return ""
 }
 */
+
+// -------------------------------------------------------------------
+// InProcessEventPublisher 使用示例（进程内事件派发，不经过 Kafka/NATS）
+// -------------------------------------------------------------------
+
+/*
+适用场景：微服务内部领域事件派发（如 IAM 终端设备管理）。
+
+关键：OutboxScheduler.Start() 不会自动启动 ACK listener，
+必须手动创建 OutboxPublisher 并调用 StartACKListener()，
+否则事件永远不会被标记为 published，会无限重发。
+
+package main
+
+import (
+    "context"
+    "time"
+
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
+    "github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox/adapters"
+    gormadapter "github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox/adapters/gorm"
+)
+
+func setupInProcessOutbox(ctx context.Context, db *gorm.DB) {
+    // 1. 创建进程内发布器并注册 handler
+    publisher := adapters.NewInProcessEventPublisher()
+
+    publisher.RegisterHandler("iam.credential.events", func(ctx context.Context, env *outbox.Envelope) error {
+        // 审计日志
+        return nil
+    })
+    publisher.RegisterHandler("iam.credential.events", func(ctx context.Context, env *outbox.Envelope) error {
+        // 指标递增
+        return nil
+    })
+    publisher.RegisterHandler("iam.physical_device.events", func(ctx context.Context, env *outbox.Envelope) error {
+        // 投影更新
+        return nil
+    })
+
+    // 2. 创建 GORM 仓储（复用 outbox_events 表）
+    repo := gormadapter.NewGormOutboxRepository(db)
+
+    // 3. 配置 Topic 映射
+    topicMapper := outbox.NewMapBasedTopicMapper(map[string]string{
+        "PhysicalDevice":  "iam.physical_device.events",
+        "Credential":      "iam.credential.events",
+        "Requisition":     "iam.requisition.events",
+        "IdentityMapping": "iam.identity_mapping.events",
+    }, "iam.default.events")
+
+    // 4. 手动创建 OutboxPublisher 并启动 ACK listener（必须！）
+    //    OutboxScheduler.Start() 只启动 poll/retry/cleanup 循环，
+    //    不启动 ACK listener。不调用 StartACKListener() 则事件永远为 pending。
+    outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, nil)
+    outboxPublisher.StartACKListener(ctx)
+
+    // 5. 创建并启动 Scheduler
+    scheduler := outbox.NewScheduler(
+        outbox.WithRepository(repo),
+        outbox.WithEventPublisher(publisher),
+        outbox.WithTopicMapper(topicMapper),
+        outbox.WithPollInterval(1*time.Second),
+        outbox.WithBatchSize(50),
+    )
+    scheduler.Start(ctx)
+}
+*/
