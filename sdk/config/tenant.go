@@ -46,6 +46,7 @@ type DefaultTenantConfig struct {
 	Domain     *TenantDomainConfig        `mapstructure:"domain" yaml:"domain"`         // 域名配置
 	FTPConfigs []TenantFTPDetailConfig   `mapstructure:"ftp_configs" yaml:"ftp_configs"` // FTP 配置数组
 	Storage    *TenantStorageDetailConfig `mapstructure:"storage" yaml:"storage"`        // 存储配置
+	WvpConfig  *TenantWvpDetailConfig     `mapstructure:"wvp_config" yaml:"wvp_config"` // WVP 平台配置
 }
 
 // TenantDatabaseDetailConfig 详细的数据库配置
@@ -86,6 +87,12 @@ type TenantStorageDetailConfig struct {
 	UploadQuotaGB        int `mapstructure:"upload_quota_gb" yaml:"upload_quota_gb"`               // 上传配额（GB）
 	MaxFileSizeMB        int `mapstructure:"max_file_size_mb" yaml:"max_file_size_mb"`             // 单文件最大大小（MB）
 	MaxConcurrentUploads int `mapstructure:"max_concurrent_uploads" yaml:"max_concurrent_uploads"` // 最大并发上传数
+}
+
+// TenantWvpDetailConfig WVP 平台配置
+type TenantWvpDetailConfig struct {
+	ApiUrl string `mapstructure:"api_url" yaml:"api_url"` // WVP HTTP API 地址
+	Realm  string `mapstructure:"realm" yaml:"realm"`     // SIP 域（用于 HA1 计算）
 }
 
 // ============================================================
@@ -215,6 +222,14 @@ func (dtc *DefaultTenantConfig) GetFTPConfigs() []TenantFTPDetailConfig {
 		return []TenantFTPDetailConfig{}
 	}
 	return dtc.FTPConfigs
+}
+
+// GetWvpConfig 获取 WVP 平台配置
+func (dtc *DefaultTenantConfig) GetWvpConfig() *TenantWvpDetailConfig {
+	if dtc == nil || dtc.WvpConfig == nil {
+		return nil
+	}
+	return dtc.WvpConfig
 }
 
 // GetActiveFTPConfigs 获取所有状态为 active 的 FTP 配置
