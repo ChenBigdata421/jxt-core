@@ -523,6 +523,7 @@ func TestIsKnownWatchKey(t *testing.T) {
 		{"tenants/1/database/evidence-command", true},
 		{"tenants/1/ftp/admin", true},
 		{"tenants/1/storage", true},
+		{"tenants/1/platform/wvp", true},
 		{"tenants/1/domain/primary", true},
 		// 公共配置
 		{"common/resolver", true},

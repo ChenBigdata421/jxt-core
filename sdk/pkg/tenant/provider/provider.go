@@ -311,9 +311,9 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 
 	newData.domainIndex = buildIndexes(newData) // 构建索引
 	p.data.Store(newData)                           // 一次原子替换
-	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs, %d domain mappings, resolver=%v from ETCD",
+	logger.Infof("tenant provider: loaded %d tenants, %d database configs, %d ftp configs, %d domain mappings, %d wvp configs, resolver=%v from ETCD",
 		len(newData.Metas), countServiceDatabases(newData.Databases), countFtpConfigs(newData.Ftps),
-		len(newData.domainIndex), newData.Resolver != nil)
+		len(newData.domainIndex), len(newData.Wvps), newData.Resolver != nil)
 
 	// 同步到缓存
 	if p.cache != nil {
@@ -676,6 +676,8 @@ func (p *Provider) handleWatchEvent(ev *clientv3.Event) {
 		p.handleFtpConfigChange(ev, keyStr, newData)
 	case isStorageConfigKey(keyStr):
 		p.handleStorageChange(ev, keyStr, newData)
+	case isWvpConfigKey(keyStr):
+		p.handleWvpChange(ev, keyStr, newData)
 	case isDomainPrimaryKey(keyStr), isDomainAliasesKey(keyStr), isDomainInternalKey(keyStr):
 		p.handleDomainChange(ev, keyStr, newData)
 	}
@@ -766,6 +768,31 @@ func (p *Provider) handleStorageChange(ev *clientv3.Event, key string, data *ten
 			config.Name = meta.Name
 		}
 		data.Storages[tenantID] = &config
+	}
+}
+
+// handleWvpChange 处理 WVP 配置变更
+func (p *Provider) handleWvpChange(ev *clientv3.Event, key string, data *tenantData) {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
+	}
+
+	if ev.Type == clientv3.EventTypeDelete {
+		delete(data.Wvps, tenantID)
+	} else {
+		var config WvpConfig
+		if err := json.Unmarshal(ev.Kv.Value, &config); err != nil {
+			logger.Errorf("failed to unmarshal wvp config: %v", err)
+			return
+		}
+		config.TenantID = tenantID
+		if config.ApiUrl == "" || config.Realm == "" {
+			logger.Warnf("skipping incomplete WVP config for tenant %d: apiUrl=%q, realm=%q", tenantID, config.ApiUrl, config.Realm)
+			return
+		}
+		data.Wvps[tenantID] = &config
 	}
 }
 
