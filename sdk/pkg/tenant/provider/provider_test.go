@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/api/v3/mvccpb"
 )
 
 func TestConfigType_String(t *testing.T) {
@@ -665,3 +666,90 @@ func BenchmarkGetTenantIDByDomain_Parallel(b *testing.B) {
 	})
 }
 
+
+// ========== WVP Integration Tests ==========
+
+func TestProcessKey_WvpConfig(t *testing.T) {
+	p := &Provider{namespace: "jxt/"}
+
+	data := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Wvps:      make(map[int]*WvpConfig),
+	}
+
+	jsonValue := `{"tenantId":1,"apiUrl":"http://wvp:18978","realm":"3502000000"}`
+	p.processKey("jxt/tenants/1/platform/wvp", jsonValue, data)
+
+	cfg, ok := data.Wvps[1]
+	require.True(t, ok, "expected config for tenant 1")
+	assert.Equal(t, "http://wvp:18978", cfg.ApiUrl)
+	assert.Equal(t, "3502000000", cfg.Realm)
+	assert.Equal(t, 1, cfg.TenantID)
+}
+
+func TestCopyData_WvpPreserved(t *testing.T) {
+	original := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Wvps: map[int]*WvpConfig{
+			1: {TenantID: 1, ApiUrl: "http://wvp-1:18978", Realm: "r1"},
+			2: {TenantID: 2, ApiUrl: "http://wvp-2:18978", Realm: "r2"},
+		},
+	}
+
+	copied := original.copyData()
+
+	assert.Len(t, copied.Wvps, 2)
+	assert.Equal(t, "http://wvp-1:18978", copied.Wvps[1].ApiUrl)
+	assert.Equal(t, "http://wvp-2:18978", copied.Wvps[2].ApiUrl)
+
+	// Shallow copy shares pointers (same as Storages/Domains pattern).
+	assert.Equal(t, original.Wvps[1], copied.Wvps[1], "shallow copy shares pointer")
+
+	// Deleting from copy should not affect original
+	delete(copied.Wvps, 1)
+	assert.Len(t, copied.Wvps, 1)
+	assert.Len(t, original.Wvps, 2)
+}
+
+func TestHandleWvpChange_PutAndDelete(t *testing.T) {
+	p := NewProvider(nil)
+
+	initialData := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Wvps:      make(map[int]*WvpConfig),
+	}
+	p.data.Store(initialData)
+
+	// Simulate PUT event
+	putEvent := &clientv3.Event{
+		Type: clientv3.EventTypePut,
+		Kv:   &mvccpb.KeyValue{Key: []byte("jxt/tenants/1/platform/wvp"), Value: []byte(`{"tenantId":1,"apiUrl":"http://wvp:18978","realm":"3502000000"}`)},
+	}
+	p.handleWatchEvent(putEvent)
+
+	cfg, ok := p.GetWvpConfig(1)
+	require.True(t, ok)
+	assert.Equal(t, "http://wvp:18978", cfg.ApiUrl)
+
+	// Simulate DELETE event
+	deleteEvent := &clientv3.Event{
+		Type: clientv3.EventTypeDelete,
+		Kv:   &mvccpb.KeyValue{Key: []byte("jxt/tenants/1/platform/wvp")},
+	}
+	p.handleWatchEvent(deleteEvent)
+
+	_, ok = p.GetWvpConfig(1)
+	assert.False(t, ok, "WVP config should be deleted")
+}
