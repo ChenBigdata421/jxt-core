@@ -1073,6 +1073,16 @@ func (p *Provider) GetStorageConfig(tenantID int) (*StorageConfig, bool) {
 	return cfg, ok
 }
 
+// GetWvpConfig retrieves the WVP configuration for a tenant.
+func (p *Provider) GetWvpConfig(tenantID int) (*WvpConfig, bool) {
+	data := p.data.Load().(*tenantData)
+	if data == nil {
+		return nil, false
+	}
+	cfg, ok := data.Wvps[tenantID]
+	return cfg, ok
+}
+
 // GetTenantMeta retrieves the tenant metadata
 func (p *Provider) GetTenantMeta(tenantID int) (*TenantMeta, bool) {
 	data := p.data.Load().(*tenantData)
