@@ -59,6 +59,7 @@ func main() {
             provider.ConfigTypeDatabase,
             provider.ConfigTypeFtp,
             provider.ConfigTypeStorage,
+            provider.ConfigTypeWvp,
         ),
         provider.WithCache(provider.NewFileCache()),
     )
@@ -99,6 +100,7 @@ func main() {
 │  - 数据库配置                                     │
 │  - FTP 配置                                      │
 │  - 存储配置                                       │
+│  - WVP 平台配置                                  │
 │  - 元数据: code, name, status                    │
 └─────────────────────────────────────────────────┘
                     ↓ Watch
@@ -114,6 +116,7 @@ func main() {
 │  - database.Cache → DatabaseConfig               │
 │  - ftp.Cache → FtpConfig                         │
 │  - storage.Cache → StorageConfig                 │
+│  - wvp.Cache → TenantWvpConfig                   │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -144,6 +147,7 @@ func main() {
 │  - database.Cache  → DatabaseConfig                 │
 │  - ftp.Cache       → FtpConfig                      │
 │  - storage.Cache   → StorageConfig                  │
+│  - wvp.Cache       → TenantWvpConfig                │
 └─────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────┐
@@ -230,6 +234,7 @@ WithOnMissingTenant(mode string) Option
 | `GetDatabaseConfig(id)` | 获取数据库配置 | `*DatabaseConfig, bool` |
 | `GetFtpConfig(id)` | 获取 FTP 配置 | `*FtpConfig, bool` |
 | `GetStorageConfig(id)` | 获取存储配置 | `*StorageConfig, bool` |
+| `GetWvpConfig(id)` | 获取 WVP 平台配置 | `*WvpConfig, bool` |
 | `GetTenantMeta(id)` | 获取租户元数据 | `*TenantMeta, bool` |
 | `IsTenantEnabled(id)` | 检查租户是否激活 | `bool` |
 | `NewFileCache()` | 创建默认文件缓存 | `FileCache` |
@@ -268,6 +273,13 @@ func (c *Cache) GetByID(ctx context.Context, tenantID int) (*TenantFtpConfig, er
 ```go
 func NewCache(prov *provider.Provider) *Cache
 func (c *Cache) GetByID(ctx context.Context, tenantID int) (*TenantStorageConfig, error)
+```
+
+#### wvp.Cache
+
+```go
+func NewCache(prov *provider.Provider) *Cache
+func (c *Cache) GetByID(ctx context.Context, tenantID int) (*TenantWvpConfig, error)
 ```
 
 ---
@@ -318,7 +330,24 @@ if !prov.IsTenantEnabled(tenantID) {
 }
 ```
 
-### 场景 4：中间件集成
+### 场景 4：WVP 平台配置
+
+```go
+import "github.com/ChenBigdata421/jxt-core/sdk/pkg/tenant/wvp"
+
+wvpCache := wvp.NewCache(prov)
+
+cfg, err := wvpCache.GetByID(ctx, tenantID)
+if err != nil {
+    return fmt.Errorf("tenant %d has no WVP config", tenantID)
+}
+
+// 使用 WVP API 地址和 SIP Realm
+apiUrl := cfg.ApiUrl   // "http://wvp:18978"
+realm := cfg.Realm     // "3502000000"
+```
+
+### 场景 5：中间件集成
 
 租户模块包含一个 Gin 中间件，用于从 HTTP 请求中提取租户 ID。支持四种解析方式（httpType）：
 
@@ -422,7 +451,7 @@ func handler(c *gin.Context) {
 }
 ```
 
-### 场景 5：服务级数据库配置与密码解密
+### 场景 6：服务级数据库配置与密码解密
 
 从 jxt-core Provider 获取的 `ServiceDatabaseConfig` 包含加密后的数据库密码。要使用密码建立连接，需要先解密：
 
@@ -499,6 +528,7 @@ jxt/tenants/{id}/meta        → {"id":1,"code":"tenant1","name":"租户1","stat
 jxt/tenants/{id}/database    → {"host":"localhost","port":3306,...}
 jxt/tenants/{id}/ftp         → {"username":"ftp1","passwordHash":"...",...}
 jxt/tenants/{id}/storage     → {"uploadQuotaGb":100,"maxFileSizeMb":500,...}
+jxt/tenants/{id}/platform/wvp → {"tenantId":1,"apiUrl":"http://wvp:18978","realm":"3502000000"}
 ```
 
 ---
