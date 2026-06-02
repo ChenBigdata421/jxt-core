@@ -219,3 +219,42 @@ Shutdown:
 | `security-management/common/wvp/router.go` | Delete |
 | `security-management/common/wvp/router_test.go` | Delete |
 | `security-management/cmd/api/server.go` | Update init + shutdown |
+| `security-management/tests/wvp_config_tests/` | Rewrite for TenantCacheRouter |
+| `jxt-core/sdk/pkg/tenant/provider/provider_test.go` | Add WVP parsing/watch test cases |
+
+## NOT in scope
+
+- ConfigType filtering in Provider (currently a no-op — all key patterns are parsed regardless of `configTypes`)
+- Other services adopting WVP cache (only security-management needs it today)
+- WVP config validation (ApiUrl/Realm empty checks remain consumer-side)
+- Password encryption for WVP config (not applicable)
+
+## What already exists
+
+| Existing code | Plan reuses? | Notes |
+|---|---|---|
+| `PlatformRouter.parseWvpConfigs()` | No — replaced by Provider parsing | Key pattern and JSON format reused conceptually |
+| `PlatformRouter.loadAll()` | No — replaced by Provider ETCD watch | 30s polling eliminated |
+| `wvp.Router` interface | Yes — preserved | TenantCacheRouter implements it |
+| `wvp.WvpConfig` struct | Yes — preserved | Identical fields to provider.WvpConfig |
+| DI registration in `dependencies.go` | Yes — unchanged | Calls `wvp.GetPlatformRouter()` → rename to `GetGlobalRouter()` |
+| Provider `copyData()` pattern | Yes — extended | Same shallow-copy approach |
+| Provider `processKey()` switch | Yes — extended | New case added |
+| Provider `handleWatchEvent()` switch | Yes — extended | New case added |
+
+## Design Clarifications
+
+1. `client.go` needs both `SetGlobalRouter(router Router)` and `GetGlobalRouter() Router` — the DI container at `dependencies.go:180` calls `wvp.GetPlatformRouter()` which must be renamed to `GetGlobalRouter()`.
+
+2. `tenantdb.Cache.GetWvpConfig()` should follow the same error message pattern as `GetDatabaseConfig()` — returning `fmt.Errorf` with tenant ID context.
+
+3. E2E tests in `tests/wvp_config_tests/` must be rewritten to use Provider + TenantCacheRouter instead of PlatformRouter. Polling-specific assertions (wait-for-convergence) are replaced with direct Provider state checks.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 2 issues, 0 critical gaps |
+
+- **UNRESOLVED:** 0
+- **VERDICT:** ENG CLEARED — ready to implement
