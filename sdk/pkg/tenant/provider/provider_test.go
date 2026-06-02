@@ -572,6 +572,53 @@ func TestParseResolverConfig(t *testing.T) {
 	assert.Equal(t, "username", data.Resolver.FTPType)
 }
 
+func TestIsWvpConfigKey(t *testing.T) {
+	tests := []struct {
+		key      string
+		expected bool
+	}{
+		{"tenants/1/platform/wvp", true},
+		{"tenants/42/platform/wvp", true},
+		{"tenants/1/meta", false},
+		{"tenants/1/database/evidence-command", false},
+		{"tenants/1/ftp/admin", false},
+		{"tenants/1/storage", false},
+		{"tenants/1/domain/primary", false},
+		{"tenants/1/platform/other", false},
+		{"common/resolver", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			result := isWvpConfigKey(tt.key)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParseWvpConfig(t *testing.T) {
+	p := &Provider{namespace: "jxt/"}
+
+	data := &tenantData{
+		Metas:     make(map[int]*TenantMeta),
+		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
+		Ftps:      make(map[int][]*FtpConfigDetail),
+		Storages:  make(map[int]*StorageConfig),
+		Domains:   make(map[int]*DomainConfig),
+		Wvps:      make(map[int]*WvpConfig),
+	}
+
+	jsonValue := `{"tenantId":1,"apiUrl":"http://wvp:18978","realm":"3502000000"}`
+	err := p.parseWvpConfig("tenants/1/platform/wvp", jsonValue, data)
+	require.NoError(t, err)
+
+	cfg, ok := data.Wvps[1]
+	require.True(t, ok, "expected config for tenant 1")
+	assert.Equal(t, "http://wvp:18978", cfg.ApiUrl)
+	assert.Equal(t, "3502000000", cfg.Realm)
+	assert.Equal(t, 1, cfg.TenantID)
+}
+
 // BenchmarkGetTenantIDByDomain_Parallel measures parallel performance
 func BenchmarkGetTenantIDByDomain_Parallel(b *testing.B) {
 	// Create a provider with test data

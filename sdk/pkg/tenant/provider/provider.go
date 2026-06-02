@@ -384,6 +384,11 @@ func isDomainInternalKey(key string) bool {
 	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "domain" && parts[3] == "internal"
 }
 
+func isWvpConfigKey(key string) bool {
+	parts := strings.Split(key, "/")
+	return len(parts) >= 4 && parts[0] == "tenants" && parts[2] == "platform" && parts[3] == "wvp"
+}
+
 func isResolverConfigKey(key string) bool {
 	return key == "common/resolver"
 }
@@ -402,6 +407,8 @@ func (p *Provider) processKey(key, value string, data *tenantData) {
 		p.parseFtpConfig(key, value, data)
 	case isStorageConfigKey(key):
 		p.parseStorageConfig(key, value, data)
+	case isWvpConfigKey(key):
+		p.parseWvpConfig(key, value, data)
 	case isDomainPrimaryKey(key), isDomainAliasesKey(key), isDomainInternalKey(key):
 		p.parseDomainConfig(key, value, data)
 	}
@@ -488,6 +495,29 @@ func (p *Provider) parseStorageConfig(key string, value string, data *tenantData
 	}
 
 	data.Storages[tenantID] = &config
+	return nil
+}
+
+// parseWvpConfig 解析 WVP 配置
+func (p *Provider) parseWvpConfig(key string, value string, data *tenantData) error {
+	parts := strings.Split(key, "/")
+	tenantID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return err
+	}
+
+	var config WvpConfig
+	if err := json.Unmarshal([]byte(value), &config); err != nil {
+		return err
+	}
+	config.TenantID = tenantID
+
+	if config.ApiUrl == "" || config.Realm == "" {
+		logger.Warnf("skipping incomplete WVP config for tenant %d: apiUrl=%q, realm=%q", tenantID, config.ApiUrl, config.Realm)
+		return nil
+	}
+
+	data.Wvps[tenantID] = &config
 	return nil
 }
 
