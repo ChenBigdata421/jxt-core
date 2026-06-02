@@ -60,6 +60,7 @@ const (
 	ConfigTypeDatabase ConfigType = "database"
 	ConfigTypeFtp      ConfigType = "ftp"
 	ConfigTypeStorage  ConfigType = "storage"
+	ConfigTypeWvp      ConfigType = "wvp"
 )
 
 // Backoff configuration for ETCD watch reconnection
@@ -96,6 +97,7 @@ type tenantData struct {
 	Databases   map[int]map[string]*ServiceDatabaseConfig `json:"databases"` // tenantID -> serviceCode -> config
 	Ftps        map[int][]*FtpConfigDetail                `json:"ftps"`      // tenantID -> configs[]
 	Storages    map[int]*StorageConfig                    `json:"storages"`
+	Wvps        map[int]*WvpConfig                        `json:"wvps"`
 	Domains     map[int]*DomainConfig                     `json:"domains"`     // 域名配置
 	Resolver    *ResolverConfig                           `json:"resolver"`    // 全局识别配置
 	domainIndex map[string]int                            // 内嵌：域名反向索引 domain -> tenantID（不导出，不序列化）
@@ -234,6 +236,7 @@ func NewProvider(client *clientv3.Client, opts ...Option) *Provider {
 		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
 		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Wvps:      make(map[int]*WvpConfig),
 		Domains:   make(map[int]*DomainConfig),
 	}
 	initialData.domainIndex = buildIndexes(initialData) // 构建初始索引
@@ -280,6 +283,7 @@ func (p *Provider) LoadAll(ctx context.Context) error {
 		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
 		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Wvps:      make(map[int]*WvpConfig),
 		Domains:   make(map[int]*DomainConfig),
 	}
 
@@ -843,6 +847,7 @@ func (d *tenantData) copyData() *tenantData {
 		Databases: make(map[int]map[string]*ServiceDatabaseConfig),
 		Ftps:      make(map[int][]*FtpConfigDetail),
 		Storages:  make(map[int]*StorageConfig),
+		Wvps:      make(map[int]*WvpConfig),
 		Domains:   make(map[int]*DomainConfig),
 		Resolver:  d.Resolver, // 复制指针引用（配置被视为不可变）
 	}
@@ -870,6 +875,11 @@ func (d *tenantData) copyData() *tenantData {
 	// 复制 Storages
 	for k, v := range d.Storages {
 		newData.Storages[k] = v
+	}
+
+	// 复制 Wvps
+	for k, v := range d.Wvps {
+		newData.Wvps[k] = v
 	}
 
 	// 复制 Domains

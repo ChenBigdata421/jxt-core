@@ -18,6 +18,7 @@ func TestConfigType_String(t *testing.T) {
 		{"database", ConfigTypeDatabase, "database"},
 		{"ftp", ConfigTypeFtp, "ftp"},
 		{"storage", ConfigTypeStorage, "storage"},
+		{"wvp", ConfigTypeWvp, "wvp"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
