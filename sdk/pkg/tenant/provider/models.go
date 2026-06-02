@@ -65,6 +65,13 @@ type StorageConfig struct {
 	MaxConcurrentUploads int    `json:"maxConcurrentUploads"`
 }
 
+// WvpConfig represents WVP (Web Video Platform) configuration for a tenant.
+type WvpConfig struct {
+	TenantID int    `json:"tenantId"`
+	ApiUrl   string `json:"apiUrl"`
+	Realm    string `json:"realm"`
+}
+
 // ========== 新增：服务级数据库配置 ==========
 
 // ServiceDatabaseConfig 服务级数据库配置
