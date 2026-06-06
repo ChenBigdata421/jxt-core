@@ -3,6 +3,7 @@ package config
 // StorageConfig 存储配置（HTTP/FTP 共享）
 type StorageConfig struct {
 	StorageSiteNo string `mapstructure:"storage_site_no" yaml:"storage_site_no"` // 标识当前部署/站点
+	PublicUrl     string `mapstructure:"public_url" yaml:"public_url"`           // 外部 HTTP URL 覆盖（如 "http://storage.jxt.com"），空则自动拼接
 	RootPath      string `mapstructure:"root_path" yaml:"root_path"`             // 根存储路径
 	TempPath      string `mapstructure:"temp_path" yaml:"temp_path"`             // 临时文件路径
 }
