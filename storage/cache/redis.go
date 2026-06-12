@@ -2,81 +2,107 @@ package cache
 
 import (
 	"context"
-	"github.com/redis/go-redis/v9"
 	"time"
-)
 
-// NewRedis redis模式
-func NewRedis(client *redis.Client, options *redis.Options) (*Redis, error) {
-	if client == nil {
-		client = redis.NewClient(options)
-	}
-	r := &Redis{
-		client: client,
-	}
-	err := r.connect()
-	if err != nil {
-		return nil, err
-	}
-	return r, nil
-}
+	"github.com/redis/go-redis/v9"
+)
 
 // Redis cache implement
 type Redis struct {
 	client *redis.Client
 }
 
-func (*Redis) String() string {
-	return "redis"
+func NewRedis(client *redis.Client, options *redis.Options) (*Redis, error) {
+	if client == nil {
+		client = redis.NewClient(options)
+	}
+	r := &Redis{client: client}
+	if err := r.connect(); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
-// connect connect test
+func (*Redis) String() string { return "redis" }
+
 func (r *Redis) connect() error {
-	var err error
-	_, err = r.client.Ping(context.TODO()).Result()
-	return err
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return r.client.Ping(ctx).Err()
 }
 
-// Get from key
-func (r *Redis) Get(key string) (string, error) {
-	return r.client.Get(context.TODO(), key).Result()
+func (r *Redis) Get(ctx context.Context, key string) (string, error) {
+	return r.client.Get(ctx, key).Result()
 }
 
-// Set value with key and expire time
-func (r *Redis) Set(key string, val interface{}, expire int) error {
-	return r.client.Set(context.TODO(), key, val, time.Duration(expire)*time.Second).Err()
+func (r *Redis) Set(ctx context.Context, key string, val interface{}, expire int) error {
+	return r.client.Set(ctx, key, val, time.Duration(expire)*time.Second).Err()
 }
 
-// Del delete key in redis
-func (r *Redis) Del(key string) error {
-	return r.client.Del(context.TODO(), key).Err()
+func (r *Redis) Del(ctx context.Context, key string) error {
+	return r.client.Del(ctx, key).Err()
 }
 
-// HashGet from key
-func (r *Redis) HashGet(hk, key string) (string, error) {
-	return r.client.HGet(context.TODO(), hk, key).Result()
+func (r *Redis) HashGet(ctx context.Context, hk, key string) (string, error) {
+	return r.client.HGet(ctx, hk, key).Result()
 }
 
-// HashDel delete key in specify redis's hashtable
-func (r *Redis) HashDel(hk, key string) error {
-	return r.client.HDel(context.TODO(), hk, key).Err()
+func (r *Redis) HashDel(ctx context.Context, hk, key string) error {
+	return r.client.HDel(ctx, hk, key).Err()
 }
 
-// Increase
-func (r *Redis) Increase(key string) error {
-	return r.client.Incr(context.TODO(), key).Err()
+func (r *Redis) Increase(ctx context.Context, key string) error {
+	return r.client.Incr(ctx, key).Err()
 }
 
-func (r *Redis) Decrease(key string) error {
-	return r.client.Decr(context.TODO(), key).Err()
+func (r *Redis) Decrease(ctx context.Context, key string) error {
+	return r.client.Decr(ctx, key).Err()
 }
 
-// Set ttl
-func (r *Redis) Expire(key string, dur time.Duration) error {
-	return r.client.Expire(context.TODO(), key, dur).Err()
+func (r *Redis) Expire(ctx context.Context, key string, dur time.Duration) error {
+	return r.client.Expire(ctx, key, dur).Err()
 }
 
-// GetClient 暴露原生client
+// New methods
+
+func (r *Redis) HashSet(ctx context.Context, hk, key string, val interface{}) error {
+	return r.client.HSet(ctx, hk, key, val).Err()
+}
+
+func (r *Redis) Exists(ctx context.Context, key string) (bool, error) {
+	n, err := r.client.Exists(ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (r *Redis) SetNX(ctx context.Context, key string, val interface{}, expire int) (bool, error) {
+	return r.client.SetNX(ctx, key, val, time.Duration(expire)*time.Second).Result()
+}
+
+func (r *Redis) IncrBy(ctx context.Context, key string, n int64) (int64, error) {
+	return r.client.IncrBy(ctx, key, n).Result()
+}
+
+func (r *Redis) TTL(ctx context.Context, key string) (time.Duration, error) {
+	return r.client.TTL(ctx, key).Result()
+}
+
+func (r *Redis) RunScript(ctx context.Context, script interface{}, keys []string, args ...interface{}) (interface{}, error) {
+	s, ok := script.(*redis.Script)
+	if !ok {
+		return nil, redis.Nil
+	}
+	return s.Run(ctx, r.client, keys, args...).Result()
+}
+
+// GetClient exposes the underlying redis client
 func (r *Redis) GetClient() *redis.Client {
 	return r.client
+}
+
+// Close releases the redis connection
+func (r *Redis) Close() error {
+	return r.client.Close()
 }

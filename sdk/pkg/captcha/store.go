@@ -1,6 +1,8 @@
 package captcha
 
 import (
+	"context"
+
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/mojocn/base64Captcha"
 )
@@ -22,16 +24,16 @@ func NewCacheStore(cache storage.AdapterCache, expiration int) base64Captcha.Sto
 
 // Set sets the digits for the captcha id.
 func (e *cacheStore) Set(id string, value string) {
-	_ = e.cache.Set(id, value, e.expiration)
+	_ = e.cache.Set(context.Background(), id, value, e.expiration)
 }
 
 // Get returns stored digits for the captcha id. Clear indicates
 // whether the captcha must be deleted from the store.
 func (e *cacheStore) Get(id string, clear bool) string {
-	v, err := e.cache.Get(id)
+	v, err := e.cache.Get(context.Background(), id)
 	if err == nil {
 		if clear {
-			_ = e.cache.Del(id)
+			_ = e.cache.Del(context.Background(), id)
 		}
 		return v
 	}

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"time"
 
 	"github.com/bsm/redislock"
@@ -12,14 +13,31 @@ const (
 
 type AdapterCache interface {
 	String() string
-	Get(key string) (string, error)
-	Set(key string, val interface{}, expire int) error
-	Del(key string) error
-	HashGet(hk, key string) (string, error)
-	HashDel(hk, key string) error
-	Increase(key string) error
-	Decrease(key string) error
-	Expire(key string, dur time.Duration) error
+
+	// Core operations (context-aware)
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key string, val interface{}, expire int) error
+	Del(ctx context.Context, key string) error
+	HashGet(ctx context.Context, hk, key string) (string, error)
+	HashDel(ctx context.Context, hk, key string) error
+	Increase(ctx context.Context, key string) error
+	Decrease(ctx context.Context, key string) error
+	Expire(ctx context.Context, key string, dur time.Duration) error
+
+	// New methods
+	HashSet(ctx context.Context, hk, key string, val interface{}) error
+	Exists(ctx context.Context, key string) (bool, error)
+	SetNX(ctx context.Context, key string, val interface{}, expire int) (bool, error)
+	IncrBy(ctx context.Context, key string, n int64) (int64, error)
+	TTL(ctx context.Context, key string) (time.Duration, error)
+
+	// Script execution (enables atomic multi-key operations like IncrBy+Expire)
+	RunScript(ctx context.Context, script interface{}, keys []string, args ...interface{}) (interface{}, error)
+}
+
+// Closer is the lifecycle interface for cache adapters that hold resources.
+type Closer interface {
+	Close() error
 }
 
 type AdapterQueue interface {

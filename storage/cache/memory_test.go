@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"strconv"
 	"sync"
 	"testing"
@@ -33,12 +34,13 @@ func TestMemory_Get(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := NewMemory()
-			if err := m.Set(tt.args.key, tt.args.value, tt.args.expire); err != nil {
+			ctx := context.Background()
+			if err := m.Set(ctx, tt.args.key, tt.args.value, tt.args.expire); err != nil {
 				t.Errorf("Set() error = %v", err)
 				return
 			}
 			time.Sleep(2 * time.Second)
-			got, err := m.Get(tt.args.key)
+			got, err := m.Get(ctx, tt.args.key)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Get() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -52,7 +54,8 @@ func TestMemory_Get(t *testing.T) {
 
 func TestMemory_ConcurrentIncrease(t *testing.T) {
 	m := NewMemory()
-	if err := m.Set("counter", "0", 60); err != nil {
+	ctx := context.Background()
+	if err := m.Set(ctx, "counter", "0", 60); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 
@@ -63,14 +66,14 @@ func TestMemory_ConcurrentIncrease(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
-			if err := m.Increase("counter"); err != nil {
+			if err := m.Increase(ctx, "counter"); err != nil {
 				t.Errorf("Increase() error = %v", err)
 			}
 		}()
 	}
 	wg.Wait()
 
-	got, err := m.Get("counter")
+	got, err := m.Get(ctx, "counter")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -81,7 +84,8 @@ func TestMemory_ConcurrentIncrease(t *testing.T) {
 
 func TestMemory_ConcurrentExpire(t *testing.T) {
 	m := NewMemory()
-	if err := m.Set("key", "value", 60); err != nil {
+	ctx := context.Background()
+	if err := m.Set(ctx, "key", "value", 60); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 
@@ -92,14 +96,14 @@ func TestMemory_ConcurrentExpire(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
-			if err := m.Expire("key", 60*time.Second); err != nil {
+			if err := m.Expire(ctx, "key", 60*time.Second); err != nil {
 				t.Errorf("Expire() error = %v", err)
 			}
 		}()
 	}
 	wg.Wait()
 
-	got, err := m.Get("key")
+	got, err := m.Get(ctx, "key")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}

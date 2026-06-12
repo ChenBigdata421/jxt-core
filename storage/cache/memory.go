@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -33,7 +34,7 @@ func (*Memory) String() string {
 func (m *Memory) connect() {
 }
 
-func (m *Memory) Get(key string) (string, error) {
+func (m *Memory) Get(_ context.Context, key string) (string, error) {
 	item, err := m.getItem(key)
 	if err != nil || item == nil {
 		return "", err
@@ -63,7 +64,7 @@ func (m *Memory) getItem(key string) (*item, error) {
 	}
 }
 
-func (m *Memory) Set(key string, val interface{}, expire int) error {
+func (m *Memory) Set(_ context.Context, key string, val interface{}, expire int) error {
 	s, err := cast.ToStringE(val)
 	if err != nil {
 		return err
@@ -80,7 +81,7 @@ func (m *Memory) setItem(key string, item *item) error {
 	return nil
 }
 
-func (m *Memory) Del(key string) error {
+func (m *Memory) Del(_ context.Context, key string) error {
 	return m.del(key)
 }
 
@@ -89,7 +90,7 @@ func (m *Memory) del(key string) error {
 	return nil
 }
 
-func (m *Memory) HashGet(hk, key string) (string, error) {
+func (m *Memory) HashGet(_ context.Context, hk, key string) (string, error) {
 	item, err := m.getItem(hk + key)
 	if err != nil || item == nil {
 		return "", err
@@ -97,15 +98,15 @@ func (m *Memory) HashGet(hk, key string) (string, error) {
 	return item.Value, err
 }
 
-func (m *Memory) HashDel(hk, key string) error {
+func (m *Memory) HashDel(_ context.Context, hk, key string) error {
 	return m.del(hk + key)
 }
 
-func (m *Memory) Increase(key string) error {
+func (m *Memory) Increase(_ context.Context, key string) error {
 	return m.calculate(key, 1)
 }
 
-func (m *Memory) Decrease(key string) error {
+func (m *Memory) Decrease(_ context.Context, key string) error {
 	return m.calculate(key, -1)
 }
 
@@ -131,7 +132,7 @@ func (m *Memory) calculate(key string, num int) error {
 	return m.setItem(key, item)
 }
 
-func (m *Memory) Expire(key string, dur time.Duration) error {
+func (m *Memory) Expire(_ context.Context, key string, dur time.Duration) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	item, err := m.getItem(key)
@@ -144,4 +145,81 @@ func (m *Memory) Expire(key string, dur time.Duration) error {
 	}
 	item.Expired = time.Now().Add(dur)
 	return m.setItem(key, item)
+}
+
+// New methods (memory implementations)
+
+func (m *Memory) HashSet(_ context.Context, hk, key string, val interface{}) error {
+	s, err := cast.ToStringE(val)
+	if err != nil {
+		return err
+	}
+	return m.setItem(hk+key, &item{Value: s, Expired: time.Now().Add(24 * time.Hour)})
+}
+
+func (m *Memory) Exists(_ context.Context, key string) (bool, error) {
+	item, err := m.getItem(key)
+	if err != nil {
+		return false, err
+	}
+	return item != nil, nil
+}
+
+func (m *Memory) SetNX(ctx context.Context, key string, val interface{}, expire int) (bool, error) {
+	if exists, _ := m.Exists(ctx, key); exists {
+		return false, nil
+	}
+	return true, m.Set(ctx, key, val, expire)
+}
+
+func (m *Memory) IncrBy(_ context.Context, key string, n int64) (int64, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	it, err := m.getItem(key)
+	if err != nil {
+		return 0, err
+	}
+	if it == nil {
+		it = &item{Value: "0", Expired: time.Now().Add(24 * time.Hour)}
+	}
+	val, err := cast.ToInt64E(it.Value)
+	if err != nil {
+		return 0, err
+	}
+	val += n
+	it.Value = strconv.FormatInt(val, 10)
+	m.setItem(key, it)
+	return val, nil
+}
+
+func (m *Memory) TTL(_ context.Context, key string) (time.Duration, error) {
+	item, err := m.getItem(key)
+	if err != nil || item == nil {
+		return 0, err
+	}
+	return time.Until(item.Expired), nil
+}
+
+func (m *Memory) RunScript(_ context.Context, script interface{}, keys []string, args ...interface{}) (interface{}, error) {
+	// Memory implementation: simulate atomic IncrBy + Expire pattern
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if len(keys) > 0 && len(args) >= 2 {
+		key := keys[0]
+		incr, ok1 := args[0].(int64)
+		expireSeconds, ok2 := args[1].(int64)
+		if ok1 && ok2 {
+			it, _ := m.getItem(key)
+			if it == nil {
+				it = &item{Value: "0", Expired: time.Now().Add(24 * time.Hour)}
+			}
+			val, _ := cast.ToInt64E(it.Value)
+			val += incr
+			it.Value = strconv.FormatInt(val, 10)
+			it.Expired = time.Now().Add(time.Duration(expireSeconds) * time.Second)
+			m.setItem(key, it)
+			return val, nil
+		}
+	}
+	return nil, fmt.Errorf("RunScript: unsupported script pattern in memory adapter")
 }

@@ -1,10 +1,8 @@
 package runtime
 
 import (
-	"encoding/json"
+	"context"
 	"time"
-
-	"github.com/chanxuehong/wechat/oauth2"
 
 	"github.com/ChenBigdata421/jxt-core/storage"
 )
@@ -13,25 +11,18 @@ const (
 	intervalTenant = ""
 )
 
-// NewCache 创建对应上下文缓存
-func NewCache(prefix string, store storage.AdapterCache, wxTokenStoreKey string) storage.AdapterCache {
-	if wxTokenStoreKey == "" {
-		wxTokenStoreKey = "wx_token_store_key"
-	}
+func NewCache(prefix string, store storage.AdapterCache) storage.AdapterCache {
 	return &Cache{
-		prefix:          prefix,
-		store:           store,
-		wxTokenStoreKey: wxTokenStoreKey,
+		prefix: prefix,
+		store:  store,
 	}
 }
 
 type Cache struct {
-	prefix          string
-	store           storage.AdapterCache
-	wxTokenStoreKey string
+	prefix string
+	store  storage.AdapterCache
 }
 
-// String string输出
 func (e *Cache) String() string {
 	if e.store == nil {
 		return ""
@@ -39,71 +30,77 @@ func (e *Cache) String() string {
 	return e.store.String()
 }
 
-// SetPrefix 设置前缀
 func (e *Cache) SetPrefix(prefix string) {
 	e.prefix = prefix
 }
 
-// Connect 初始化
 func (e Cache) Connect() error {
 	return nil
-	//return e.store.Connect()
 }
 
-// Get val in cache
-func (e Cache) Get(key string) (string, error) {
-	return e.store.Get(e.prefix + intervalTenant + key)
+func (e Cache) Get(ctx context.Context, key string) (string, error) {
+	return e.store.Get(ctx, e.prefix+intervalTenant+key)
 }
 
-// Set val in cache
-func (e Cache) Set(key string, val interface{}, expire int) error {
-	return e.store.Set(e.prefix+intervalTenant+key, val, expire)
+func (e Cache) Set(ctx context.Context, key string, val interface{}, expire int) error {
+	return e.store.Set(ctx, e.prefix+intervalTenant+key, val, expire)
 }
 
-// Del delete key in cache
-func (e Cache) Del(key string) error {
-	return e.store.Del(e.prefix + intervalTenant + key)
+func (e Cache) Del(ctx context.Context, key string) error {
+	return e.store.Del(ctx, e.prefix+intervalTenant+key)
 }
 
-// HashGet get val in hashtable cache
-func (e Cache) HashGet(hk, key string) (string, error) {
-	return e.store.HashGet(hk, e.prefix+intervalTenant+key)
+func (e Cache) HashGet(ctx context.Context, hk, key string) (string, error) {
+	return e.store.HashGet(ctx, hk, e.prefix+intervalTenant+key)
 }
 
-// HashDel delete one key:value pair in hashtable cache
-func (e Cache) HashDel(hk, key string) error {
-	return e.store.HashDel(hk, e.prefix+intervalTenant+key)
+func (e Cache) HashDel(ctx context.Context, hk, key string) error {
+	return e.store.HashDel(ctx, hk, e.prefix+intervalTenant+key)
 }
 
-// Increase value
-func (e Cache) Increase(key string) error {
-	return e.store.Increase(e.prefix + intervalTenant + key)
+func (e Cache) Increase(ctx context.Context, key string) error {
+	return e.store.Increase(ctx, e.prefix+intervalTenant+key)
 }
 
-func (e Cache) Decrease(key string) error {
-	return e.store.Decrease(e.prefix + intervalTenant + key)
+func (e Cache) Decrease(ctx context.Context, key string) error {
+	return e.store.Decrease(ctx, e.prefix+intervalTenant+key)
 }
 
-func (e Cache) Expire(key string, dur time.Duration) error {
-	return e.store.Expire(e.prefix+intervalTenant+key, dur)
+func (e Cache) Expire(ctx context.Context, key string, dur time.Duration) error {
+	return e.store.Expire(ctx, e.prefix+intervalTenant+key, dur)
 }
 
-// Token 获取微信oauth2 token
-func (e Cache) Token() (token *oauth2.Token, err error) {
-	var str string
-	str, err = e.store.Get(e.prefix + intervalTenant + e.wxTokenStoreKey)
-	if err != nil {
-		return
+func (e Cache) HashSet(ctx context.Context, hk, key string, val interface{}) error {
+	return e.store.HashSet(ctx, hk, e.prefix+intervalTenant+key, val)
+}
+
+func (e Cache) Exists(ctx context.Context, key string) (bool, error) {
+	return e.store.Exists(ctx, e.prefix+intervalTenant+key)
+}
+
+func (e Cache) SetNX(ctx context.Context, key string, val interface{}, expire int) (bool, error) {
+	return e.store.SetNX(ctx, e.prefix+intervalTenant+key, val, expire)
+}
+
+func (e Cache) IncrBy(ctx context.Context, key string, n int64) (int64, error) {
+	return e.store.IncrBy(ctx, e.prefix+intervalTenant+key, n)
+}
+
+func (e Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
+	return e.store.TTL(ctx, e.prefix+intervalTenant+key)
+}
+
+func (e Cache) RunScript(ctx context.Context, script interface{}, keys []string, args ...interface{}) (interface{}, error) {
+	// Prepend prefix to the first key (Lua scripts typically operate on one key)
+	if e.prefix != "" && len(keys) > 0 {
+		keys[0] = e.prefix + intervalTenant + keys[0]
 	}
-	err = json.Unmarshal([]byte(str), token)
-	return
+	return e.store.RunScript(ctx, script, keys, args...)
 }
 
-// PutToken 设置微信oauth2 token
-func (e Cache) PutToken(token *oauth2.Token) error {
-	rb, err := json.Marshal(token)
-	if err != nil {
-		return err
+func (e Cache) Close() error {
+	if c, ok := e.store.(storage.Closer); ok {
+		return c.Close()
 	}
-	return e.store.Set(e.prefix+intervalTenant+e.wxTokenStoreKey, string(rb), int(token.ExpiresIn)-200)
+	return nil
 }
