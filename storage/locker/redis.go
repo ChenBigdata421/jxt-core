@@ -30,3 +30,9 @@ func (r *Redis) Lock(key string, ttl int64, options *redislock.Options) (*redisl
 	}
 	return r.mutex.Obtain(context.TODO(), key, time.Duration(ttl)*time.Second, options)
 }
+
+// Close is a no-op — the locker shares Client #1 which is closed centrally
+// via config.CloseAllRedisClients().
+func (r *Redis) Close() error {
+	return nil
+}

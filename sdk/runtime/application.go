@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/ChenBigdata421/jxt-core/storage"
@@ -346,4 +347,18 @@ func (e *Application) GetEventBus() eventbus.EventBus {
 	e.mux.RLock()
 	defer e.mux.RUnlock()
 	return e.eventBus
+}
+
+// Close gracefully shuts down all runtime resources: queue consumer, cache
+// adapter, and Redis client connections. Call this on application shutdown.
+func (e *Application) Close() {
+	if e.queue != nil {
+		e.queue.Shutdown()
+	}
+	if e.cache != nil {
+		if c, ok := e.cache.(storage.Closer); ok {
+			_ = c.Close()
+		}
+	}
+	config.CloseAllRedisClients()
 }
