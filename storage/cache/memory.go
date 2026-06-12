@@ -110,8 +110,8 @@ func (m *Memory) Decrease(key string) error {
 }
 
 func (m *Memory) calculate(key string, num int) error {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	item, err := m.getItem(key)
 	if err != nil {
 		return err
@@ -132,8 +132,8 @@ func (m *Memory) calculate(key string, num int) error {
 }
 
 func (m *Memory) Expire(key string, dur time.Duration) error {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	item, err := m.getItem(key)
 	if err != nil {
 		return err
