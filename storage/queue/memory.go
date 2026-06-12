@@ -22,7 +22,6 @@ func NewMemory(poolNum uint) *Memory {
 type Memory struct {
 	queue   *sync.Map
 	wait    sync.WaitGroup
-	mutex   sync.RWMutex
 	PoolNum uint
 }
 
@@ -38,28 +37,14 @@ func (m *Memory) makeQueue() queue {
 }
 
 func (m *Memory) Append(message storage.Messager) error {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
 	memoryMessage := new(Message)
 	memoryMessage.SetID(message.GetID())
 	memoryMessage.SetStream(message.GetStream())
 	memoryMessage.SetValues(message.GetValues())
 
-	v, ok := m.queue.Load(message.GetStream())
+	actual, _ := m.queue.LoadOrStore(message.GetStream(), m.makeQueue())
+	q := actual.(queue)
 
-	if !ok {
-		v = m.makeQueue()
-		m.queue.Store(message.GetStream(), v)
-	}
-
-	var q queue
-	switch v.(type) {
-	case queue:
-		q = v.(queue)
-	default:
-		q = m.makeQueue()
-		m.queue.Store(message.GetStream(), q)
-	}
 	go func(gm storage.Messager, gq queue) {
 		gm.SetID(uuid.New().String())
 		gq <- gm
@@ -68,21 +53,9 @@ func (m *Memory) Append(message storage.Messager) error {
 }
 
 func (m *Memory) Register(name string, f storage.ConsumerFunc) {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	v, ok := m.queue.Load(name)
-	if !ok {
-		v = m.makeQueue()
-		m.queue.Store(name, v)
-	}
-	var q queue
-	switch v.(type) {
-	case queue:
-		q = v.(queue)
-	default:
-		q = m.makeQueue()
-		m.queue.Store(name, q)
-	}
+	actual, _ := m.queue.LoadOrStore(name, m.makeQueue())
+	q := actual.(queue)
+
 	go func(out queue, gf storage.ConsumerFunc) {
 		var err error
 		for message := range q {
