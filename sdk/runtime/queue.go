@@ -21,11 +21,18 @@ func (e *Queue) String() string {
 
 // Register 注册消费者
 func (e *Queue) Register(name string, f storage.ConsumerFunc) {
-	e.queue.Register(name, f)
+	streamName := name
+	if e.prefix != "" {
+		streamName = e.prefix + ":" + name
+	}
+	e.queue.Register(streamName, f)
 }
 
 // Append 增加数据到生产者
 func (e *Queue) Append(message storage.Messager) error {
+	if e.prefix != "" {
+		message.SetStream(e.prefix + ":" + message.GetStream())
+	}
 	values := message.GetValues()
 	if values == nil {
 		values = make(map[string]interface{})
