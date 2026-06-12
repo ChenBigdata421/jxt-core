@@ -218,11 +218,25 @@ func (sc *StreamConsumer) poll() {
 	consumerName := fmt.Sprintf("%s-poll-%s", sc.group, consumerID)
 	blockTimeout := time.Duration(sc.cfg.BlockingTimeout) * time.Second
 
+	// Backoff for persistent errors (e.g. NOGROUP after stream deletion).
+	// Resets to zero on any successful read.
+	backoff := time.Duration(0)
+	const maxBackoff = 30 * time.Second
+
 	for {
 		select {
 		case <-sc.ctx.Done():
 			return
 		default:
+		}
+
+		// Apply backoff before next attempt after a persistent error.
+		if backoff > 0 {
+			select {
+			case <-sc.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
 		}
 
 		// Use a per-read timeout so we can periodically check ctx.Done().
@@ -245,11 +259,23 @@ func (sc *StreamConsumer) poll() {
 			}
 			// redis.Nil just means the read timed out with no messages.
 			if err == redis.Nil {
+				backoff = 0
 				continue
 			}
 			sc.pushErr(fmt.Errorf("XREADGROUP %s: %w", sc.stream, err))
+			// Exponential backoff: 100ms → 200ms → 400ms → ... → 30s cap.
+			if backoff == 0 {
+				backoff = 100 * time.Millisecond
+			} else {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
 			continue
 		}
+
+		backoff = 0 // reset on success
 
 		for _, xs := range streams {
 			for _, msg := range xs.Messages {
@@ -438,6 +464,10 @@ type Redis struct {
 	// runOnce prevents double-start — calling Run() more than once would
 	// orphan the previous StreamConsumer's goroutines (goroutine leak).
 	runOnce sync.Once
+
+	// initErr stores the error from consumer creation in Run().
+	// Callers can check this via InitError() after Run() returns.
+	initErr error
 }
 
 // NewRedis creates a Redis-backed queue adapter.
@@ -445,6 +475,9 @@ type Redis struct {
 // In this stage a single *redis.Client is used for both producer and
 // consumer. Part 2 will introduce the three-client architecture.
 func NewRedis(client *redis.Client, producerCfg *ProducerConfig, consumerCfg *ConsumerConfig) (*Redis, error) {
+	if client == nil {
+		return nil, fmt.Errorf("queue: redis client must not be nil")
+	}
 	r := &Redis{
 		client:      client,
 		producer:    NewStreamProducer(client, producerCfg),
@@ -486,19 +519,31 @@ func (r *Redis) Register(name string, f storage.ConsumerFunc) {
 func (r *Redis) Run() {
 	r.runOnce.Do(func() {
 		if r.stream == "" || r.handler == nil {
+			r.initErr = fmt.Errorf("queue: Register() not called before Run()")
 			return
 		}
 		// Create the consumer now that we have the stream name.
 		consumer, err := NewStreamConsumer(r.client, r.stream, r.stream, r.consumerCfg, r.handler)
 		if err != nil {
-			// Log and return instead of panic — consumer creation failure
-			// (e.g. Redis unreachable) should not crash the service.
-			fmt.Fprintf(os.Stderr, "queue: failed to create stream consumer for %q: %v\n", r.stream, err)
+			r.initErr = fmt.Errorf("queue: failed to create stream consumer for %q: %w", r.stream, err)
+			// Log instead of panic — consumer creation failure (e.g. Redis
+			// unreachable) should not crash the service.
+			fmt.Fprintf(os.Stderr, "%v\n", r.initErr)
 			return
 		}
 		r.consumer = consumer
 		r.consumer.Run()
 	})
+}
+
+// InitError returns the error from the most recent Run() call, or nil if
+// the consumer started successfully. Since AdapterQueue.Run() has no return
+// value, callers use this to detect startup failures:
+//
+//	r.Run()
+//	if err := r.InitError(); err != nil { ... }
+func (r *Redis) InitError() error {
+	return r.initErr
 }
 
 func (r *Redis) Shutdown() {
