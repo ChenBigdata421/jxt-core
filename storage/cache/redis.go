@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -32,69 +33,114 @@ func (r *Redis) connect() error {
 }
 
 func (r *Redis) Get(ctx context.Context, key string) (string, error) {
-	return r.client.Get(ctx, key).Result()
+	val, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		return "", fmt.Errorf("cache.Get(%q): %w", key, err)
+	}
+	return val, nil
 }
 
 func (r *Redis) Set(ctx context.Context, key string, val interface{}, expire int) error {
-	return r.client.Set(ctx, key, val, time.Duration(expire)*time.Second).Err()
+	if err := r.client.Set(ctx, key, val, time.Duration(expire)*time.Second).Err(); err != nil {
+		return fmt.Errorf("cache.Set(%q): %w", key, err)
+	}
+	return nil
 }
 
 func (r *Redis) Del(ctx context.Context, key string) error {
-	return r.client.Del(ctx, key).Err()
+	if err := r.client.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("cache.Del(%q): %w", key, err)
+	}
+	return nil
 }
 
 func (r *Redis) HashGet(ctx context.Context, hk, key string) (string, error) {
-	return r.client.HGet(ctx, hk, key).Result()
+	val, err := r.client.HGet(ctx, hk, key).Result()
+	if err != nil {
+		return "", fmt.Errorf("cache.HashGet(%q, %q): %w", hk, key, err)
+	}
+	return val, nil
 }
 
 func (r *Redis) HashDel(ctx context.Context, hk, key string) error {
-	return r.client.HDel(ctx, hk, key).Err()
+	if err := r.client.HDel(ctx, hk, key).Err(); err != nil {
+		return fmt.Errorf("cache.HashDel(%q, %q): %w", hk, key, err)
+	}
+	return nil
 }
 
 func (r *Redis) Increase(ctx context.Context, key string) error {
-	return r.client.Incr(ctx, key).Err()
+	if err := r.client.Incr(ctx, key).Err(); err != nil {
+		return fmt.Errorf("cache.Increase(%q): %w", key, err)
+	}
+	return nil
 }
 
 func (r *Redis) Decrease(ctx context.Context, key string) error {
-	return r.client.Decr(ctx, key).Err()
+	if err := r.client.Decr(ctx, key).Err(); err != nil {
+		return fmt.Errorf("cache.Decrease(%q): %w", key, err)
+	}
+	return nil
 }
 
 func (r *Redis) Expire(ctx context.Context, key string, dur time.Duration) error {
-	return r.client.Expire(ctx, key, dur).Err()
+	if err := r.client.Expire(ctx, key, dur).Err(); err != nil {
+		return fmt.Errorf("cache.Expire(%q): %w", key, err)
+	}
+	return nil
 }
 
 // New methods
 
 func (r *Redis) HashSet(ctx context.Context, hk, key string, val interface{}) error {
-	return r.client.HSet(ctx, hk, key, val).Err()
+	if err := r.client.HSet(ctx, hk, key, val).Err(); err != nil {
+		return fmt.Errorf("cache.HashSet(%q, %q): %w", hk, key, err)
+	}
+	return nil
 }
 
 func (r *Redis) Exists(ctx context.Context, key string) (bool, error) {
 	n, err := r.client.Exists(ctx, key).Result()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("cache.Exists(%q): %w", key, err)
 	}
 	return n > 0, nil
 }
 
 func (r *Redis) SetNX(ctx context.Context, key string, val interface{}, expire int) (bool, error) {
-	return r.client.SetNX(ctx, key, val, time.Duration(expire)*time.Second).Result()
+	ok, err := r.client.SetNX(ctx, key, val, time.Duration(expire)*time.Second).Result()
+	if err != nil {
+		return false, fmt.Errorf("cache.SetNX(%q): %w", key, err)
+	}
+	return ok, nil
 }
 
 func (r *Redis) IncrBy(ctx context.Context, key string, n int64) (int64, error) {
-	return r.client.IncrBy(ctx, key, n).Result()
+	val, err := r.client.IncrBy(ctx, key, n).Result()
+	if err != nil {
+		return 0, fmt.Errorf("cache.IncrBy(%q, %d): %w", key, n, err)
+	}
+	return val, nil
 }
 
 func (r *Redis) TTL(ctx context.Context, key string) (time.Duration, error) {
-	return r.client.TTL(ctx, key).Result()
+	dur, err := r.client.TTL(ctx, key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("cache.TTL(%q): %w", key, err)
+	}
+	return dur, nil
 }
 
 func (r *Redis) RunScript(ctx context.Context, script interface{}, keys []string, args ...interface{}) (interface{}, error) {
 	s, ok := script.(*redis.Script)
 	if !ok {
-		return nil, redis.Nil
+		return nil, fmt.Errorf("cache.RunScript: expected *redis.Script, got %T", script)
 	}
-	return s.Run(ctx, r.client, keys, args...).Result()
+	result, err := s.Run(ctx, r.client, keys, args...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("cache.RunScript(%v): %w", keys, err)
+	}
+	return result, nil
 }
 
 // GetClient exposes the underlying redis client
