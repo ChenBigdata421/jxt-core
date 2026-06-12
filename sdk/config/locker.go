@@ -3,7 +3,6 @@ package config
 import (
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/ChenBigdata421/jxt-core/storage/locker"
-	"github.com/redis/go-redis/v9"
 )
 
 // Locker 锁配置
@@ -21,14 +20,13 @@ func (e Locker) Empty() bool {
 // Setup 启用顺序 redis > 其他 > memory
 func (e Locker) Setup() (storage.AdapterLocker, error) {
 	if e.Redis != nil {
-		client := GetRedisClient()
-		if client == nil {
-			options, err := e.Redis.GetRedisOptions()
-			if err != nil {
-				return nil, err
-			}
-			client = redis.NewClient(options)
-			_redis = client
+		options, err := e.Redis.GetRedisOptions()
+		if err != nil {
+			return nil, err
+		}
+		client, err := EnsureRedisClient(options)
+		if err != nil {
+			return nil, err
 		}
 		return locker.NewRedis(client), nil
 	}

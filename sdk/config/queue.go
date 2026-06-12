@@ -1,8 +1,6 @@
 package config
 
 import (
-	"github.com/redis/go-redis/v9"
-
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/ChenBigdata421/jxt-core/storage/queue"
 )
@@ -39,16 +37,22 @@ func (e Queue) Empty() bool {
 // Setup 启用顺序 redis > 其他 > memory
 func (e Queue) Setup() (storage.AdapterQueue, error) {
 	if e.Redis != nil {
-		client := GetRedisClient()
-		if client == nil {
-			options, err := e.Redis.RedisConnectOptions.GetRedisOptions()
-			if err != nil {
-				return nil, err
-			}
-			client = redis.NewClient(options)
-			_redis = client
+		options, err := e.Redis.RedisConnectOptions.GetRedisOptions()
+		if err != nil {
+			return nil, err
 		}
-		return queue.NewRedis(client, e.Redis.Producer, e.Redis.Consumer)
+		// Client #1: shared/producer (non-blocking operations)
+		producerClient, err := EnsureRedisClient(options)
+		if err != nil {
+			return nil, err
+		}
+		// Client #2: consumer (blocking XREADGROUP) — separate to avoid
+		// blocking calls from starving the shared connection pool.
+		consumerClient, err := EnsureQueueConsumerClient(options)
+		if err != nil {
+			return nil, err
+		}
+		return queue.NewRedisWithConsumer(producerClient, consumerClient, e.Redis.Producer, e.Redis.Consumer)
 	}
 	if e.NSQ != nil {
 		cfg, err := e.NSQ.GetNSQOptions()

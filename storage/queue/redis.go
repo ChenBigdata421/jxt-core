@@ -38,11 +38,12 @@ type ProducerConfig struct {
 
 // ConsumerConfig configures the stream consumer group.
 type ConsumerConfig struct {
-	VisibilityTimeout int `mapstructure:"visibilityTimeout"` // seconds
-	BlockingTimeout   int `mapstructure:"blockingTimeout"`   // seconds
-	ReclaimInterval   int `mapstructure:"reclaimInterval"`   // seconds
-	BufferSize        int `mapstructure:"bufferSize"`
-	Concurrency       int `mapstructure:"concurrency"`
+	VisibilityTimeout int   `mapstructure:"visibilityTimeout"` // seconds
+	BlockingTimeout   int   `mapstructure:"blockingTimeout"`   // seconds
+	ReclaimInterval   int   `mapstructure:"reclaimInterval"`   // seconds
+	BufferSize        int   `mapstructure:"bufferSize"`
+	Concurrency       int   `mapstructure:"concurrency"`
+	MaxDeliveries     int64 `mapstructure:"maxDeliveries"` // max reclaim attempts; 0 = unlimited
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,9 @@ func NewStreamConsumer(client *redis.Client, stream, group string, cfg *Consumer
 	if cfg == nil {
 		cfg = &ConsumerConfig{}
 	}
+	// Copy to avoid mutating the caller's struct when applying defaults.
+	cp := *cfg
+	cfg = &cp
 	if cfg.VisibilityTimeout <= 0 {
 		cfg.VisibilityTimeout = 60
 	}
@@ -172,7 +176,9 @@ func (sc *StreamConsumer) Shutdown() {
 }
 
 // Errors returns a read-only channel that surfaces consumer errors.
-// The channel is buffered and never blocks the consumer.
+// The channel is buffered and never blocks the consumer — when full,
+// errors are silently dropped. Callers MUST drain this channel (e.g.
+// with a dedicated goroutine that logs/alerts) or errors will be lost.
 func (sc *StreamConsumer) Errors() <-chan error {
 	return sc.errCh
 }
@@ -206,6 +212,15 @@ func isBusyGroup(err error) bool {
 	}
 	s := err.Error()
 	return strings.Contains(s, "BUSYGROUP") || strings.Contains(s, "busygroup")
+}
+
+// newMessageFromXMessage creates a queue.Message from a go-redis XMessage.
+func newMessageFromXMessage(xmsg redis.XMessage, stream string) *Message {
+	return &Message{
+		id:     xmsg.ID,
+		stream: stream,
+		values: xmsg.Values,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -279,11 +294,7 @@ func (sc *StreamConsumer) poll() {
 
 		for _, xs := range streams {
 			for _, msg := range xs.Messages {
-				m := &Message{
-					ID:     msg.ID,
-					Stream: sc.stream,
-					Values: msg.Values,
-				}
+				m := newMessageFromXMessage(msg, sc.stream)
 				select {
 				case sc.msgCh <- m:
 				case <-sc.ctx.Done():
@@ -324,6 +335,11 @@ func (sc *StreamConsumer) doReclaim(consumerName string, visibility time.Duratio
 	defer cancel()
 
 	// Step 1: Get pending entries summary.
+	// NOTE: Count is capped at BufferSize. If the backlog exceeds this,
+	// each reclaim tick processes one batch and the next tick continues.
+	// This creates a reclaim throughput ceiling of roughly
+	//   BufferSize / ReclaimInterval messages/second.
+	// This is intentional — reclaim is a safety net, not the primary path.
 	pending, err := sc.client.XPendingExt(ctx, &redis.XPendingExtArgs{
 		Stream: sc.stream,
 		Group:  sc.group,
@@ -345,12 +361,26 @@ func (sc *StreamConsumer) doReclaim(consumerName string, visibility time.Duratio
 	}
 
 	// Step 2: Collect IDs of messages that have been idle longer than
-	// the visibility timeout.
+	// the visibility timeout. Messages that exceed MaxDeliveries are
+	// ACKed (removed from pending) and reported as poison.
 	var ids []string
 	for _, p := range pending {
-		if p.Idle >= visibility {
-			ids = append(ids, p.ID)
+		if p.Idle < visibility {
+			continue
 		}
+		// Poison message detection: if the message has been reclaimed
+		// more than MaxDeliveries times, discard it to break the
+		// infinite retry loop. RetryCount starts at 1 on first delivery.
+		if sc.cfg.MaxDeliveries > 0 && p.RetryCount > sc.cfg.MaxDeliveries {
+			if err := sc.ackByID(p.ID); err != nil {
+				sc.pushErr(fmt.Errorf("poison ACK %s [%s]: %w", sc.stream, p.ID, err))
+			} else {
+				sc.pushErr(fmt.Errorf("poison message discarded: stream=%s id=%s deliveries=%d",
+					sc.stream, p.ID, p.RetryCount))
+			}
+			continue
+		}
+		ids = append(ids, p.ID)
 	}
 	if len(ids) == 0 {
 		return
@@ -374,11 +404,7 @@ func (sc *StreamConsumer) doReclaim(consumerName string, visibility time.Duratio
 	}
 
 	for _, msg := range claimed {
-		m := &Message{
-			ID:     msg.ID,
-			Stream: sc.stream,
-			Values: msg.Values,
-		}
+		m := newMessageFromXMessage(msg, sc.stream)
 		select {
 		case sc.msgCh <- m:
 		case <-sc.ctx.Done():
@@ -426,9 +452,22 @@ func (sc *StreamConsumer) work() {
 }
 
 func (sc *StreamConsumer) ack(msg storage.Messager) error {
-	ctx, cancel := context.WithTimeout(sc.ctx, 3*time.Second)
+	// Use context.Background() so ACK can succeed even after Shutdown()
+	// cancels sc.ctx. If we derived from sc.ctx, every ACK after cancel()
+	// would fail with context.Canceled, leaving messages un-ACKed and
+	// causing duplicate processing after restart.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_, err := sc.client.XAck(ctx, sc.stream, sc.group, msg.GetID()).Result()
+	return err
+}
+
+// ackByID ACKs a message by its string ID. Used for poison-message
+// disposal where we don't have a storage.Messager.
+func (sc *StreamConsumer) ackByID(id string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := sc.client.XAck(ctx, sc.stream, sc.group, id).Result()
 	return err
 }
 
@@ -452,10 +491,11 @@ func (sc *StreamConsumer) pushErr(err error) {
 
 // Redis implements storage.AdapterQueue using native Redis Streams.
 type Redis struct {
-	producer    *StreamProducer
-	consumer    *StreamConsumer
-	client      *redis.Client
-	consumerCfg *ConsumerConfig
+	producer       *StreamProducer
+	consumer       *StreamConsumer
+	client         *redis.Client // producer client (shared, non-blocking)
+	consumerClient *redis.Client // consumer client (separate, for blocking ops)
+	consumerCfg    *ConsumerConfig
 
 	// handler stores the registered consumer callback until Run() is called.
 	handler storage.ConsumerFunc
@@ -465,23 +505,45 @@ type Redis struct {
 	// orphan the previous StreamConsumer's goroutines (goroutine leak).
 	runOnce sync.Once
 
+	// mu protects r.consumer for concurrent Run()/Shutdown() access.
+	mu sync.RWMutex
+
 	// initErr stores the error from consumer creation in Run().
 	// Callers can check this via InitError() after Run() returns.
 	initErr error
 }
 
-// NewRedis creates a Redis-backed queue adapter.
-//
-// In this stage a single *redis.Client is used for both producer and
-// consumer. Part 2 will introduce the three-client architecture.
+// NewRedis creates a Redis-backed queue adapter using a single client for
+// both producer and consumer. For the three-client architecture, use
+// NewRedisWithConsumer instead.
 func NewRedis(client *redis.Client, producerCfg *ProducerConfig, consumerCfg *ConsumerConfig) (*Redis, error) {
 	if client == nil {
 		return nil, fmt.Errorf("queue: redis client must not be nil")
 	}
 	r := &Redis{
-		client:      client,
-		producer:    NewStreamProducer(client, producerCfg),
-		consumerCfg: consumerCfg,
+		client:         client,
+		consumerClient: client, // same client for both
+		producer:       NewStreamProducer(client, producerCfg),
+		consumerCfg:    consumerCfg,
+	}
+	return r, nil
+}
+
+// NewRedisWithConsumer creates a Redis-backed queue adapter with separate
+// clients for producer and consumer. The producerClient is used for XADD
+// (non-blocking), the consumerClient is used for XREADGROUP (blocking).
+func NewRedisWithConsumer(producerClient, consumerClient *redis.Client, producerCfg *ProducerConfig, consumerCfg *ConsumerConfig) (*Redis, error) {
+	if producerClient == nil {
+		return nil, fmt.Errorf("queue: producer redis client must not be nil")
+	}
+	if consumerClient == nil {
+		return nil, fmt.Errorf("queue: consumer redis client must not be nil")
+	}
+	r := &Redis{
+		client:         producerClient,
+		consumerClient: consumerClient,
+		producer:       NewStreamProducer(producerClient, producerCfg),
+		consumerCfg:    consumerCfg,
 	}
 	return r, nil
 }
@@ -523,7 +585,7 @@ func (r *Redis) Run() {
 			return
 		}
 		// Create the consumer now that we have the stream name.
-		consumer, err := NewStreamConsumer(r.client, r.stream, r.stream, r.consumerCfg, r.handler)
+		consumer, err := NewStreamConsumer(r.consumerClient, r.stream, r.stream, r.consumerCfg, r.handler)
 		if err != nil {
 			r.initErr = fmt.Errorf("queue: failed to create stream consumer for %q: %w", r.stream, err)
 			// Log instead of panic — consumer creation failure (e.g. Redis
@@ -531,7 +593,9 @@ func (r *Redis) Run() {
 			fmt.Fprintf(os.Stderr, "%v\n", r.initErr)
 			return
 		}
+		r.mu.Lock()
 		r.consumer = consumer
+		r.mu.Unlock()
 		r.consumer.Run()
 	})
 }
@@ -547,7 +611,10 @@ func (r *Redis) InitError() error {
 }
 
 func (r *Redis) Shutdown() {
-	if r.consumer != nil {
-		r.consumer.Shutdown()
+	r.mu.RLock()
+	c := r.consumer
+	r.mu.RUnlock()
+	if c != nil {
+		c.Shutdown()
 	}
 }

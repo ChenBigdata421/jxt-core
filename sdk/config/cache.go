@@ -26,12 +26,13 @@ func (e Cache) Setup() (storage.AdapterCache, error) {
 		if err != nil {
 			return nil, err
 		}
-		r, err := cache.NewRedis(GetRedisClient(), options)
+		client, err := EnsureRedisClient(options)
 		if err != nil {
 			return nil, err
 		}
-		if _redis == nil {
-			_redis = r.GetClient()
+		r, err := cache.NewRedis(client, options)
+		if err != nil {
+			return nil, err
 		}
 		return r, nil
 	}

@@ -6,23 +6,148 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"sync"
 
 	"github.com/redis/go-redis/v9"
 )
 
-var _redis *redis.Client
+var (
+	_redis      *redis.Client // Client #1: shared (non-blocking operations)
+	_redisQueue *redis.Client // Client #2: queue consumer (blocking XREADGROUP)
+	_redisSub   *redis.Client // Client #3: subscriber (PSUBSCRIBE)
+	_redisMu    sync.RWMutex  // RWMutex — reads don't block each other
+)
 
-// GetRedisClient 获取redis客户端
+// GetRedisClient returns Client #1 (shared) without acquiring the lock.
+// For initialization, use EnsureRedisClient instead.
 func GetRedisClient() *redis.Client {
+	_redisMu.RLock()
+	defer _redisMu.RUnlock()
 	return _redis
 }
 
-// SetRedisClient 设置redis客户端
+// GetQueueConsumerClient returns Client #2 (queue consumer) without acquiring the lock.
+func GetQueueConsumerClient() *redis.Client {
+	_redisMu.RLock()
+	defer _redisMu.RUnlock()
+	return _redisQueue
+}
+
+// GetSubscriberClient returns Client #3 (subscriber) without acquiring the lock.
+func GetSubscriberClient() *redis.Client {
+	_redisMu.RLock()
+	defer _redisMu.RUnlock()
+	return _redisSub
+}
+
+// SetRedisClient sets Client #1 (for external injection).
+// Assignment only — does NOT close the previous client (R-A3).
+// The old Shutdown() call was a bug: Shutdown() sends the Redis SERVER a
+// SHUTDOWN command, killing the Redis process. Use CloseAllRedisClients for
+// orderly cleanup.
 func SetRedisClient(c *redis.Client) {
-	if _redis != nil && _redis != c {
-		_redis.Shutdown(context.TODO())
-	}
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
 	_redis = c
+}
+
+// EnsureRedisClient returns Client #1, creating it if necessary.
+// If a client already exists, it validates that addr and DB match the
+// requested options and returns an error on conflict.
+func EnsureRedisClient(options *redis.Options) (*redis.Client, error) {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
+	if _redis != nil {
+		existing := _redis.Options()
+		if existing.Addr != options.Addr || existing.DB != options.DB {
+			return nil, fmt.Errorf("redis config conflict: existing client %s db=%d, requested %s db=%d",
+				existing.Addr, existing.DB, options.Addr, options.DB)
+		}
+		return _redis, nil
+	}
+	client := redis.NewClient(options)
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		return nil, fmt.Errorf("redis connect failed: %w", err)
+	}
+	_redis = client
+	return client, nil
+}
+
+// EnsureQueueConsumerClient returns Client #2 (queue consumer), creating it
+// if necessary. Validates addr/DB consistency against Client #1 if it exists.
+func EnsureQueueConsumerClient(options *redis.Options) (*redis.Client, error) {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
+	if _redisQueue != nil {
+		return _redisQueue, nil
+	}
+	if _redis != nil {
+		existing := _redis.Options()
+		if existing.Addr != options.Addr || existing.DB != options.DB {
+			return nil, fmt.Errorf("redis queue config conflict: shared client %s db=%d, requested %s db=%d",
+				existing.Addr, existing.DB, options.Addr, options.DB)
+		}
+	}
+	client := redis.NewClient(options)
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		return nil, fmt.Errorf("redis queue connect failed: %w", err)
+	}
+	_redisQueue = client
+	return client, nil
+}
+
+// EnsureSubscriberClient returns Client #3 (subscriber), creating it if
+// necessary. Validates addr/DB consistency against Client #1 if it exists.
+func EnsureSubscriberClient(options *redis.Options) (*redis.Client, error) {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
+	if _redisSub != nil {
+		return _redisSub, nil
+	}
+	if _redis != nil {
+		existing := _redis.Options()
+		if existing.Addr != options.Addr || existing.DB != options.DB {
+			return nil, fmt.Errorf("redis sub config conflict: shared client %s db=%d, requested %s db=%d",
+				existing.Addr, existing.DB, options.Addr, options.DB)
+		}
+	}
+	client := redis.NewClient(options)
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		return nil, fmt.Errorf("redis sub connect failed: %w", err)
+	}
+	_redisSub = client
+	return client, nil
+}
+
+// CloseAllRedisClients closes all three Redis clients and resets them to nil.
+// This is the only place where Close() is called — SetRedisClient does NOT
+// close the previous client.
+func CloseAllRedisClients() {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
+	if _redis != nil {
+		_redis.Close()
+		_redis = nil
+	}
+	if _redisQueue != nil {
+		_redisQueue.Close()
+		_redisQueue = nil
+	}
+	if _redisSub != nil {
+		_redisSub.Close()
+		_redisSub = nil
+	}
+}
+
+// ResetRedisClientsForTest clears all global Redis clients WITHOUT closing
+// them. For use in tests only — allows resetting global state between test
+// cases without triggering actual network operations on mock clients.
+func ResetRedisClientsForTest() {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
+	_redis = nil
+	_redisQueue = nil
+	_redisSub = nil
 }
 
 type RedisConnectOptions struct {
