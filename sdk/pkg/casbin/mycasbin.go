@@ -26,7 +26,7 @@ import (
 	"github.com/casbin/casbin/v2/log"
 	"github.com/casbin/casbin/v2/model"
 	redisWatcher "github.com/go-admin-team/redis-watcher/v2"
-	"github.com/go-redis/redis/v9"
+	redisv9 "github.com/go-redis/redis/v9"
 	"gorm.io/gorm"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
@@ -119,7 +119,7 @@ func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
 	channel := fmt.Sprintf("/casbin/tenant/%d", tenantID)
 
 	w, err := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
-		Options: redis.Options{
+		Options: redisv9.Options{
 			Network:  "tcp",
 			Password: config.CacheConfig.Redis.Password,
 		},

@@ -3,7 +3,7 @@ package config
 import (
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/ChenBigdata421/jxt-core/storage/locker"
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 )
 
 // Locker 锁配置

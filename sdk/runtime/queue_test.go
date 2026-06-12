@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-	"time"
 
-	"github.com/go-admin-team/redisqueue/v2"
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/ChenBigdata421/jxt-core/storage/queue"
@@ -51,17 +49,15 @@ func TestQueue_Register(t *testing.T) {
 		f    storage.ConsumerFunc
 	}
 	client := redis.NewClient(&redis.Options{})
-	q, err := queue.NewRedis(&redisqueue.ProducerOptions{
+	q, err := queue.NewRedis(client, &queue.ProducerConfig{
 		StreamMaxLength:      100,
 		ApproximateMaxLength: true,
-		RedisClient:          client,
-	}, &redisqueue.ConsumerOptions{
-		VisibilityTimeout: 60 * time.Second,
-		BlockingTimeout:   5 * time.Second,
-		ReclaimInterval:   1 * time.Second,
+	}, &queue.ConsumerConfig{
+		VisibilityTimeout: 60,
+		BlockingTimeout:   5,
+		ReclaimInterval:   1,
 		BufferSize:        100,
 		Concurrency:       10,
-		RedisClient:       client,
 	})
 	if err != nil {
 		t.Error(err)
@@ -89,7 +85,6 @@ func TestQueue_Register(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			//var e storage.AdapterQueue
 			e := &Queue{
 				prefix: tt.fields.prefix,
 				queue:  tt.fields.queue,

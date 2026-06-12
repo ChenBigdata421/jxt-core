@@ -3,34 +3,39 @@ package queue
 import (
 	"sync"
 
-	"github.com/go-admin-team/redisqueue/v2"
-
 	"github.com/ChenBigdata421/jxt-core/storage"
 )
 
+// Message is a standalone queue message with no external dependencies.
 type Message struct {
-	redisqueue.Message
+	ID         string
+	Stream     string
+	Values     map[string]interface{}
 	ErrorCount int
 	mux        sync.RWMutex
 }
 
 func (m *Message) GetID() string {
+	m.mux.RLock()
+	defer m.mux.RUnlock()
 	return m.ID
 }
 
 func (m *Message) GetStream() string {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.mux.RLock()
+	defer m.mux.RUnlock()
 	return m.Stream
 }
 
 func (m *Message) GetValues() map[string]interface{} {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.mux.RLock()
+	defer m.mux.RUnlock()
 	return m.Values
 }
 
 func (m *Message) SetID(id string) {
+	m.mux.Lock()
+	defer m.mux.Unlock()
 	m.ID = id
 }
 
@@ -47,8 +52,8 @@ func (m *Message) SetValues(values map[string]interface{}) {
 }
 
 func (m *Message) GetPrefix() (prefix string) {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.mux.RLock()
+	defer m.mux.RUnlock()
 	if m.Values == nil {
 		return
 	}
@@ -67,9 +72,13 @@ func (m *Message) SetPrefix(prefix string) {
 }
 
 func (m *Message) SetErrorCount(count int) {
+	m.mux.Lock()
+	defer m.mux.Unlock()
 	m.ErrorCount = count
 }
 
 func (m *Message) GetErrorCount() int {
+	m.mux.RLock()
+	defer m.mux.RUnlock()
 	return m.ErrorCount
 }
