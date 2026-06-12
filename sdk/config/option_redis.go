@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"sync"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -212,4 +213,73 @@ func getTLS(c *Tls) (*tls.Config, error) {
 		}, nil
 	}
 	return nil, nil
+}
+
+// --------------------------------------------------------------------------
+// Redis Health Check
+// --------------------------------------------------------------------------
+
+// RedisHealth tracks the health status of the Redis connection.
+type RedisHealth struct {
+	mu        sync.RWMutex
+	healthy   bool
+	lastCheck time.Time
+	lastErr   error
+}
+
+var redisHealth = &RedisHealth{healthy: true} // assume healthy until first check
+
+var healthCancel context.CancelFunc
+
+func (h *RedisHealth) setHealth(healthy bool, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.healthy = healthy
+	h.lastCheck = time.Now()
+	h.lastErr = err
+}
+
+// StartRedisHealthCheck starts a background goroutine that periodically pings
+// the Redis server and updates the health status. It stops when ctx is cancelled
+// or StopRedisHealthCheck is called.
+func StartRedisHealthCheck(ctx context.Context, interval time.Duration) {
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+	ctx, healthCancel = context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				client := GetRedisClient()
+				if client == nil {
+					redisHealth.setHealth(false, fmt.Errorf("redis client is nil"))
+					continue
+				}
+				pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				err := client.Ping(pingCtx).Err()
+				cancel()
+				redisHealth.setHealth(err == nil, err)
+			}
+		}
+	}()
+}
+
+// StopRedisHealthCheck stops the background health checker goroutine.
+func StopRedisHealthCheck() {
+	if healthCancel != nil {
+		healthCancel()
+	}
+}
+
+// IsRedisHealthy returns whether the Redis connection is healthy based on the
+// most recent health check.
+func IsRedisHealthy() bool {
+	redisHealth.mu.RLock()
+	defer redisHealth.mu.RUnlock()
+	return redisHealth.healthy
 }

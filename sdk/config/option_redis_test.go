@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -292,5 +293,42 @@ func TestSetRedisClient_DoesNotShutdownServer(t *testing.T) {
 	// Verify the getter returns the new client.
 	if got := GetRedisClient(); got != newClient {
 		t.Fatal("GetRedisClient should return the most recently set client")
+	}
+}
+
+// --------------------------------------------------------------------------
+// TestRedisHealthCheck
+// --------------------------------------------------------------------------
+
+func TestRedisHealthCheck(t *testing.T) {
+	mr, _ := setupMiniredis(t)
+	defer mr.Close()
+	defer ResetRedisClientsForTest()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create Client #1
+	opts := &redis.Options{Addr: mr.Addr()}
+	_, err := EnsureRedisClient(opts)
+	if err != nil {
+		t.Fatalf("EnsureRedisClient: %v", err)
+	}
+
+	StartRedisHealthCheck(ctx, 50*time.Millisecond)
+	time.Sleep(150 * time.Millisecond) // wait for at least one check
+
+	if !IsRedisHealthy() {
+		t.Error("expected healthy when Redis server is running")
+	}
+
+	// Close the miniredis server and the client so the next ping creates
+	// a fresh connection that will fail.
+	mr.Close()
+	CloseAllRedisClients()
+	time.Sleep(150 * time.Millisecond)
+
+	if IsRedisHealthy() {
+		t.Error("expected unhealthy after Redis server shutdown")
 	}
 }

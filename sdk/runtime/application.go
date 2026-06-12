@@ -360,5 +360,6 @@ func (e *Application) Close() {
 			_ = c.Close()
 		}
 	}
+	config.StopRedisHealthCheck()
 	config.CloseAllRedisClients()
 }
