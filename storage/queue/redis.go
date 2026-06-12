@@ -376,6 +376,15 @@ func (sc *StreamConsumer) work() {
 			if !ok {
 				return
 			}
+			// Re-check shutdown after receiving — Go's select picks
+			// randomly between ctx.Done() and msgCh when both are
+			// ready. Without this guard the handler would run during
+			// shutdown and the subsequent ACK would fail because the
+			// derived context is already canceled, causing duplicate
+			// processing after restart.
+			if sc.ctx.Err() != nil {
+				return
+			}
 			if err := sc.handler(msg); err != nil {
 				sc.pushErr(fmt.Errorf("handler %s [%s]: %w", sc.stream, msg.GetID(), err))
 				// Not acking — message will become visible again after
@@ -425,6 +434,10 @@ type Redis struct {
 	// handler stores the registered consumer callback until Run() is called.
 	handler storage.ConsumerFunc
 	stream  string
+
+	// runOnce prevents double-start — calling Run() more than once would
+	// orphan the previous StreamConsumer's goroutines (goroutine leak).
+	runOnce sync.Once
 }
 
 // NewRedis creates a Redis-backed queue adapter.
@@ -440,7 +453,7 @@ func NewRedis(client *redis.Client, producerCfg *ProducerConfig, consumerCfg *Co
 	return r, nil
 }
 
-func (Redis) String() string {
+func (*Redis) String() string {
 	return "redis"
 }
 
@@ -471,19 +484,21 @@ func (r *Redis) Register(name string, f storage.ConsumerFunc) {
 }
 
 func (r *Redis) Run() {
-	if r.stream == "" || r.handler == nil {
-		return
-	}
-	// Create the consumer now that we have the stream name.
-	consumer, err := NewStreamConsumer(r.client, r.stream, r.stream, r.consumerCfg, r.handler)
-	if err != nil {
-		// Log and return instead of panic — consumer creation failure
-		// (e.g. Redis unreachable) should not crash the service.
-		fmt.Fprintf(os.Stderr, "queue: failed to create stream consumer for %q: %v\n", r.stream, err)
-		return
-	}
-	r.consumer = consumer
-	r.consumer.Run()
+	r.runOnce.Do(func() {
+		if r.stream == "" || r.handler == nil {
+			return
+		}
+		// Create the consumer now that we have the stream name.
+		consumer, err := NewStreamConsumer(r.client, r.stream, r.stream, r.consumerCfg, r.handler)
+		if err != nil {
+			// Log and return instead of panic — consumer creation failure
+			// (e.g. Redis unreachable) should not crash the service.
+			fmt.Fprintf(os.Stderr, "queue: failed to create stream consumer for %q: %v\n", r.stream, err)
+			return
+		}
+		r.consumer = consumer
+		r.consumer.Run()
+	})
 }
 
 func (r *Redis) Shutdown() {
