@@ -1,11 +1,15 @@
 package runtime
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ChenBigdata421/jxt-core/storage"
 	"gorm.io/gorm"
 )
 
@@ -154,4 +158,77 @@ func TestApplication_Close_Idempotent(t *testing.T) {
 		app.Close()
 		app.Close()
 	})
+}
+
+// countingQueue is an AdapterQueue mock that counts Shutdown() invocations.
+type countingQueue struct {
+	shutdownCount int
+}
+
+func (c *countingQueue) String() string                                { return "counting" }
+func (c *countingQueue) Append(_ storage.Messager) error               { return nil }
+func (c *countingQueue) Register(_ string, _ storage.ConsumerFunc)     {}
+func (c *countingQueue) Run()                                          {}
+func (c *countingQueue) Shutdown()                                     { c.shutdownCount++ }
+
+// countingCacheCloser is an AdapterCache mock that also implements Closer,
+// counting Close() invocations.
+type countingCacheCloser struct {
+	closeCount int
+}
+
+func (c *countingCacheCloser) String() string { return "counting-cache" }
+func (c *countingCacheCloser) Get(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (c *countingCacheCloser) Set(_ context.Context, _ string, _ interface{}, _ int) error {
+	return nil
+}
+func (c *countingCacheCloser) Del(_ context.Context, _ string) error              { return nil }
+func (c *countingCacheCloser) HashGet(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
+func (c *countingCacheCloser) HashDel(_ context.Context, _, _ string) error       { return nil }
+func (c *countingCacheCloser) Increase(_ context.Context, _ string) error         { return nil }
+func (c *countingCacheCloser) Decrease(_ context.Context, _ string) error         { return nil }
+func (c *countingCacheCloser) Expire(_ context.Context, _ string, _ time.Duration) error {
+	return nil
+}
+func (c *countingCacheCloser) HashSet(_ context.Context, _, _ string, _ interface{}) error {
+	return nil
+}
+func (c *countingCacheCloser) Exists(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+func (c *countingCacheCloser) SetNX(_ context.Context, _ string, _ interface{}, _ int) (bool, error) {
+	return false, nil
+}
+func (c *countingCacheCloser) IncrBy(_ context.Context, _ string, _ int64) (int64, error) {
+	return 0, nil
+}
+func (c *countingCacheCloser) TTL(_ context.Context, _ string) (time.Duration, error) {
+	return 0, nil
+}
+func (c *countingCacheCloser) RunScript(_ context.Context, _ interface{}, _ []string, _ ...interface{}) (interface{}, error) {
+	return nil, nil
+}
+func (c *countingCacheCloser) Close() error { c.closeCount++; return nil }
+
+func TestApplication_Close_Order(t *testing.T) {
+	app := NewConfig()
+	cq := &countingQueue{}
+	cc := &countingCacheCloser{}
+	app.SetQueueAdapter(cq)
+	app.SetCacheAdapter(cc)
+
+	// Close() invokes both the queue Shutdown() and the cache Close().
+	app.Close()
+	assert.Equal(t, 1, cq.shutdownCount, "queue.Shutdown should be called once")
+	assert.Equal(t, 1, cc.closeCount, "cache.Close should be called once")
+
+	// Idempotency: Close() has no guard, so a second call re-invokes both
+	// components (matching the actual non-guarded behavior).
+	app.Close()
+	assert.Equal(t, 2, cq.shutdownCount, "queue.Shutdown called on every Close()")
+	assert.Equal(t, 2, cc.closeCount, "cache.Close called on every Close()")
 }

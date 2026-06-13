@@ -931,6 +931,157 @@ func TestProducer_MAXLENTrimming(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// C5 Gap 5a: NewRedisWithConsumer routes producer/consumer clients correctly
+// ---------------------------------------------------------------------------
+
+func TestNewRedisWithConsumer_RoutesClientsCorrectly(t *testing.T) {
+	// Two distinct clients, both pointing at the same miniredis so that
+	// messages appended via the producer flow to the consumer.
+	mr := miniredis.RunT(t)
+	t.Cleanup(mr.Close)
+
+	producerClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	consumerClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() {
+		producerClient.Close()
+		consumerClient.Close()
+	})
+
+	r, err := NewRedisWithConsumer(producerClient, consumerClient, &ProducerConfig{}, defaultConsumerCfg())
+	if err != nil {
+		t.Fatalf("NewRedisWithConsumer: %v", err)
+	}
+
+	// Assert the clients are routed to the correct fields.
+	if r.client != producerClient {
+		t.Error("expected r.client == producerClient (producer field)")
+	}
+	if r.consumerClient != consumerClient {
+		t.Error("expected r.consumerClient == consumerClient (consumer field)")
+	}
+	// The producer must use the producer client.
+	if r.producer.client != producerClient {
+		t.Error("expected producer to use producerClient")
+	}
+
+	// End-to-end: Register + Append on the producer side, handler consumes it.
+	var handlerCalled atomic.Int32
+	stream := "test-stream-twoclient"
+
+	r.Register(stream, func(msg storage.Messager) error {
+		handlerCalled.Add(1)
+		return nil
+	})
+	r.Run()
+	defer r.Shutdown()
+
+	msg := &Message{
+		stream: stream,
+		values: map[string]interface{}{"route": "two-client"},
+	}
+	if err := r.Append(msg); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	wait(t, 5*time.Second, func() bool {
+		return handlerCalled.Load() >= 1
+	})
+	if got := handlerCalled.Load(); got != 1 {
+		t.Errorf("expected exactly 1 handler call, got %d", got)
+	}
+}
+
+// TestNewRedisWithConsumer_NilGuards verifies both nil-client guards fire.
+func TestNewRedisWithConsumer_NilGuards(t *testing.T) {
+	mr := miniredis.RunT(t)
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+
+	// nil producer client → error.
+	if _, err := NewRedisWithConsumer(nil, client, nil, nil); err == nil {
+		t.Error("expected error for nil producer client, got nil")
+	}
+	// nil consumer client → error.
+	if _, err := NewRedisWithConsumer(client, nil, nil, nil); err == nil {
+		t.Error("expected error for nil consumer client, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// C5 Gap 5b: poll() exponential backoff prevents CPU-spin / errCh flood on
+// persistent errors (commit 01f46d2).
+// ---------------------------------------------------------------------------
+
+func TestPoll_PersistentErrorBackoff(t *testing.T) {
+	mr, client := setupMiniredis(t)
+
+	stream := "test-stream-backoff"
+	group := "test-group-backoff"
+
+	// Create the consumer (this runs ensureGroup while Redis is healthy).
+	cfg := defaultConsumerCfg()
+	cfg.BufferSize = 1000 // large errCh so we can count every error
+
+	consumer, err := NewStreamConsumer(client, stream, group, cfg, func(msg storage.Messager) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("NewStreamConsumer: %v", err)
+	}
+
+	// Now make every Redis command fail persistently, then start the consumer.
+	// poll()'s XREADGROUP will error every iteration; without backoff this
+	// would spin at CPU speed and flood errCh.
+	mr.SetError("LOADING test is loading")
+
+	consumer.Run()
+
+	// Continuously drain errCh so the buffer never fills (we want to count
+	// every error the poll loop pushes, not measure buffer capacity).
+	var errCount atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-consumer.ctx.Done():
+				return
+			case _, ok := <-consumer.Errors():
+				if !ok {
+					return
+				}
+				errCount.Add(1)
+			}
+		}
+	}()
+
+	// Observe over a 2-second window.
+	//
+	// Backoff schedule (per poll failure): 100ms -> 200ms -> 400ms -> 800ms ->
+	// 1600ms -> 3200ms ... With each failed attempt also blocked by
+	// BlockingTimeout (cfg.BlockingTimeout=1s) PLUS the growing backoff, the
+	// number of poll errors over 2s is small (well under 10). Without backoff
+	// the loop would emit hundreds-to-thousands of errors in the same window.
+	time.Sleep(2 * time.Second)
+
+	// Clear the error so Shutdown can complete cleanly.
+	mr.SetError("")
+
+	consumer.Shutdown()
+	<-done
+
+	count := errCount.Load()
+	t.Logf("poll error count over 2s window: %d", count)
+	// Bound: 2s / ~100ms minimum backoff ~= 20 worst-case attempts; real
+	// number is far lower because backoff grows. < 30 proves backoff is
+	// active (a tight spin would be hundreds+).
+	if count >= 30 {
+		t.Errorf("expected bounded poll error count (< 30) proving backoff, got %d", count)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // F1: Poison message — handler always fails, MaxDeliveries discards after N retries
 // ---------------------------------------------------------------------------
 

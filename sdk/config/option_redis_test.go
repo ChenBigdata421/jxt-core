@@ -2,12 +2,14 @@ package config
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 // setupMiniredis creates an in-process Redis server for testing.
@@ -331,4 +333,175 @@ func TestRedisHealthCheck(t *testing.T) {
 	if IsRedisHealthy() {
 		t.Error("expected unhealthy after Redis server shutdown")
 	}
+}
+
+// --------------------------------------------------------------------------
+// TestSetRedisClient_ClosesOldClient
+// --------------------------------------------------------------------------
+
+// TestSetRedisClient_ClosesOldClient verifies that replacing Client #1 with a
+// different pointer releases the OLD client's connection pool via Close(). It
+// also verifies the same-instance guard: setting the SAME pointer twice does
+// NOT close it.
+func TestSetRedisClient_ClosesOldClient(t *testing.T) {
+	mr, opts := setupMiniredis(t)
+	defer mr.Close()
+	defer ResetRedisClientsForTest()
+
+	// Client A.
+	clientA := redis.NewClient(opts)
+	SetRedisClient(clientA)
+
+	// Warm it up so the pool is established.
+	require.NoError(t, clientA.Ping(context.Background()).Err())
+
+	// Replace with a distinct Client B — old (A) must be closed.
+	clientB := redis.NewClient(opts)
+	SetRedisClient(clientB)
+
+	// After Close(), pinging the old client should fail ("redis: client is
+	// closed" or pool exhausted).
+	err := clientA.Ping(context.Background()).Err()
+	require.Error(t, err, "old client should be closed after being replaced")
+
+	// The new client must still be functional.
+	require.NoError(t, clientB.Ping(context.Background()).Err())
+
+	// Same-instance guard: setting B again must NOT close it.
+	SetRedisClient(clientB)
+	require.NoError(t, clientB.Ping(context.Background()).Err(),
+		"setting the same pointer twice must not close the client")
+	require.Equal(t, clientB, GetRedisClient())
+}
+
+// --------------------------------------------------------------------------
+// Health-checker transition tests
+// --------------------------------------------------------------------------
+
+// pollHealthy polls IsRedisHealthy until it returns want or the timeout elapses.
+func pollHealthy(t *testing.T, want bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if IsRedisHealthy() == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("IsRedisHealthy() want=%v within %v", want, timeout)
+}
+
+// TestRedisHealthCheck_Recovery verifies the checker flips back to healthy
+// after an unhealthy period once a fresh live client is set.
+func TestRedisHealthCheck_Recovery(t *testing.T) {
+	mr1, opts1 := setupMiniredis(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client1 := redis.NewClient(opts1)
+	SetRedisClient(client1)
+
+	StartRedisHealthCheck(ctx, 40*time.Millisecond)
+	defer StopRedisHealthCheck()
+	defer ResetRedisClientsForTest()
+
+	// Confirm it starts healthy.
+	pollHealthy(t, true, 2*time.Second)
+
+	// Kill the server -> next ticks should mark unhealthy.
+	mr1.Close()
+	pollHealthy(t, false, 2*time.Second)
+
+	// Inject a FRESH live miniredis client.
+	mr2, opts2 := setupMiniredis(t)
+	defer mr2.Close()
+	client2 := redis.NewClient(opts2)
+	SetRedisClient(client2)
+
+	// Should recover to healthy.
+	pollHealthy(t, true, 2*time.Second)
+}
+
+// TestRedisHealthCheck_NilClient exercises the client==nil branch: with no
+// client set, the checker must report unhealthy.
+func TestRedisHealthCheck_NilClient(t *testing.T) {
+	CloseAllRedisClients()
+	defer ResetRedisClientsForTest()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	StartRedisHealthCheck(ctx, 40*time.Millisecond)
+	defer StopRedisHealthCheck()
+
+	pollHealthy(t, false, 2*time.Second)
+}
+
+// TestStopRedisHealthCheck_HaltsLoop verifies that after StopRedisHealthCheck
+// the loop no longer runs, so making the client unhealthy does NOT flip health.
+func TestStopRedisHealthCheck_HaltsLoop(t *testing.T) {
+	mr, opts := setupMiniredis(t)
+	defer mr.Close()
+	defer ResetRedisClientsForTest()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := redis.NewClient(opts)
+	SetRedisClient(client)
+
+	StartRedisHealthCheck(ctx, 40*time.Millisecond)
+
+	// Confirm healthy first.
+	pollHealthy(t, true, 2*time.Second)
+
+	// Stop the loop.
+	StopRedisHealthCheck()
+
+	// Make the client unhealthy by closing its server.
+	mr.Close()
+
+	// Wait well beyond several tick intervals. Because the loop is stopped,
+	// the cached health value should remain whatever it was. To be robust,
+	// assert it does NOT go false within a bounded window.
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		require.True(t, IsRedisHealthy(),
+			"health should not flip after the checker is stopped")
+		time.Sleep(40 * time.Millisecond)
+	}
+}
+
+// TestStartRedisHealthCheck_DoubleStartCancelsPrevious verifies that calling
+// StartRedisHealthCheck twice cancels the previous checker so only one active
+// loop remains (no goroutine leak).
+func TestStartRedisHealthCheck_DoubleStartCancelsPrevious(t *testing.T) {
+	mr, opts := setupMiniredis(t)
+	defer mr.Close()
+	defer ResetRedisClientsForTest()
+
+	client := redis.NewClient(opts)
+	SetRedisClient(client)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	StartRedisHealthCheck(ctx, 40*time.Millisecond)
+	StartRedisHealthCheck(ctx, 40*time.Millisecond)
+	defer StopRedisHealthCheck()
+
+	// The second start replaced the first. The active checker must still be
+	// running and reporting healthy.
+	pollHealthy(t, true, 2*time.Second)
+
+	// Capture goroutine count before/after to confirm no leak: the first
+	// loop's goroutine must have exited.
+	before := runtime.NumGoroutine()
+	// Give the cancelled first loop time to observe ctx.Done and exit.
+	time.Sleep(120 * time.Millisecond)
+	after := runtime.NumGoroutine()
+	// Allow some slack but require no growth (the cancelled loop exited).
+	require.LessOrEqual(t, after, before+1,
+		"first checker goroutine should have been cancelled, no leak")
 }
