@@ -165,11 +165,23 @@ func (m *Memory) Exists(_ context.Context, key string) (bool, error) {
 	return item != nil, nil
 }
 
-func (m *Memory) SetNX(ctx context.Context, key string, val interface{}, expire int) (bool, error) {
-	if exists, _ := m.Exists(ctx, key); exists {
+// SetNX atomically sets a value only if the key does not exist.
+// The entire check-and-set is protected by a write lock to prevent TOCTOU races.
+func (m *Memory) SetNX(_ context.Context, key string, val interface{}, expire int) (bool, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if _, ok := m.items.Load(key); ok {
 		return false, nil
 	}
-	return true, m.Set(ctx, key, val, expire)
+	s, err := cast.ToStringE(val)
+	if err != nil {
+		return false, err
+	}
+	return true, m.setItem(key, &item{
+		Value:   s,
+		Expired: time.Now().Add(time.Duration(expire) * time.Second),
+	})
 }
 
 func (m *Memory) IncrBy(_ context.Context, key string, n int64) (int64, error) {

@@ -19,7 +19,7 @@ var (
 	_redisMu    sync.RWMutex  // RWMutex — reads don't block each other
 )
 
-// GetRedisClient returns Client #1 (shared) without acquiring the lock.
+// GetRedisClient returns Client #1 (shared) with a read lock.
 // For initialization, use EnsureRedisClient instead.
 func GetRedisClient() *redis.Client {
 	_redisMu.RLock()
@@ -27,14 +27,14 @@ func GetRedisClient() *redis.Client {
 	return _redis
 }
 
-// GetQueueConsumerClient returns Client #2 (queue consumer) without acquiring the lock.
+// GetQueueConsumerClient returns Client #2 (queue consumer) with a read lock.
 func GetQueueConsumerClient() *redis.Client {
 	_redisMu.RLock()
 	defer _redisMu.RUnlock()
 	return _redisQueue
 }
 
-// GetSubscriberClient returns Client #3 (subscriber) without acquiring the lock.
+// GetSubscriberClient returns Client #3 (subscriber) with a read lock.
 func GetSubscriberClient() *redis.Client {
 	_redisMu.RLock()
 	defer _redisMu.RUnlock()
@@ -242,11 +242,18 @@ func (h *RedisHealth) setHealth(healthy bool, err error) {
 // StartRedisHealthCheck starts a background goroutine that periodically pings
 // the Redis server and updates the health status. It stops when ctx is cancelled
 // or StopRedisHealthCheck is called.
+// Calling StartRedisHealthCheck twice cancels the previous checker first.
 func StartRedisHealthCheck(ctx context.Context, interval time.Duration) {
 	if interval == 0 {
 		interval = 10 * time.Second
 	}
+	_redisMu.Lock()
+	if healthCancel != nil {
+		healthCancel() // cancel previous checker to prevent goroutine leak
+	}
 	ctx, healthCancel = context.WithCancel(ctx)
+	_redisMu.Unlock()
+
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -271,8 +278,11 @@ func StartRedisHealthCheck(ctx context.Context, interval time.Duration) {
 
 // StopRedisHealthCheck stops the background health checker goroutine.
 func StopRedisHealthCheck() {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
 	if healthCancel != nil {
 		healthCancel()
+		healthCancel = nil
 	}
 }
 
