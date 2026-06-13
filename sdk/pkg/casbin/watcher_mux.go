@@ -81,17 +81,23 @@ func casbinChannelPattern() string {
 }
 
 // parseTenantIDFromChannel extracts the tenant ID from a channel name.
-// Returns 0 for malformed input (no panic).
-func parseTenantIDFromChannel(channel string) int {
+// Returns (id, true) on success, or (0, false) for malformed input (no panic).
+// The bool distinguishes a malformed channel from a legitimate tenant ID 0
+// (the deprecated Setup() path creates a tenant-0 enforcer), which a plain
+// sentinel value cannot.
+func parseTenantIDFromChannel(channel string) (int, bool) {
 	if !strings.HasPrefix(channel, casbinChannelPrefix) {
-		return 0
+		return 0, false
 	}
 	idStr := channel[len(casbinChannelPrefix):]
+	if idStr == "" {
+		return 0, false
+	}
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return id
+	return id, true
 }
 
 // --------------------------------------------------------------------------
@@ -111,6 +117,18 @@ func SetEnforcerLookup(fn func(tenantID int) *casbin.SyncedEnforcer) {
 // CasbinWatcherMux — singleton
 // --------------------------------------------------------------------------
 
+// dispatchWorkers is the size of the worker pool that processes incoming
+// policy messages in parallel. One worker would re-introduce head-of-line
+// blocking (a slow LoadPolicy on one tenant stalls every other tenant and,
+// past go-redis's 60s send timeout, drops messages). A bounded pool isolates
+// tenants while capping goroutine growth.
+const dispatchWorkers = 8
+
+// dispatchBufferSize bounds the pending-message queue between the subscriber
+// goroutine and the worker pool. Large enough to absorb policy-change bursts;
+// bounded to avoid unbounded memory growth if workers fall behind.
+const dispatchBufferSize = 256
+
 // CasbinWatcherMux is a singleton that holds a single PSUBSCRIBE connection
 // (Client #3) and dispatches incoming messages to the correct tenant enforcer.
 type CasbinWatcherMux struct {
@@ -121,6 +139,13 @@ type CasbinWatcherMux struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// dispatch feeds a bounded worker pool so a slow LoadPolicy on one tenant
+	// does not block the single subscriber goroutine (which would stall every
+	// other tenant and, past go-redis's 60s send timeout, drop pub/sub messages
+	// — silent stale policy for a security authorization system).
+	dispatchCh chan *redis.Message
+	dispatchWG sync.WaitGroup // tracks the worker goroutines for clean shutdown
 
 	wg sync.WaitGroup // tracks the listen goroutine for clean shutdown
 
@@ -156,9 +181,16 @@ func InitCasbinWatcherMux(pubClient, subClient *redis.Client) {
 			localID:    uuid.New().String(),
 			ctx:        ctx,
 			cancel:     cancel,
+			dispatchCh: make(chan *redis.Message, dispatchBufferSize),
 		}
 
 		watcherMux.Store(mux)
+
+		// Start the worker pool that runs LoadPolicy off the subscriber goroutine.
+		for i := 0; i < dispatchWorkers; i++ {
+			mux.dispatchWG.Add(1)
+			go mux.dispatchWorker()
+		}
 
 		// Start background listener
 		mux.wg.Add(1)
@@ -183,9 +215,12 @@ func ShutdownCasbinWatcherMux() {
 	m.cancel()
 	m.mu.Unlock()
 
-	// Wait for the listen goroutine to fully exit before returning,
-	// so callers can safely close Redis clients after this returns.
+	// Wait for the listen goroutine and the dispatch worker pool to fully
+	// exit before returning, so callers can safely close Redis clients after
+	// this returns. Workers see ctx.Done() and drain; in-flight LoadPolicy
+	// calls finish naturally.
 	m.wg.Wait()
+	m.dispatchWG.Wait()
 	logger.Infof("CasbinWatcherMux shut down")
 }
 
@@ -263,6 +298,31 @@ func (m *CasbinWatcherMux) subscribeOnce(backoff *time.Duration) error {
 			}
 			// Connection is healthy — reset backoff for next reconnection cycle.
 			*backoff = time.Second
+			// Enqueue for async dispatch. On ctx cancellation we stop reading so
+			// shutdown is not blocked behind a full queue.
+			select {
+			case m.dispatchCh <- msg:
+			case <-m.ctx.Done():
+				return nil
+			}
+		}
+	}
+}
+
+// dispatchWorker drains the dispatch queue and processes messages. Each worker
+// runs handleMessage (which may issue a blocking LoadPolicy DB query) off the
+// subscriber goroutine, so a slow tenant cannot stall the subscription or cause
+// go-redis to drop pub/sub messages after its 60s send timeout.
+func (m *CasbinWatcherMux) dispatchWorker() {
+	defer m.dispatchWG.Done()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case msg, ok := <-m.dispatchCh:
+			if !ok {
+				return
+			}
 			m.handleMessage(msg)
 		}
 	}
@@ -270,8 +330,8 @@ func (m *CasbinWatcherMux) subscribeOnce(backoff *time.Duration) error {
 
 // handleMessage processes a single pub/sub message.
 func (m *CasbinWatcherMux) handleMessage(msg *redis.Message) {
-	tenantID := parseTenantIDFromChannel(msg.Channel)
-	if tenantID == 0 {
+	tenantID, ok := parseTenantIDFromChannel(msg.Channel)
+	if !ok {
 		logger.Warnf("CasbinWatcherMux: cannot parse tenantID from channel %q", msg.Channel)
 		return
 	}

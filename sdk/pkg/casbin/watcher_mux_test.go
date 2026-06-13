@@ -81,21 +81,23 @@ func TestParseTenantIDFromChannel(t *testing.T) {
 	tests := []struct {
 		name     string
 		channel  string
-		expected int
+		wantID   int
+		wantOK   bool
 	}{
-		{"standard tenant 5", "/casbin/tenant/5", 5},
-		{"tenant 0", "/casbin/tenant/0", 0},
-		{"tenant 999", "/casbin/tenant/999", 999},
-		{"empty string", "", 0},
-		{"missing ID after slash", "/casbin/tenant/", 0},
-		{"non-numeric ID", "/casbin/tenant/abc", 0},
-		{"wrong prefix", "/other/prefix/5", 0},
+		{"standard tenant 5", "/casbin/tenant/5", 5, true},
+		{"tenant 0 is valid", "/casbin/tenant/0", 0, true},
+		{"tenant 999", "/casbin/tenant/999", 999, true},
+		{"empty string", "", 0, false},
+		{"missing ID after slash", "/casbin/tenant/", 0, false},
+		{"non-numeric ID", "/casbin/tenant/abc", 0, false},
+		{"wrong prefix", "/other/prefix/5", 0, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseTenantIDFromChannel(tt.channel)
-			assert.Equal(t, tt.expected, result)
+			gotID, gotOK := parseTenantIDFromChannel(tt.channel)
+			assert.Equal(t, tt.wantID, gotID)
+			assert.Equal(t, tt.wantOK, gotOK)
 		})
 	}
 }
@@ -434,6 +436,44 @@ func TestMux_HandleMessage_ZeroTenantID(t *testing.T) {
 
 	lookupMu.Lock()
 	assert.Empty(t, lookedUp, "unparseable tenant ID should not trigger enforcer lookup")
+	lookupMu.Unlock()
+}
+
+// --------------------------------------------------------------------------
+// TestMux_TenantZeroRoutes — regression for the sentinel-collision fix.
+// Tenant 0 is a valid tenant (deprecated Setup() path) and must route,
+// not be dropped as if malformed.
+// --------------------------------------------------------------------------
+
+func TestMux_TenantZeroRoutes(t *testing.T) {
+	mr, cleanup := setupMuxTest(t)
+	defer cleanup()
+
+	var lookedUp []int
+	var lookupMu sync.Mutex
+
+	SetEnforcerLookup(func(tenantID int) *casbin.SyncedEnforcer {
+		lookupMu.Lock()
+		lookedUp = append(lookedUp, tenantID)
+		lookupMu.Unlock()
+		return nil
+	})
+
+	time.Sleep(150 * time.Millisecond)
+
+	pubClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer pubClient.Close()
+
+	msg, err := json.Marshal(&MSG{Method: Update, ID: "remote"})
+	require.NoError(t, err)
+
+	err = pubClient.Publish(context.Background(), "/casbin/tenant/0", msg).Err()
+	require.NoError(t, err)
+
+	time.Sleep(150 * time.Millisecond)
+
+	lookupMu.Lock()
+	assert.Equal(t, []int{0}, lookedUp, "tenant 0 should route to its enforcer, not be dropped")
 	lookupMu.Unlock()
 }
 
