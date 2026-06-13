@@ -121,6 +121,8 @@ type CasbinWatcherMux struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	wg sync.WaitGroup // tracks the listen goroutine for clean shutdown
+
 	mu     sync.Mutex
 	closed bool
 }
@@ -128,32 +130,34 @@ type CasbinWatcherMux struct {
 // watcherMux is the package-level singleton, initialised by InitCasbinWatcherMux.
 var watcherMux *CasbinWatcherMux
 
+// watcherMuxOnce ensures InitCasbinWatcherMux is concurrency-safe.
+var watcherMuxOnce sync.Once
+
 // InitCasbinWatcherMux initialises the global CasbinWatcherMux singleton and
 // starts the background listener goroutine. It is safe to call multiple times
-// (subsequent calls after the first are no-ops).
+// from concurrent goroutines (subsequent calls after the first are no-ops).
 //
 // Parameters:
 //   - pubClient: Client #1 from config.GetRedisClient() for PUBLISH
 //   - subClient: Client #3 from config.EnsureSubscriberClient() for PSUBSCRIBE
 func InitCasbinWatcherMux(pubClient, subClient *redis.Client) {
-	if watcherMux != nil {
-		return
-	}
+	watcherMuxOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		mux := &CasbinWatcherMux{
+			pubClient:  pubClient,
+			subClient:  subClient,
+			localID:    uuid.New().String(),
+			ctx:        ctx,
+			cancel:     cancel,
+		}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	mux := &CasbinWatcherMux{
-		pubClient:  pubClient,
-		subClient:  subClient,
-		localID:    uuid.New().String(),
-		ctx:        ctx,
-		cancel:     cancel,
-	}
+		watcherMux = mux
 
-	watcherMux = mux
-
-	// Start background listener
-	go mux.listen()
-	logger.Infof("CasbinWatcherMux initialised, localID=%s", mux.localID)
+		// Start background listener
+		mux.wg.Add(1)
+		go mux.listen()
+		logger.Infof("CasbinWatcherMux initialised, localID=%s", mux.localID)
+	})
 }
 
 // ShutdownCasbinWatcherMux stops the mux listener and releases resources.
@@ -163,12 +167,17 @@ func ShutdownCasbinWatcherMux() {
 		return
 	}
 	watcherMux.mu.Lock()
-	defer watcherMux.mu.Unlock()
 	if watcherMux.closed {
+		watcherMux.mu.Unlock()
 		return
 	}
 	watcherMux.closed = true
 	watcherMux.cancel()
+	watcherMux.mu.Unlock()
+
+	// Wait for the listen goroutine to fully exit before returning,
+	// so callers can safely close Redis clients after this returns.
+	watcherMux.wg.Wait()
 	logger.Infof("CasbinWatcherMux shut down")
 }
 
@@ -189,9 +198,11 @@ func (m *CasbinWatcherMux) NewWatcher(tenantID int) persist.Watcher {
 
 // listen starts the PSUBSCRIBE loop with automatic reconnection.
 func (m *CasbinWatcherMux) listen() {
+	defer m.wg.Done()
+
 	backoff := time.Second
 	for {
-		err := m.subscribeOnce()
+		err := m.subscribeOnce(&backoff)
 		if err == nil {
 			// subscribeOnce returned nil only when context was cancelled — clean exit.
 			return
@@ -222,7 +233,9 @@ func (m *CasbinWatcherMux) listen() {
 
 // subscribeOnce performs a single PSUBSCRIBE session. Returns nil when the
 // context is cancelled (clean shutdown), or an error on unexpected disconnect.
-func (m *CasbinWatcherMux) subscribeOnce() error {
+// The backoff pointer is reset to time.Second after each successfully received
+// message, so the next reconnection starts from the minimum delay.
+func (m *CasbinWatcherMux) subscribeOnce(backoff *time.Duration) error {
 	sub := m.subClient.PSubscribe(m.ctx, casbinChannelPattern())
 	defer func() { _ = sub.Close() }()
 
@@ -240,6 +253,8 @@ func (m *CasbinWatcherMux) subscribeOnce() error {
 			if !ok {
 				return fmt.Errorf("subscription channel closed")
 			}
+			// Connection is healthy — reset backoff for next reconnection cycle.
+			*backoff = time.Second
 			m.handleMessage(msg)
 		}
 	}
@@ -320,6 +335,12 @@ func (m *CasbinWatcherMux) publish(tenantID int, payload *MSG) error {
 	if m == nil || m.pubClient == nil {
 		return nil // graceful degradation: no Redis
 	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
 	payload.ID = m.localID
 	data, err := json.Marshal(payload)
 	if err != nil {
