@@ -118,16 +118,28 @@ func SetEnforcerLookup(fn func(tenantID int) *casbin.SyncedEnforcer) {
 // --------------------------------------------------------------------------
 
 // dispatchWorkers is the size of the worker pool that processes incoming
-// policy messages in parallel. One worker would re-introduce head-of-line
-// blocking (a slow LoadPolicy on one tenant stalls every other tenant and,
-// past go-redis's 60s send timeout, drops messages). A bounded pool isolates
-// tenants while capping goroutine growth.
+// policy messages. One worker would re-introduce head-of-line blocking (a slow
+// LoadPolicy on one tenant stalls every other tenant and, past go-redis's 60s
+// send timeout, drops messages). A bounded pool isolates tenants while capping
+// goroutine growth.
+//
+// Each worker owns a dedicated queue and a tenant is pinned to a single worker
+// via tenantID % dispatchWorkers. This preserves per-tenant message ordering
+// (incremental Self{Add,Remove,Update}Policy ops are applied in publish order,
+// so policy state cannot diverge across instances) while still isolating slow
+// tenants from each other.
 const dispatchWorkers = 8
 
-// dispatchBufferSize bounds the pending-message queue between the subscriber
-// goroutine and the worker pool. Large enough to absorb policy-change bursts;
-// bounded to avoid unbounded memory growth if workers fall behind.
+// dispatchBufferSize bounds each worker's pending-message queue. Large enough to
+// absorb policy-change bursts; bounded to avoid unbounded memory growth if a
+// worker falls behind.
 const dispatchBufferSize = 256
+
+// shardForTenant maps a tenant to its dedicated worker index. Using a
+// non-negative modulo keeps the index valid even for negative tenant IDs.
+func shardForTenant(tenantID int) int {
+	return ((tenantID % dispatchWorkers) + dispatchWorkers) % dispatchWorkers
+}
 
 // CasbinWatcherMux is a singleton that holds a single PSUBSCRIBE connection
 // (Client #3) and dispatches incoming messages to the correct tenant enforcer.
@@ -140,12 +152,14 @@ type CasbinWatcherMux struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// dispatch feeds a bounded worker pool so a slow LoadPolicy on one tenant
-	// does not block the single subscriber goroutine (which would stall every
-	// other tenant and, past go-redis's 60s send timeout, drop pub/sub messages
-	// — silent stale policy for a security authorization system).
-	dispatchCh chan *redis.Message
-	dispatchWG sync.WaitGroup // tracks the worker goroutines for clean shutdown
+	// dispatchChs is a per-worker set of bounded queues. A slow LoadPolicy on one
+	// tenant does not block the single subscriber goroutine (which would stall
+	// every other tenant and, past go-redis's 60s send timeout, drop pub/sub
+	// messages — silent stale policy for a security authorization system). Each
+	// tenant is pinned to dispatchChs[tenantID % dispatchWorkers] so messages for
+	// the same tenant are processed strictly in order by a single worker.
+	dispatchChs []chan *redis.Message
+	dispatchWG  sync.WaitGroup // tracks the worker goroutines for clean shutdown
 
 	wg sync.WaitGroup // tracks the listen goroutine for clean shutdown
 
@@ -176,20 +190,24 @@ func InitCasbinWatcherMux(pubClient, subClient *redis.Client) {
 	watcherMuxOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		mux := &CasbinWatcherMux{
-			pubClient:  pubClient,
-			subClient:  subClient,
-			localID:    uuid.New().String(),
-			ctx:        ctx,
-			cancel:     cancel,
-			dispatchCh: make(chan *redis.Message, dispatchBufferSize),
+			pubClient:   pubClient,
+			subClient:   subClient,
+			localID:     uuid.New().String(),
+			ctx:         ctx,
+			cancel:      cancel,
+			dispatchChs: make([]chan *redis.Message, dispatchWorkers),
+		}
+		for i := range mux.dispatchChs {
+			mux.dispatchChs[i] = make(chan *redis.Message, dispatchBufferSize)
 		}
 
 		watcherMux.Store(mux)
 
-		// Start the worker pool that runs LoadPolicy off the subscriber goroutine.
+		// Start one worker per shard. Each worker drains only its own queue so a
+		// tenant's messages are processed in order by a single goroutine.
 		for i := 0; i < dispatchWorkers; i++ {
 			mux.dispatchWG.Add(1)
-			go mux.dispatchWorker()
+			go mux.dispatchWorker(mux.dispatchChs[i])
 		}
 
 		// Start background listener
@@ -298,10 +316,16 @@ func (m *CasbinWatcherMux) subscribeOnce(backoff *time.Duration) error {
 			}
 			// Connection is healthy — reset backoff for next reconnection cycle.
 			*backoff = time.Second
-			// Enqueue for async dispatch. On ctx cancellation we stop reading so
-			// shutdown is not blocked behind a full queue.
+			// Pin the message to its tenant's worker so same-tenant messages stay
+			// ordered. Unparseable channels fall back to shard 0 (handleMessage
+			// logs the warning). On ctx cancellation we stop reading so shutdown is
+			// not blocked behind a full queue.
+			shard := 0
+			if id, ok := parseTenantIDFromChannel(msg.Channel); ok {
+				shard = shardForTenant(id)
+			}
 			select {
-			case m.dispatchCh <- msg:
+			case m.dispatchChs[shard] <- msg:
 			case <-m.ctx.Done():
 				return nil
 			}
@@ -309,17 +333,19 @@ func (m *CasbinWatcherMux) subscribeOnce(backoff *time.Duration) error {
 	}
 }
 
-// dispatchWorker drains the dispatch queue and processes messages. Each worker
-// runs handleMessage (which may issue a blocking LoadPolicy DB query) off the
-// subscriber goroutine, so a slow tenant cannot stall the subscription or cause
-// go-redis to drop pub/sub messages after its 60s send timeout.
-func (m *CasbinWatcherMux) dispatchWorker() {
+// dispatchWorker drains a single shard queue and processes its messages. Each
+// worker runs handleMessage (which may issue a blocking LoadPolicy DB query) off
+// the subscriber goroutine, so a slow tenant cannot stall the subscription or
+// cause go-redis to drop pub/sub messages after its 60s send timeout. Because a
+// tenant is always routed to the same worker, its messages are processed in the
+// order they were published.
+func (m *CasbinWatcherMux) dispatchWorker(ch <-chan *redis.Message) {
 	defer m.dispatchWG.Done()
 	for {
 		select {
 		case <-m.ctx.Done():
 			return
-		case msg, ok := <-m.dispatchCh:
+		case msg, ok := <-ch:
 			if !ok {
 				return
 			}
@@ -363,6 +389,13 @@ func (m *CasbinWatcherMux) handleMessage(msg *redis.Message) {
 }
 
 // dispatchToEnforcer mirrors redis-watcher/v2 DefaultUpdateCallback logic.
+//
+// Concurrency note: the Self* methods it calls are NOT individually locked by
+// casbin — SyncedEnforcer does not override them, and addPolicyWithoutNotify
+// reads/writes the model map without a lock (HasPolicy read → adapter call →
+// model write). Safety depends on each enforcer having a single writer, which
+// shardForTenant guarantees by routing a tenant to exactly one shard → one
+// worker. Do not route two tenants that share an enforcer to different shards.
 func dispatchToEnforcer(e casbin.IEnforcer, msg *MSG) {
 	var res bool
 	var err error

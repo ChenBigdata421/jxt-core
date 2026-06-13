@@ -185,7 +185,7 @@ func (e *Application) GetLogger() *zap.Logger {
 
 // NewConfig 默认值
 func NewConfig() *Application {
-	return &Application{
+	app := &Application{
 		tenantDBs:        sync.Map{},
 		tenantServiceDBs: sync.Map{}, // 服务级数据库存储
 		casbins:          sync.Map{},
@@ -196,6 +196,13 @@ func NewConfig() *Application {
 		routers:          make([]Router, 0),
 		configs:          make(map[string]interface{}),
 	}
+	// Wire the CasbinWatcherMux enforcer lookup to this Application's registry so
+	// the single PSUBSCRIBE listener can route policy messages to the right
+	// tenant enforcer. The mux itself is lazily initialised on first enforcer
+	// setup (see mycasbin.ensureWatcherMux); this only injects the lookup,
+	// avoiding a mycasbin -> runtime import cycle.
+	mycasbin.SetEnforcerLookup(app.GetTenantCasbin)
+	return app
 }
 
 // SetCrontab 设置对应key的crontab

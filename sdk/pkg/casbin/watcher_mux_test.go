@@ -3,6 +3,8 @@ package mycasbin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 )
 
@@ -876,4 +879,350 @@ func TestMux_NilMuxPublish(t *testing.T) {
 
 	err := mux.publish(1, &MSG{Method: Update})
 	assert.NoError(t, err, "publish on nil mux should return nil (graceful degradation)")
+}
+
+// --------------------------------------------------------------------------
+// TestShardForTenant — per-tenant routing is deterministic and in range
+// --------------------------------------------------------------------------
+
+func TestShardForTenant(t *testing.T) {
+	// Same tenant always maps to the same shard (the ordering guarantee depends
+	// on this determinism).
+	for _, id := range []int{0, 1, 7, 8, 99, 1000, -1, -8, -15} {
+		s1 := shardForTenant(id)
+		s2 := shardForTenant(id)
+		assert.Equal(t, s1, s2, "shardForTenant must be deterministic for tenant %d", id)
+		assert.GreaterOrEqual(t, s1, 0, "shard index must be non-negative for tenant %d", id)
+		assert.Less(t, s1, dispatchWorkers, "shard index must be < dispatchWorkers for tenant %d", id)
+	}
+}
+
+// --------------------------------------------------------------------------
+// TestMux_PreservesPerTenantOrder — regression for the worker-pool ordering
+// hazard. Messages for one tenant must be applied in publish order, so an
+// Add-then-Remove of the same rule ends with the rule absent (not present).
+// --------------------------------------------------------------------------
+
+func TestMux_PreservesPerTenantOrder(t *testing.T) {
+	mr, cleanup := setupMuxTest(t)
+	defer cleanup()
+
+	const tenantID = 7
+
+	m, err := model.NewModelFromString(text)
+	require.NoError(t, err)
+	enforcer, err := casbin.NewSyncedEnforcer(m, &fullAdapter{})
+	require.NoError(t, err)
+
+	SetEnforcerLookup(func(id int) *casbin.SyncedEnforcer {
+		if id == tenantID {
+			return enforcer
+		}
+		return nil
+	})
+
+	// Let the subscription become active.
+	time.Sleep(150 * time.Millisecond)
+
+	pubClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer pubClient.Close()
+	channel := casbinChannel(tenantID)
+
+	rule := []string{"alice", "/api/order", "GET"}
+	// Publish an ordered sequence on the SAME tenant channel: Add rule, then
+	// Remove the same rule. Single-worker-per-tenant must apply them in order.
+	publish := func(method UpdateType, newRule []string) {
+		payload, mErr := json.Marshal(&MSG{
+			Method: method, ID: "remote-instance", Sec: "p", Ptype: "p", NewRule: newRule,
+		})
+		require.NoError(t, mErr)
+		require.NoError(t, pubClient.Publish(context.Background(), channel, payload).Err())
+	}
+	publish(UpdateForAddPolicy, rule)
+	publish(UpdateForRemovePolicy, rule)
+
+	// Wait for both messages to drain.
+	time.Sleep(300 * time.Millisecond)
+
+	has := enforcer.HasPolicy(rule)
+	assert.False(t, has,
+		"Add-then-Remove applied in order must leave the rule absent; presence indicates out-of-order dispatch")
+}
+
+// --------------------------------------------------------------------------
+// TestEnsureWatcherMux — lazy initialisation from configured Redis clients (F2)
+// --------------------------------------------------------------------------
+
+func TestEnsureWatcherMux_NoRedis(t *testing.T) {
+	resetMuxState()
+	defer resetMuxState()
+	config.ResetRedisClientsForTest()
+	defer config.ResetRedisClientsForTest()
+
+	// No Redis configured → graceful degradation, no mux.
+	assert.Nil(t, ensureWatcherMux(), "ensureWatcherMux should return nil when Redis is not configured")
+	assert.Nil(t, loadWatcherMux(), "mux should not be initialised without Redis")
+}
+
+func TestEnsureWatcherMux_NoSubscriber(t *testing.T) {
+	resetMuxState()
+	defer resetMuxState()
+	config.ResetRedisClientsForTest()
+	defer config.ResetRedisClientsForTest()
+
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Client #1 set, but Client #3 (subscriber) missing → degrade with warning.
+	config.SetRedisClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+
+	assert.Nil(t, ensureWatcherMux(), "ensureWatcherMux should return nil when subscriber client is missing")
+	assert.Nil(t, loadWatcherMux(), "mux should not be initialised without a subscriber client")
+}
+
+func TestEnsureWatcherMux_LazyInit(t *testing.T) {
+	resetMuxState()
+	defer resetMuxState()
+	config.ResetRedisClientsForTest()
+	defer config.ResetRedisClientsForTest()
+
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Both Client #1 and Client #3 configured → mux is created on first use.
+	config.SetRedisClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
+	_, err = config.EnsureSubscriberClient(&redis.Options{Addr: mr.Addr()})
+	require.NoError(t, err)
+
+	m := ensureWatcherMux()
+	require.NotNil(t, m, "ensureWatcherMux should initialise the mux when both clients exist")
+	assert.Same(t, m, loadWatcherMux(), "ensureWatcherMux must return the stored singleton")
+
+	// Second call is idempotent — same instance, no re-init.
+	assert.Same(t, m, ensureWatcherMux(), "ensureWatcherMux must be idempotent")
+
+	ShutdownCasbinWatcherMux()
+}
+
+// --------------------------------------------------------------------------
+// Worker-pool ordering, concurrency, and backpressure coverage (F3)
+//
+// These tests bypass Redis and inject *redis.Message values straight into the
+// per-shard dispatch queues, which deterministically exercises the worker pool
+// — the path that a2c5490 introduced to preserve per-tenant ordering while
+// isolating slow tenants. miniredis pub/sub is timing-dependent and cannot
+// reliably stress the worker pool; direct injection can.
+// --------------------------------------------------------------------------
+
+// recordingAdapter wraps fullAdapter and records every AddPolicy call in
+// order. The mutex makes the recording safe for the multi-worker concurrent test.
+type recordingAdapter struct {
+	fullAdapter
+	mu    sync.Mutex
+	calls []string
+}
+
+func (a *recordingAdapter) AddPolicy(sec, ptype string, rule []string) error {
+	a.mu.Lock()
+	a.calls = append(a.calls, "add:"+strings.Join(rule, ","))
+	a.mu.Unlock()
+	return a.fullAdapter.AddPolicy(sec, ptype, rule)
+}
+
+// Count returns the number of recorded AddPolicy calls (thread-safe).
+func (a *recordingAdapter) Count() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.calls)
+}
+
+// Calls returns a copy of the recorded calls in order (thread-safe).
+func (a *recordingAdapter) Calls() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]string, len(a.calls))
+	copy(out, a.calls)
+	return out
+}
+
+// tryInject enqueues a message for tenantID directly into its shard's dispatch
+// queue (shardForTenant), bypassing Redis. It returns a bool instead of calling
+// t.Fatal so it stays safe to invoke from worker goroutines in the concurrent
+// test. A false result means the enqueue blocked past the timeout — a worker is
+// not draining (backpressure deadlock) rather than the intended transient block
+// on a full buffer.
+func tryInject(tenantID int, method UpdateType, rule []string) bool {
+	mux := loadWatcherMux()
+	if mux == nil {
+		return false
+	}
+	payload, err := json.Marshal(&MSG{
+		Method: method, ID: "remote-test", Sec: "p", Ptype: "p", NewRule: rule,
+	})
+	if err != nil {
+		return false
+	}
+	msg := &redis.Message{
+		Channel: casbinChannel(tenantID),
+		Payload: string(payload),
+	}
+	shard := shardForTenant(tenantID)
+	select {
+	case mux.dispatchChs[shard] <- msg:
+		return true
+	case <-time.After(3 * time.Second):
+		return false
+	}
+}
+
+// TestMux_DispatchWorker_PerShardOrdering asserts the core guarantee of the
+// sharded worker pool: all messages for one tenant (one shard -> one worker)
+// are applied strictly in publish order. This is the hazard a2c5490 introduced
+// and must not regress — out-of-order Add/Remove on the same rule would leave
+// policy state divergent across instances.
+func TestMux_DispatchWorker_PerShardOrdering(t *testing.T) {
+	_, cleanup := setupMuxTest(t)
+	defer cleanup()
+
+	const tenantID = 7
+	m, err := model.NewModelFromString(text)
+	require.NoError(t, err)
+	adapter := &recordingAdapter{}
+	enforcer, err := casbin.NewSyncedEnforcer(m, adapter)
+	require.NoError(t, err)
+	enforcer.EnableAutoSave(true)
+
+	SetEnforcerLookup(func(id int) *casbin.SyncedEnforcer {
+		if id == tenantID {
+			return enforcer
+		}
+		return nil
+	})
+
+	const n = 30
+	for i := 0; i < n; i++ {
+		require.True(t, tryInject(tenantID, UpdateForAddPolicy, []string{"alice", "/seq", fmt.Sprintf("%d", i)}),
+			"ordered message %d should enqueue", i)
+	}
+
+	require.Eventually(t, func() bool { return adapter.Count() == n },
+		2*time.Second, 5*time.Millisecond,
+		"all %d ordered messages should be processed", n)
+
+	calls := adapter.Calls()
+	require.Len(t, calls, n)
+	for i, c := range calls {
+		assert.Equal(t, fmt.Sprintf("add:alice,/seq,%d", i), c,
+			"message %d processed out of order — single-worker-per-shard must preserve publish order", i)
+	}
+}
+
+// TestMux_WorkerPool_ConcurrentPerTenant runs all 8 workers concurrently, each
+// dispatching to its OWN tenant enforcer (one enforcer per shard). This mirrors
+// production: shardForTenant deterministically maps each tenant to one shard →
+// one worker → one enforcer, so every enforcer has exactly one writer. Run
+// under `go test -race` to confirm the shared dispatch path (getEnforcerFn
+// lookup, logging, channel routing) is race-free under concurrent operation.
+//
+// Why one enforcer per tenant, not one shared: casbin's Self* methods are NOT
+// individually locked by SyncedEnforcer — addPolicyWithoutNotify mutates the
+// model map without a lock, so two workers sharing one enforcer crash with
+// "concurrent map read and map write". The single-writer-per-enforcer property
+// shardForTenant guarantees is what makes those calls safe; this test respects
+// it by giving each tenant its own enforcer.
+func TestMux_WorkerPool_ConcurrentPerTenant(t *testing.T) {
+	_, cleanup := setupMuxTest(t)
+	defer cleanup()
+
+	const tenants = 8 // tenantID % 8 yields all 8 distinct shards
+	const perTenant = 40
+
+	enforcers := make([]*casbin.SyncedEnforcer, tenants)
+	adapters := make([]*recordingAdapter, tenants)
+	for tID := 0; tID < tenants; tID++ {
+		m, err := model.NewModelFromString(text)
+		require.NoError(t, err)
+		ad := &recordingAdapter{}
+		e, err := casbin.NewSyncedEnforcer(m, ad)
+		require.NoError(t, err)
+		e.EnableAutoSave(true)
+		enforcers[tID] = e
+		adapters[tID] = ad
+	}
+
+	SetEnforcerLookup(func(id int) *casbin.SyncedEnforcer {
+		if id >= 0 && id < tenants {
+			return enforcers[id]
+		}
+		return nil
+	})
+
+	var (
+		wg         sync.WaitGroup
+		errMu      sync.Mutex
+		injectErrs []string
+	)
+	for tID := 0; tID < tenants; tID++ {
+		wg.Add(1)
+		go func(tenantID int) {
+			defer wg.Done()
+			for i := 0; i < perTenant; i++ {
+				if !tryInject(tenantID, UpdateForAddPolicy,
+					[]string{"u", "/x", fmt.Sprintf("%d-%d", tenantID, i)}) {
+					errMu.Lock()
+					injectErrs = append(injectErrs, fmt.Sprintf("tenant %d msg %d", tenantID, i))
+					errMu.Unlock()
+				}
+			}
+		}(tID)
+	}
+	wg.Wait()
+	require.Empty(t, injectErrs, "some injections timed out (worker not draining?): %v", injectErrs)
+
+	// No-loss assertion per tenant via the recording adapter (mutex-safe — unlike
+	// a direct GetPolicy, which races casbin's unlocked model write). Unique rules
+	// mean each message records exactly one AddPolicy, so Count==perTenant proves
+	// the worker applied every message.
+	for tID := 0; tID < tenants; tID++ {
+		tid := tID
+		require.Eventually(t, func() bool { return adapters[tid].Count() == perTenant },
+			3*time.Second, 5*time.Millisecond,
+			"tenant %d should process all %d messages (no loss under concurrent dispatch)", tid, perTenant)
+	}
+}
+
+// TestMux_DispatchWorker_BurstBeyondBuffer injects more messages than a shard's
+// dispatchBufferSize. The worker drains concurrently, so the sender must block
+// (backpressure) and resume — never drop. This guards the head-of-line
+// message-loss hazard the bounded pool was added to prevent.
+func TestMux_DispatchWorker_BurstBeyondBuffer(t *testing.T) {
+	_, cleanup := setupMuxTest(t)
+	defer cleanup()
+
+	const tenantID = 7
+	m, err := model.NewModelFromString(text)
+	require.NoError(t, err)
+	adapter := &recordingAdapter{}
+	enforcer, err := casbin.NewSyncedEnforcer(m, adapter)
+	require.NoError(t, err)
+	enforcer.EnableAutoSave(true)
+
+	SetEnforcerLookup(func(id int) *casbin.SyncedEnforcer {
+		if id == tenantID {
+			return enforcer
+		}
+		return nil
+	})
+
+	total := dispatchBufferSize + 100 // 356 > 256 → exercises backpressure, not drop
+	for i := 0; i < total; i++ {
+		require.True(t, tryInject(tenantID, UpdateForAddPolicy, []string{"burst", "/x", fmt.Sprintf("%d", i)}),
+			"burst message %d must enqueue (backpressure, not drop)", i)
+	}
+
+	require.Eventually(t, func() bool { return adapter.Count() == total },
+		3*time.Second, 5*time.Millisecond,
+		"all %d burst messages must be processed — no loss past the buffer", total)
 }

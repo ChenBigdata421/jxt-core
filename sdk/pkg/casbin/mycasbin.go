@@ -27,6 +27,7 @@ import (
 	"github.com/casbin/casbin/v2/model"
 	"gorm.io/gorm"
 
+	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	gormAdapter "github.com/go-admin-team/gorm-adapter/v3"
 )
@@ -108,10 +109,13 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 // Called by both SetupForTenant and SetupWithProvider to eliminate code duplication.
 //
 // Behavior:
-//   - If CasbinWatcherMux is initialised, creates a per-tenant watcher handle via mux
-//   - If mux is nil (Redis not configured), logs nothing — graceful degradation
+//   - Lazily initialises the mux from the configured Redis clients on first use
+//     (idempotent), so callers don't need to wire InitCasbinWatcherMux manually
+//   - If Redis is not configured, degrades gracefully (no cross-instance sync)
+//   - If Client #1 is configured but the subscriber Client #3 is missing, logs a
+//     warning so operators can tell that policy sync is silently disabled
 func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
-	m := loadWatcherMux()
+	m := ensureWatcherMux()
 	if m == nil {
 		return // Redis not configured — graceful degradation
 	}
@@ -120,6 +124,28 @@ func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
 	if err := e.SetWatcher(w); err != nil {
 		logger.Errorf("租户 %d 设置 Watcher 失败: %v", tenantID, err)
 	}
+}
+
+// ensureWatcherMux returns the singleton mux, lazily initialising it from the
+// configured Redis clients on first use. Returns nil when Redis is not
+// configured (graceful degradation). InitCasbinWatcherMux is guarded by
+// sync.Once, so concurrent enforcer setup is safe.
+func ensureWatcherMux() *CasbinWatcherMux {
+	if m := loadWatcherMux(); m != nil {
+		return m
+	}
+	pub := config.GetRedisClient()
+	if pub == nil {
+		return nil // Redis not configured — graceful degradation
+	}
+	sub := config.GetSubscriberClient()
+	if sub == nil {
+		logger.Warnf("CasbinWatcherMux: Redis Client #1 configured but subscriber Client #3 is nil; " +
+			"cross-instance Casbin policy sync is disabled")
+		return nil
+	}
+	InitCasbinWatcherMux(pub, sub)
+	return loadWatcherMux()
 }
 
 // SetupWithProvider creates a Casbin enforcer using a PolicyProvider (for microservices)
