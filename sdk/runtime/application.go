@@ -13,6 +13,7 @@ import (
 	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
+	mycasbin "github.com/ChenBigdata421/jxt-core/sdk/pkg/casbin"
 	"github.com/ChenBigdata421/jxt-core/storage"
 	"github.com/ChenBigdata421/jxt-core/storage/queue"
 	"github.com/casbin/casbin/v2"
@@ -352,6 +353,7 @@ func (e *Application) GetEventBus() eventbus.EventBus {
 // Close gracefully shuts down all runtime resources: queue consumer, cache
 // adapter, and Redis client connections. Call this on application shutdown.
 func (e *Application) Close() {
+	mycasbin.ShutdownCasbinWatcherMux()
 	if e.queue != nil {
 		e.queue.Shutdown()
 	}

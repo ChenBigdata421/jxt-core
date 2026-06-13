@@ -15,18 +15,16 @@ package mycasbin
 //   - New: enforcer, err := mycasbin.SetupForTenant(db, tenantID)
 //
 // Redis Watcher:
+//   - Uses CasbinWatcherMux: single PSUBSCRIBE connection (Client #3) for all tenants
 //   - Each tenant uses a dedicated Redis channel: /casbin/tenant/{tenantID}
 //   - Policy changes are automatically synchronized across instances via Redis pub/sub
 //   - Watcher failures do not prevent enforcer creation (graceful degradation)
 import (
 	"fmt"
 
-	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/log"
 	"github.com/casbin/casbin/v2/model"
-	redisWatcher "github.com/go-admin-team/redis-watcher/v2"
-	redisv9 "github.com/go-redis/redis/v9"
 	"gorm.io/gorm"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
@@ -57,11 +55,13 @@ m = r.sub == p.sub && (keyMatch2(r.obj, p.obj) || keyMatch(r.obj, p.obj)) && (r.
 // 参数:
 //   - db: 该租户的数据库连接
 //   - tenantID: 租户ID（用于日志标识和 Redis Watcher 频道隔离）
+//
 // 返回:
 //   - *casbin.SyncedEnforcer: 该租户专属的 enforcer 实例
 //   - error: 错误信息
 //
 // Redis Watcher:
+//   - 使用 CasbinWatcherMux: 单一 PSUBSCRIBE 连接监听所有租户
 //   - 每个租户使用独立的 Redis 频道: /casbin/tenant/{tenantID}
 //   - 当租户的权限策略变更时，通过 Redis pub/sub 自动通知所有实例重新加载策略
 //   - Redis 不可用时，enforcer 仍能正常创建和使用（优雅降级）
@@ -94,7 +94,7 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 		return nil, fmt.Errorf("加载 Casbin 策略失败 (租户 %d): %w", tenantID, err)
 	}
 
-	// 5. 设置 Redis Watcher（使用共享 helper）
+	// 5. 设置 Redis Watcher（使用 CasbinWatcherMux）
 	setupRedisWatcherForEnforcer(e, tenantID)
 
 	// 6. 设置日志
@@ -104,43 +104,18 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 	return e, nil
 }
 
-// setupRedisWatcherForEnforcer sets up Redis Watcher for an enforcer
-// Called by both SetupForTenant and SetupWithProvider to eliminate code duplication
+// setupRedisWatcherForEnforcer sets up the CasbinWatcherMux watcher for an enforcer.
+// Called by both SetupForTenant and SetupWithProvider to eliminate code duplication.
 //
 // Behavior:
-//   - If Redis is configured, creates Watcher and sets callback
-//   - If Redis is not configured or creation fails, logs only (does not prevent enforcer creation)
-//   - Each tenant uses a dedicated Redis channel: /casbin/tenant/{tenantID}
+//   - If CasbinWatcherMux is initialised, creates a per-tenant watcher handle via mux
+//   - If mux is nil (Redis not configured), logs nothing — graceful degradation
 func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
-	if config.CacheConfig.Redis == nil {
-		return
+	if watcherMux == nil {
+		return // Redis not configured — graceful degradation
 	}
 
-	channel := fmt.Sprintf("/casbin/tenant/%d", tenantID)
-
-	w, err := redisWatcher.NewWatcher(config.CacheConfig.Redis.Addr, redisWatcher.WatcherOptions{
-		Options: redisv9.Options{
-			Network:  "tcp",
-			Password: config.CacheConfig.Redis.Password,
-		},
-		Channel:    channel,
-		IgnoreSelf: false,
-	})
-	if err != nil {
-		logger.Errorf("租户 %d Redis Watcher 创建失败: %v", tenantID, err)
-		return
-	}
-
-	// Capture enforcer in closure for this tenant
-	tenantEnforcer := e
-	if err := w.SetUpdateCallback(func(msg string) {
-		logger.Infof("casbin updateCallback (租户 %d) msg: %v", tenantID, msg)
-		if err := tenantEnforcer.LoadPolicy(); err != nil {
-			logger.Errorf("casbin LoadPolicy (租户 %d) err: %v", tenantID, err)
-		}
-	}); err != nil {
-		logger.Errorf("租户 %d 设置 Watcher callback 失败: %v", tenantID, err)
-	}
+	w := watcherMux.NewWatcher(tenantID)
 	if err := e.SetWatcher(w); err != nil {
 		logger.Errorf("租户 %d 设置 Watcher 失败: %v", tenantID, err)
 	}
@@ -180,7 +155,7 @@ func SetupWithProvider(provider PolicyProvider, tenantID int) (*casbin.SyncedEnf
 		return nil, fmt.Errorf("failed to load policy via provider: %w", err)
 	}
 
-	// 5. Set up Redis Watcher using shared helper
+	// 5. Set up Redis Watcher using CasbinWatcherMux
 	setupRedisWatcherForEnforcer(e, tenantID)
 
 	// 6. Enable logging
@@ -200,7 +175,7 @@ func Setup(db *gorm.DB, _ string) *casbin.SyncedEnforcer {
 		panic(err)
 	}
 
-	// SetupForTenant 已经为租户 0 创建了 Redis Watcher（使用 /casbin/tenant/0 频道）
+	// SetupForTenant 已经为租户 0 设置了 Redis Watcher（使用 CasbinWatcherMux）
 	// 不需要在这里重复设置
 
 	return e
