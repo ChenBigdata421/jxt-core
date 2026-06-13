@@ -36,11 +36,10 @@ func (e *Queue) Append(message storage.Messager) error {
 	if e.prefix != "" {
 		message.SetStream(e.prefix + ":" + message.GetStream())
 	}
-	values := message.GetValues()
-	if values == nil {
-		values = make(map[string]interface{})
-	}
-	values[storage.PrefixKey] = e.prefix
+	// Stamp the tenant tag via the mutator. GetValues() returns a shallow copy,
+	// so mutating it (as the prior code did) never reached the message's
+	// internal map — PrefixKey was silently left unset on every prefixed Append.
+	message.SetPrefix(e.prefix)
 	return e.queue.Append(message)
 }
 
