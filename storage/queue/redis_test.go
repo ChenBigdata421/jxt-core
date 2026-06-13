@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -175,14 +176,14 @@ func TestConsumer_NoACKOnCallbackError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 3: Timed-out pending message reclaimed by XCLAIM, processed exactly once
+// Test 3: Happy-path message processed exactly once — no double delivery
 // ---------------------------------------------------------------------------
 
-func TestConsumer_ReclaimOnce(t *testing.T) {
+func TestConsumer_NoDoubleProcessOnHappyPath(t *testing.T) {
 	_, client := setupMiniredis(t)
 
-	stream := "test-stream-reclaim"
-	group := "test-group-reclaim"
+	stream := "test-stream-happy"
+	group := "test-group-happy"
 
 	var handlerCalled atomic.Int32
 
@@ -192,8 +193,8 @@ func TestConsumer_ReclaimOnce(t *testing.T) {
 	}
 
 	cfg := defaultConsumerCfg()
-	cfg.VisibilityTimeout = 1 // 1 second — so the message times out quickly
-	cfg.ReclaimInterval = 1   // check every second
+	cfg.VisibilityTimeout = 1 // short timeout — reclaim runs but finds nothing to reclaim
+	cfg.ReclaimInterval = 1
 	cfg.BlockingTimeout = 1
 
 	consumer, err := NewStreamConsumer(client, stream, group, cfg, handler)
@@ -203,39 +204,28 @@ func TestConsumer_ReclaimOnce(t *testing.T) {
 	consumer.Run()
 	defer consumer.Shutdown()
 
-	// Produce a message using XADD.
+	// Produce a single message.
 	_, err = client.XAdd(context.Background(), &redis.XAddArgs{
 		Stream: stream,
-		Values: map[string]interface{}{"reclaim": "test"},
+		Values: map[string]interface{}{"happy": "path"},
 		ID:     "*",
 	}).Result()
 	if err != nil {
 		t.Fatalf("XAdd: %v", err)
 	}
 
-	// Wait for initial poll delivery (the consumer will read it but it won't
-	// be acked if we use a failing handler — however our handler succeeds, so
-	// the message gets ACKed on first delivery.
-	//
-	// To test reclaim, we need a message that was NOT acked. We simulate this
-	// by adding a message directly to the pending list via XREADGROUP on a
-	// separate consumer that never ACKs.
-	//
-	// Actually, the simplest approach: add a message, wait for it to be
-	// consumed and ACKed (the handler succeeds), then verify reclaim doesn't
-	// double-process. Let's adjust: the first delivery will succeed and ACK,
-	// so we should see exactly 1 handler call.
-
+	// Wait for the handler to process the message.
 	wait(t, 5*time.Second, func() bool {
 		return handlerCalled.Load() >= 1
 	})
 
-	// Wait a bit more to ensure no double processing.
+	// Give reclaim time to run at least once — it should find nothing to reclaim
+	// because the message was already ACKed.
 	time.Sleep(2 * time.Second)
 
 	count := handlerCalled.Load()
 	if count != 1 {
-		t.Errorf("expected exactly 1 handler call, got %d", count)
+		t.Errorf("expected exactly 1 handler call (no double processing), got %d", count)
 	}
 
 	// Verify message is fully ACKed.
@@ -244,7 +234,7 @@ func TestConsumer_ReclaimOnce(t *testing.T) {
 		t.Fatalf("XPending: %v", err)
 	}
 	if pending.Count != 0 {
-		t.Errorf("expected 0 pending after reclaim+ACK, got %d", pending.Count)
+		t.Errorf("expected 0 pending after happy-path ACK, got %d", pending.Count)
 	}
 }
 
@@ -633,8 +623,8 @@ func TestRedis_Lifecycle(t *testing.T) {
 
 	// Append a message through the adapter.
 	msg := &Message{
-		Stream: stream,
-		Values: map[string]interface{}{"lifecycle": "test"},
+		stream: stream,
+		values: map[string]interface{}{"lifecycle": "test"},
 	}
 	if err := r.Append(msg); err != nil {
 		t.Fatalf("Append: %v", err)
@@ -766,5 +756,322 @@ func TestConsumer_ConcurrentProcessing(t *testing.T) {
 	defer mu.Unlock()
 	if len(ids) != msgCount {
 		t.Errorf("expected %d unique message IDs, got %d", msgCount, len(ids))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// C5 Gap 1: nil client → NewRedis returns error
+// ---------------------------------------------------------------------------
+
+func TestNewRedis_NilClient(t *testing.T) {
+	_, err := NewRedis(nil, nil, nil)
+	if err == nil {
+		t.Error("expected error for nil client, got nil")
+	}
+	t.Logf("nil client error: %v", err)
+}
+
+// ---------------------------------------------------------------------------
+// C5 Gap 2: Run() without Register() → InitError reports the problem
+// ---------------------------------------------------------------------------
+
+func TestRedis_RunWithoutRegister(t *testing.T) {
+	_, client := setupMiniredis(t)
+
+	r, err := NewRedis(client, &ProducerConfig{}, nil)
+	if err != nil {
+		t.Fatalf("NewRedis: %v", err)
+	}
+
+	// Call Run without ever calling Register.
+	r.Run()
+
+	// Run() returns nothing (void), so check InitError().
+	if err := r.InitError(); err == nil {
+		t.Error("expected InitError after Run() with no Register(), got nil")
+	} else {
+		t.Logf("InitError (expected): %v", err)
+	}
+
+	// Shutdown should be safe even with no consumer.
+	r.Shutdown()
+}
+
+// ---------------------------------------------------------------------------
+// C5 Gap 3: double Run() → only one consumer created (sync.Once)
+// ---------------------------------------------------------------------------
+
+func TestRedis_DoubleRun(t *testing.T) {
+	_, client := setupMiniredis(t)
+
+	stream := "test-stream-doublerun"
+
+	var handlerCalled atomic.Int32
+
+	r, err := NewRedis(client, &ProducerConfig{}, defaultConsumerCfg())
+	if err != nil {
+		t.Fatalf("NewRedis: %v", err)
+	}
+
+	r.Register(stream, func(msg storage.Messager) error {
+		handlerCalled.Add(1)
+		return nil
+	})
+
+	// Call Run twice — only the first should take effect.
+	r.Run()
+	r.Run()
+
+	// Produce one message.
+	msg := &Message{
+		stream: stream,
+		values: map[string]interface{}{"double": "run"},
+	}
+	if err := r.Append(msg); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	// Wait for processing — should be called exactly once.
+	wait(t, 5*time.Second, func() bool {
+		return handlerCalled.Load() >= 1
+	})
+
+	if count := handlerCalled.Load(); count != 1 {
+		t.Errorf("expected exactly 1 handler call (no double-start), got %d", count)
+	}
+
+	r.Shutdown()
+}
+
+// ---------------------------------------------------------------------------
+// C5 Gap 4: Append with empty stream → falls back to r.stream
+// ---------------------------------------------------------------------------
+
+func TestRedis_AppendFallbackStream(t *testing.T) {
+	_, client := setupMiniredis(t)
+
+	stream := "test-stream-fallback"
+
+	var received atomic.Value
+
+	r, err := NewRedis(client, &ProducerConfig{}, defaultConsumerCfg())
+	if err != nil {
+		t.Fatalf("NewRedis: %v", err)
+	}
+
+	r.Register(stream, func(msg storage.Messager) error {
+		received.Store(msg.GetStream())
+		return nil
+	})
+
+	r.Run()
+	defer r.Shutdown()
+
+	// Append a message with NO stream set — should use the registered stream.
+	msg := &Message{
+		stream: "", // empty → fallback to r.stream
+		values: map[string]interface{}{"fallback": "test"},
+	}
+	if err := r.Append(msg); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	wait(t, 5*time.Second, func() bool {
+		v := received.Load()
+		return v != nil && v.(string) == stream
+	})
+
+	got, _ := received.Load().(string)
+	if got != stream {
+		t.Errorf("expected stream %q, got %q", stream, got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// C5 Gap 5: MAXLEN trimming — stream stays within configured limit
+// ---------------------------------------------------------------------------
+
+func TestProducer_MAXLENTrimming(t *testing.T) {
+	_, client := setupMiniredis(t)
+
+	stream := "test-stream-maxlen"
+
+	const maxLen = 10
+
+	producer := NewStreamProducer(client, &ProducerConfig{
+		StreamMaxLength:      maxLen,
+		ApproximateMaxLength: true,
+	})
+
+	// Send more messages than MAXLEN.
+	const total = 50
+	for i := 0; i < total; i++ {
+		_, err := producer.Send(context.Background(), stream, map[string]interface{}{
+			"i": i,
+		})
+		if err != nil {
+			t.Fatalf("Send %d: %v", i, err)
+		}
+	}
+
+	// Check stream length with XRANGE.
+	msgs, err := client.XRange(context.Background(), stream, "-", "+").Result()
+	if err != nil {
+		t.Fatalf("XRange: %v", err)
+	}
+
+	// With approximate trimming the stream may temporarily exceed maxLen slightly,
+	// but should be close. Allow up to 2× tolerance for approximation.
+	actual := len(msgs)
+	t.Logf("stream length after %d messages with MAXLEN=%d (approx): %d", total, maxLen, actual)
+
+	if actual > maxLen*2 {
+		t.Errorf("expected stream length ≤ %d (2× tolerance), got %d", maxLen*2, actual)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F1: Poison message — handler always fails, MaxDeliveries discards after N retries
+// ---------------------------------------------------------------------------
+
+func TestConsumer_PoisonMessageDiscarded(t *testing.T) {
+	mr, client := setupMiniredis(t)
+
+	stream := "test-stream-poison"
+	group := "test-group-poison"
+
+	// Step 1: Create the stream and group, add a message.
+	err := client.XGroupCreateMkStream(context.Background(), stream, group, "0").Err()
+	if err != nil {
+		t.Fatalf("XGroupCreateMkStream: %v", err)
+	}
+
+	msgID, err := client.XAdd(context.Background(), &redis.XAddArgs{
+		Stream: stream,
+		Values: map[string]interface{}{"poison": "test"},
+		ID:     "*",
+	}).Result()
+	if err != nil {
+		t.Fatalf("XAdd: %v", err)
+	}
+
+	// Step 2: Simulate prior reclaim attempts using XCLAIM.
+	// Each XCLAIM transfers ownership and increments the delivery counter
+	// (RetryCount in XPENDING). We need RetryCount > MaxDeliveries for the
+	// poison check to trigger.
+	const maxDeliveries int64 = 3
+
+	// First, a phantom consumer reads the message so it becomes pending.
+	_, err = client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+		Group:    group,
+		Consumer: "phantom-seed",
+		Streams:  []string{stream, ">"},
+		Count:    1,
+	}).Result()
+	if err != nil {
+		t.Fatalf("phantom seed XReadGroup: %v", err)
+	}
+
+	// Now XCLAIM the message multiple times to bump RetryCount past MaxDeliveries.
+	for i := 0; i < int(maxDeliveries); i++ {
+		_, err := client.XClaim(context.Background(), &redis.XClaimArgs{
+			Stream:   stream,
+			Group:    group,
+			Consumer: fmt.Sprintf("phantom-claim-%d", i),
+			Messages: []string{msgID},
+			MinIdle:  0, // claim immediately regardless of idle time
+		}).Result()
+		if err != nil {
+			t.Fatalf("phantom XClaim %d: %v", i, err)
+		}
+	}
+
+	// Verify the message's retry count exceeds MaxDeliveries.
+	pending, err := client.XPendingExt(context.Background(), &redis.XPendingExtArgs{
+		Stream: stream,
+		Group:  group,
+		Start:  "-",
+		End:    "+",
+		Count:  10,
+	}).Result()
+	if err != nil {
+		t.Fatalf("XPendingExt: %v", err)
+	}
+	if len(pending) == 0 {
+		t.Fatal("expected pending message, got none")
+	}
+	t.Logf("message %s retryCount=%d (maxDeliveries=%d)", msgID, pending[0].RetryCount, maxDeliveries)
+
+	// Step 3: Advance miniredis time so the message exceeds visibility timeout.
+	mr.FastForward(3 * time.Second)
+
+	// Step 4: Start the consumer — reclaim should detect the poison message
+	// and discard it (ACK without redelivery).
+	var handlerCalled atomic.Int32
+
+	handler := func(msg storage.Messager) error {
+		handlerCalled.Add(1)
+		return errors.New("always fails")
+	}
+
+	cfg := defaultConsumerCfg()
+	cfg.VisibilityTimeout = 1
+	cfg.ReclaimInterval = 1
+	cfg.BlockingTimeout = 1
+	cfg.MaxDeliveries = maxDeliveries
+
+	consumer, err := NewStreamConsumer(client, stream, group, cfg, handler)
+	if err != nil {
+		t.Fatalf("NewStreamConsumer: %v", err)
+	}
+	consumer.Run()
+	defer consumer.Shutdown()
+
+	// Step 5: Wait for pending to clear (poison ACK).
+	wait(t, 10*time.Second, func() bool {
+		p, err := client.XPending(context.Background(), stream, group).Result()
+		if err != nil {
+			return false
+		}
+		return p.Count == 0
+	})
+
+	// The handler should NOT have been called — the message was discarded
+	// by reclaim before being re-delivered.
+	count := handlerCalled.Load()
+	t.Logf("handler called %d times", count)
+	if count > 0 {
+		t.Errorf("expected 0 handler calls (poison discarded before delivery), got %d", count)
+	}
+
+	// Verify the poison error was pushed to the error channel.
+	var foundPoison bool
+	timeout := time.After(3 * time.Second)
+	for !foundPoison {
+		select {
+		case e := <-consumer.Errors():
+			if e != nil && strings.Contains(e.Error(), "poison message discarded") {
+				foundPoison = true
+				t.Logf("poison error: %v", e)
+			}
+		case <-timeout:
+			goto checkPoison
+		}
+	}
+checkPoison:
+	if !foundPoison {
+		t.Error("expected 'poison message discarded' error on errCh")
+	}
+
+	// Advance time again and verify no more handler calls
+	// (proving the infinite retry loop is broken).
+	countBefore := handlerCalled.Load()
+	mr.FastForward(3 * time.Second)
+	time.Sleep(500 * time.Millisecond)
+
+	finalCount := handlerCalled.Load()
+	if finalCount != countBefore {
+		t.Errorf("handler called again after poison discard: was %d, now %d — retry loop not stopped",
+			countBefore, finalCount)
 	}
 }

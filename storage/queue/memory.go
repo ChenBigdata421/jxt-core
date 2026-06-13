@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -13,15 +14,19 @@ type queue chan storage.Messager
 
 // NewMemory 内存模式
 func NewMemory(poolNum uint) *Memory {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Memory{
 		queue:   new(sync.Map),
+		ctx:     ctx,
+		cancel:  cancel,
 		PoolNum: poolNum,
 	}
 }
 
 type Memory struct {
 	queue   *sync.Map
-	wait    sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
 	PoolNum uint
 }
 
@@ -47,7 +52,10 @@ func (m *Memory) Append(message storage.Messager) error {
 
 	go func(gm storage.Messager, gq queue) {
 		gm.SetID(uuid.New().String())
-		gq <- gm
+		select {
+		case gq <- gm:
+		case <-m.ctx.Done():
+		}
 	}(memoryMessage, q)
 	return nil
 }
@@ -65,8 +73,12 @@ func (m *Memory) Register(name string, f storage.ConsumerFunc) {
 					message.SetErrorCount(message.GetErrorCount() + 1)
 					// 每次间隔时长放大
 					i := time.Second * time.Duration(message.GetErrorCount())
+					select {
+					case out <- message:
+					case <-m.ctx.Done():
+						return
+					}
 					time.Sleep(i)
-					out <- message
 				}
 				err = nil
 			}
@@ -75,10 +87,9 @@ func (m *Memory) Register(name string, f storage.ConsumerFunc) {
 }
 
 func (m *Memory) Run() {
-	m.wait.Add(1)
-	m.wait.Wait()
+	<-m.ctx.Done()
 }
 
 func (m *Memory) Shutdown() {
-	m.wait.Done()
+	m.cancel()
 }

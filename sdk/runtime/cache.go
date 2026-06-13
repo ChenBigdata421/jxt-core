@@ -91,9 +91,13 @@ func (e Cache) TTL(ctx context.Context, key string) (time.Duration, error) {
 }
 
 func (e Cache) RunScript(ctx context.Context, script interface{}, keys []string, args ...interface{}) (interface{}, error) {
-	// Prepend prefix to the first key (Lua scripts typically operate on one key)
+	// Prepend prefix to the first key (Lua scripts typically operate on one key).
+	// Copy the slice to avoid mutating the caller's backing array.
 	if e.prefix != "" && len(keys) > 0 {
-		keys[0] = e.prefix + intervalTenant + keys[0]
+		prefixed := make([]string, len(keys))
+		copy(prefixed, keys)
+		prefixed[0] = e.prefix + intervalTenant + prefixed[0]
+		return e.store.RunScript(ctx, script, prefixed, args...)
 	}
 	return e.store.RunScript(ctx, script, keys, args...)
 }

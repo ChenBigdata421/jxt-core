@@ -7,57 +7,67 @@ import (
 )
 
 // Message is a standalone queue message with no external dependencies.
+// Fields are unexported to enforce mutex-protected access.
 type Message struct {
-	ID         string
-	Stream     string
-	Values     map[string]interface{}
-	ErrorCount int
+	id         string
+	stream     string
+	values     map[string]interface{}
+	errorCount int
 	mux        sync.RWMutex
 }
 
 func (m *Message) GetID() string {
 	m.mux.RLock()
 	defer m.mux.RUnlock()
-	return m.ID
+	return m.id
 }
 
 func (m *Message) GetStream() string {
 	m.mux.RLock()
 	defer m.mux.RUnlock()
-	return m.Stream
+	return m.stream
 }
 
+// GetValues returns a shallow copy of the values map so callers cannot
+// mutate the Message's internal state without going through setters.
 func (m *Message) GetValues() map[string]interface{} {
 	m.mux.RLock()
 	defer m.mux.RUnlock()
-	return m.Values
+	if m.values == nil {
+		return nil
+	}
+	cp := make(map[string]interface{}, len(m.values))
+	for k, v := range m.values {
+		cp[k] = v
+	}
+	return cp
 }
 
 func (m *Message) SetID(id string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.ID = id
+	m.id = id
 }
 
 func (m *Message) SetStream(stream string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.Stream = stream
+	m.stream = stream
 }
 
 func (m *Message) SetValues(values map[string]interface{}) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.Values = values
+	m.values = values
 }
 
 func (m *Message) GetPrefix() (prefix string) {
 	m.mux.RLock()
 	defer m.mux.RUnlock()
-	if m.Values == nil {
+	if m.values == nil {
 		return
 	}
-	v, _ := m.Values[storage.PrefixKey]
+	v, _ := m.values[storage.PrefixKey]
 	prefix, _ = v.(string)
 	return
 }
@@ -65,20 +75,20 @@ func (m *Message) GetPrefix() (prefix string) {
 func (m *Message) SetPrefix(prefix string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	if m.Values == nil {
-		m.Values = make(map[string]interface{})
+	if m.values == nil {
+		m.values = make(map[string]interface{})
 	}
-	m.Values[storage.PrefixKey] = prefix
+	m.values[storage.PrefixKey] = prefix
 }
 
 func (m *Message) SetErrorCount(count int) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.ErrorCount = count
+	m.errorCount = count
 }
 
 func (m *Message) GetErrorCount() int {
 	m.mux.RLock()
 	defer m.mux.RUnlock()
-	return m.ErrorCount
+	return m.errorCount
 }

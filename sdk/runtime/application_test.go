@@ -127,3 +127,31 @@ func TestApplication_NoTenantResolverField(t *testing.T) {
 	// The test simply verifies that NewConfig() works without tenantResolver
 	assert.NotNil(t, app)
 }
+
+// mockShutdownQueue tracks whether Shutdown was called.
+type mockShutdownQueue struct {
+	shutdownCalled bool
+}
+
+func (m *mockShutdownQueue) String() string { return "mock" }
+func (m *mockShutdownQueue) Append(_ interface{}) error { return nil }
+func (m *mockShutdownQueue) Register(_ string, _ interface{}) {}
+func (m *mockShutdownQueue) Run()                             {}
+func (m *mockShutdownQueue) Shutdown()                        { m.shutdownCalled = true }
+
+func TestApplication_Close_NilFields(t *testing.T) {
+	app := NewConfig()
+	// Close with nil queue/cache should not panic.
+	assert.NotPanics(t, func() {
+		app.Close()
+	})
+}
+
+func TestApplication_Close_Idempotent(t *testing.T) {
+	app := NewConfig()
+	// Calling Close twice should not panic.
+	assert.NotPanics(t, func() {
+		app.Close()
+		app.Close()
+	})
+}

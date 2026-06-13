@@ -41,11 +41,21 @@ func (s *WechatTokenStore) Token(ctx context.Context) (*oauth2.Token, error) {
 	return &token, nil
 }
 
+// tokenExpiryBufferSeconds is subtracted from ExpiresIn to refresh the token
+// before it actually expires. If the remaining lifetime is less than this buffer,
+// we clamp to 1 second to avoid a negative TTL (which would evict the token
+// immediately in the memory adapter).
+const tokenExpiryBufferSeconds = 200
+
 // PutToken stores the WeChat OAuth2 token.
 func (s *WechatTokenStore) PutToken(ctx context.Context, token *oauth2.Token) error {
 	rb, err := json.Marshal(token)
 	if err != nil {
 		return err
 	}
-	return s.store.Set(ctx, s.prefix+s.key, string(rb), int(token.ExpiresIn)-200)
+	expire := int(token.ExpiresIn) - tokenExpiryBufferSeconds
+	if expire <= 0 {
+		expire = 1
+	}
+	return s.store.Set(ctx, s.prefix+s.key, string(rb), expire)
 }

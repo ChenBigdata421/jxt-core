@@ -42,14 +42,19 @@ func GetSubscriberClient() *redis.Client {
 }
 
 // SetRedisClient sets Client #1 (for external injection).
-// Assignment only — does NOT close the previous client (R-A3).
-// The old Shutdown() call was a bug: Shutdown() sends the Redis SERVER a
-// SHUTDOWN command, killing the Redis process. Use CloseAllRedisClients for
-// orderly cleanup.
+// If the new client differs from the existing one, the previous client is
+// closed (connection pool released) after the lock is released, so the close
+// does not block concurrent readers. This uses Close() — not Shutdown() —
+// because Shutdown() sends the Redis SERVER a SHUTDOWN command, killing the
+// entire Redis process, whereas Close() only releases the local connection pool.
 func SetRedisClient(c *redis.Client) {
 	_redisMu.Lock()
-	defer _redisMu.Unlock()
+	old := _redis
 	_redis = c
+	_redisMu.Unlock()
+	if old != nil && old != c {
+		_ = old.Close()
+	}
 }
 
 // EnsureRedisClient returns Client #1, creating it if necessary.
@@ -121,8 +126,8 @@ func EnsureSubscriberClient(options *redis.Options) (*redis.Client, error) {
 }
 
 // CloseAllRedisClients closes all three Redis clients and resets them to nil.
-// This is the only place where Close() is called — SetRedisClient does NOT
-// close the previous client.
+// This is the primary teardown path for all clients. SetRedisClient also
+// closes a replaced Client #1 to prevent connection pool leaks.
 func CloseAllRedisClients() {
 	_redisMu.Lock()
 	defer _redisMu.Unlock()

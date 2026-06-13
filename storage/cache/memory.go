@@ -15,6 +15,11 @@ type item struct {
 	Expired time.Time
 }
 
+// defaultMemoryTTL is the expiry assigned to items created by HashSet, IncrBy,
+// and RunScript when no explicit TTL is available. 24 hours mirrors a reasonable
+// upper bound for counters and hash fields that typically get refreshed.
+const defaultMemoryTTL = 24 * time.Hour
+
 // NewMemory memory模式
 func NewMemory() *Memory {
 	return &Memory{
@@ -35,6 +40,8 @@ func (m *Memory) connect() {
 }
 
 func (m *Memory) Get(_ context.Context, key string) (string, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 	item, err := m.getItem(key)
 	if err != nil || item == nil {
 		return "", err
@@ -91,6 +98,8 @@ func (m *Memory) del(key string) error {
 }
 
 func (m *Memory) HashGet(_ context.Context, hk, key string) (string, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 	item, err := m.getItem(hk + key)
 	if err != nil || item == nil {
 		return "", err
@@ -154,10 +163,12 @@ func (m *Memory) HashSet(_ context.Context, hk, key string, val interface{}) err
 	if err != nil {
 		return err
 	}
-	return m.setItem(hk+key, &item{Value: s, Expired: time.Now().Add(24 * time.Hour)})
+	return m.setItem(hk+key, &item{Value: s, Expired: time.Now().Add(defaultMemoryTTL)})
 }
 
 func (m *Memory) Exists(_ context.Context, key string) (bool, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 	item, err := m.getItem(key)
 	if err != nil {
 		return false, err
@@ -192,7 +203,7 @@ func (m *Memory) IncrBy(_ context.Context, key string, n int64) (int64, error) {
 		return 0, err
 	}
 	if it == nil {
-		it = &item{Value: "0", Expired: time.Now().Add(24 * time.Hour)}
+		it = &item{Value: "0", Expired: time.Now().Add(defaultMemoryTTL)}
 	}
 	val, err := cast.ToInt64E(it.Value)
 	if err != nil {
@@ -205,6 +216,8 @@ func (m *Memory) IncrBy(_ context.Context, key string, n int64) (int64, error) {
 }
 
 func (m *Memory) TTL(_ context.Context, key string) (time.Duration, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 	item, err := m.getItem(key)
 	if err != nil || item == nil {
 		return 0, err
@@ -223,7 +236,7 @@ func (m *Memory) RunScript(_ context.Context, script interface{}, keys []string,
 		if ok1 && ok2 {
 			it, _ := m.getItem(key)
 			if it == nil {
-				it = &item{Value: "0", Expired: time.Now().Add(24 * time.Hour)}
+				it = &item{Value: "0", Expired: time.Now().Add(defaultMemoryTTL)}
 			}
 			val, _ := cast.ToInt64E(it.Value)
 			val += incr

@@ -16,6 +16,9 @@ type Queue struct {
 }
 
 func (e *Queue) String() string {
+	if e.queue == nil {
+		return ""
+	}
 	return e.queue.String()
 }
 

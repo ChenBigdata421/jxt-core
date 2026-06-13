@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
@@ -12,30 +11,20 @@ import (
 )
 
 func TestNewMemoryQueue(t *testing.T) {
-	type args struct {
-		prefix string
-		queue  storage.AdapterQueue
+	inner := queue.NewMemory(100)
+	got := NewQueue("test", inner)
+
+	// Verify the wrapper delegates String() to the inner queue.
+	if got.String() != inner.String() {
+		t.Errorf("NewQueue().String() = %q, want %q", got.String(), inner.String())
 	}
-	tests := []struct {
-		name string
-		args args
-		want storage.AdapterQueue
-	}{
-		{
-			"test0",
-			args{
-				prefix: "",
-				queue:  nil,
-			},
-			queue.NewMemory(100),
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NewQueue(tt.args.prefix, tt.args.queue); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewQueue() = %v, want %v", got, tt.want)
-			}
-		})
+}
+
+func TestNewQueue_NilInner(t *testing.T) {
+	// Wrapper with nil inner queue should not panic on String().
+	got := NewQueue("test", nil)
+	if got.String() != "" {
+		t.Errorf("NewQueue(nil).String() = %q, want empty string", got.String())
 	}
 }
 
