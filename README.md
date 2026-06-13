@@ -510,6 +510,7 @@ dbConfig := p.GetDatabaseConfig(tenantID)
 
 ## 版本历史
 
+- v1.1.46 - Redis 基础设施重构：三客户端架构（共享/队列消费者/订阅者）、后台健康检查（IsRedisHealthy）、上下文感知 AdapterCache 接口、优雅 Close()；Casbin 策略同步改为单连接 PSUBSCRIBE 多路复用 + 8 分片有序派发
 - v1.1.45 - 新增租户识别配置缓存，支持基于配置缓存进行租户识别
 - v1.1.41 - 新增域名查找（DomainLookuper）支持租户 ID 解析
 - v1.1.40 - 增强租户 ID 解析能力

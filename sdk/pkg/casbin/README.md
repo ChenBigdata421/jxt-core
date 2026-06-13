@@ -38,7 +38,7 @@ Creates an independent Casbin enforcer for the specified tenant.
 
 **Parameters:**
 - `db`: GORM database connection for the tenant's database
-- `tenantID`: Tenant identifier (used for logging and future Redis Watcher channel isolation)
+- `tenantID`: Tenant identifier (used for logging and to pin this tenant's policy-sync messages to a dedicated dispatch shard via the PSUBSCRIBE multiplexer)
 
 **Returns:**
 - `*casbin.SyncedEnforcer`: Tenant-specific enforcer instance
@@ -100,26 +100,68 @@ Legacy function for backward compatibility. Creates a single global enforcer.
 
 **Deprecated:** Use `SetupForTenant` instead for proper multi-tenant support.
 
-## Redis Watcher
+## Redis Watcher (PSUBSCRIBE Multiplexer)
 
-Each tenant gets a dedicated Redis channel for policy synchronization:
+Policy synchronization uses a **single `PSUBSCRIBE` connection** (the
+`CasbinWatcherMux` singleton in `watcher_mux.go`) rather than one subscriber per
+tenant. New tenants match the wildcard pattern automatically, with **zero
+additional connection cost**.
 
-```go
-// Tenant 1 uses channel: /casbin/tenant/1
-// Tenant 2 uses channel: /casbin/tenant/2
-// etc.
+### Three-client Redis model
+
+The watcher relies on jxt-core's split Redis client architecture
+(`sdk/config/option_redis.go`):
+
+| Client | Role | Used by the watcher |
+|--------|------|---------------------|
+| #1 shared | Non-blocking operations | `PUBLISH` to `/casbin/tenant/{tenantID}` |
+| #2 queue consumer | Blocking `XREADGROUP` | — (reserved for the message queue) |
+| #3 subscriber | `PSUBSCRIBE` | Listens on `/casbin/tenant/*` for **all** tenants |
+
+### Channel naming
+
+```
+PUBLISH target  (per tenant):    /casbin/tenant/{tenantID}
+PSUBSCRIBE pattern (all tenants): /casbin/tenant/*
 ```
 
-When a tenant's policies are modified in the database:
-1. The modification publishes a message to `/casbin/tenant/{tenantID}`
-2. All instances running that tenant subscribe to the message
-3. Each instance's callback reloads policies from the tenant's database
-4. The enforcer is updated with the latest policies
+### How a policy change propagates
 
-**Graceful Degradation:**
-- If Redis is unavailable during SetupForTenant, the enforcer is still created successfully
-- A warning is logged, but the tenant can still function
-- Policy changes won't be auto-synchronized until Redis is available
+1. A tenant's policies are modified and the watcher publishes an `MSG` to
+   `/casbin/tenant/{tenantID}` via Client #1.
+2. Every instance's `CasbinWatcherMux` receives the message on the single
+   Client #3 `PSUBSCRIBE` connection.
+3. Each message is routed to a dedicated dispatch shard via `tenantID % 8`, so
+   **all messages for one tenant are processed strictly in publish order** by a
+   single worker (8 workers, each with a bounded 256-message queue).
+4. The worker applies the update to that tenant's enforcer (`LoadPolicy` or an
+   incremental `SelfAdd/Remove/UpdatePolicy`), skipping messages it published
+   itself (UUID-based self-ignore).
+
+### Wire compatibility
+
+The `MSG` payload is byte-for-byte compatible with
+`go-admin-team/redis-watcher/v2`, so instances running the old per-tenant
+watcher and instances running the mux can coexist in the same Redis during a
+rolling upgrade.
+
+### Lifecycle
+
+- `InitCasbinWatcherMux(pubClient, subClient)` — starts the background listener
+  and the 8-shard worker pool. Idempotent (`sync.Once`); safe to call from
+  concurrent goroutines.
+- `ShutdownCasbinWatcherMux()` — drains the workers and listener so Redis
+  clients can be closed safely. Wired into `Application.Close()`.
+- The subscription reconnects with exponential backoff (1s → 30s cap), reset to
+  the minimum after each successfully received message.
+
+### Graceful Degradation
+
+- If Redis is unavailable during `SetupForTenant`, the enforcer is still created
+  successfully.
+- A warning is logged, but the tenant can still function.
+- `PUBLISH` becomes a no-op when Redis is absent, so policy changes won't
+  auto-synchronize until Redis is available.
 
 ## Testing
 
@@ -138,13 +180,14 @@ go test ./sdk/pkg/casbin/... -cover -coverprofile=coverage.out
 
 ## Known Issues
 
-None (as of Stage 2). All multi-tenant isolation issues have been fixed.
+None (as of Stage 3). All multi-tenant isolation issues have been fixed.
 
 ## Roadmap
 
 - **Stage 1**: Remove singleton, add `SetupForTenant` ✅
-- **Stage 2** (Current): Redis Watcher per-tenant isolation ✅
-- **Stage 3**: Update security-management to use new APIs (pending)
+- **Stage 2**: Redis Watcher per-tenant isolation ✅
+- **Stage 3**: PSUBSCRIBE multiplexer — single-connection all-tenant sync with 8-shard dispatch preserving per-tenant ordering ✅
+- **Stage 4**: Update security-management to use new APIs (pending)
 
 ## Related Documents
 
