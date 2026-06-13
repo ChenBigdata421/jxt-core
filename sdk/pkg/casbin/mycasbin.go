@@ -111,11 +111,12 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 //   - If CasbinWatcherMux is initialised, creates a per-tenant watcher handle via mux
 //   - If mux is nil (Redis not configured), logs nothing — graceful degradation
 func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
-	if watcherMux == nil {
+	m := loadWatcherMux()
+	if m == nil {
 		return // Redis not configured — graceful degradation
 	}
 
-	w := watcherMux.NewWatcher(tenantID)
+	w := m.NewWatcher(tenantID)
 	if err := e.SetWatcher(w); err != nil {
 		logger.Errorf("租户 %d 设置 Watcher 失败: %v", tenantID, err)
 	}

@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 // resetMuxState clears the global mux singleton so tests start clean.
 func resetMuxState() {
 	ShutdownCasbinWatcherMux()
-	watcherMux = nil
+	watcherMux.Store(nil)
 	watcherMuxOnce = sync.Once{} // fresh Once so InitCasbinWatcherMux can run again
 	getEnforcerFn = nil
 }
@@ -164,8 +164,8 @@ func TestMux_IgnoresSelfMessages(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Publish a message with the mux's own localID (self-message).
-	require.NotNil(t, watcherMux, "mux should be initialized")
-	selfID := watcherMux.localID
+	require.NotNil(t, loadWatcherMux(), "mux should be initialized")
+	selfID := loadWatcherMux().localID
 
 	msg, err := json.Marshal(&MSG{Method: Update, ID: selfID})
 	require.NoError(t, err)
@@ -488,8 +488,8 @@ func TestMux_PublishSetsLocalID(t *testing.T) {
 	_, cleanup := setupMuxTest(t)
 	defer cleanup()
 
-	require.NotNil(t, watcherMux, "mux should be initialized")
-	assert.NotEmpty(t, watcherMux.localID, "localID should be a non-empty UUID")
+	require.NotNil(t, loadWatcherMux(), "mux should be initialized")
+	assert.NotEmpty(t, loadWatcherMux().localID, "localID should be a non-empty UUID")
 }
 
 // --------------------------------------------------------------------------
@@ -500,7 +500,7 @@ func TestMux_CasbinWatcher_ImplementsInterfaces(t *testing.T) {
 	_, cleanup := setupMuxTest(t)
 	defer cleanup()
 
-	w := watcherMux.NewWatcher(1)
+	w := loadWatcherMux().NewWatcher(1)
 
 	// Verify the watcher implements all required interfaces.
 	assert.NotNil(t, w, "NewWatcher should return non-nil")
@@ -549,7 +549,7 @@ func TestMux_CasbinWatcher_PublishMethods(t *testing.T) {
 	defer sub.Close()
 
 	// Use the watcher to publish messages.
-	w := watcherMux.NewWatcher(99).(*casbinWatcher)
+	w := loadWatcherMux().NewWatcher(99).(*casbinWatcher)
 
 	// Test Update
 	err := w.Update()
@@ -610,7 +610,7 @@ func TestMux_PublishOnClosedMux(t *testing.T) {
 
 	// Publishing on a closed mux should not panic and should return nil (graceful degradation).
 	w := &casbinWatcher{
-		mux:      watcherMux,
+		mux:      loadWatcherMux(),
 		tenantID: 1,
 		channel:  casbinChannel(1),
 	}
@@ -668,10 +668,10 @@ func TestMux_InitIdempotent(t *testing.T) {
 
 	// Init twice — second call should be a no-op.
 	InitCasbinWatcherMux(pubClient, subClient)
-	firstID := watcherMux.localID
+	firstID := loadWatcherMux().localID
 
 	InitCasbinWatcherMux(pubClient, subClient)
-	secondID := watcherMux.localID
+	secondID := loadWatcherMux().localID
 
 	assert.Equal(t, firstID, secondID, "second init should be a no-op, localID unchanged")
 }

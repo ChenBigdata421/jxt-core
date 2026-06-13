@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/casbin/casbin/v2"
@@ -128,10 +129,16 @@ type CasbinWatcherMux struct {
 }
 
 // watcherMux is the package-level singleton, initialised by InitCasbinWatcherMux.
-var watcherMux *CasbinWatcherMux
+// Uses atomic.Pointer for lock-free reads that are safe across goroutines without
+// requiring callers to participate in sync.Once.Do — the atomic Store provides the
+// happens-before guarantee that plain variable assignment does not.
+var watcherMux atomic.Pointer[CasbinWatcherMux]
 
-// watcherMuxOnce ensures InitCasbinWatcherMux is concurrency-safe.
+// watcherMuxOnce ensures InitCasbinWatcherMux runs exactly once.
 var watcherMuxOnce sync.Once
+
+// loadWatcherMux returns the current mux singleton (nil if not initialised).
+func loadWatcherMux() *CasbinWatcherMux { return watcherMux.Load() }
 
 // InitCasbinWatcherMux initialises the global CasbinWatcherMux singleton and
 // starts the background listener goroutine. It is safe to call multiple times
@@ -151,7 +158,7 @@ func InitCasbinWatcherMux(pubClient, subClient *redis.Client) {
 			cancel:     cancel,
 		}
 
-		watcherMux = mux
+		watcherMux.Store(mux)
 
 		// Start background listener
 		mux.wg.Add(1)
@@ -163,21 +170,22 @@ func InitCasbinWatcherMux(pubClient, subClient *redis.Client) {
 // ShutdownCasbinWatcherMux stops the mux listener and releases resources.
 // It is safe to call when the mux is not initialised (no-op).
 func ShutdownCasbinWatcherMux() {
-	if watcherMux == nil {
+	m := loadWatcherMux()
+	if m == nil {
 		return
 	}
-	watcherMux.mu.Lock()
-	if watcherMux.closed {
-		watcherMux.mu.Unlock()
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
 		return
 	}
-	watcherMux.closed = true
-	watcherMux.cancel()
-	watcherMux.mu.Unlock()
+	m.closed = true
+	m.cancel()
+	m.mu.Unlock()
 
 	// Wait for the listen goroutine to fully exit before returning,
 	// so callers can safely close Redis clients after this returns.
-	watcherMux.wg.Wait()
+	m.wg.Wait()
 	logger.Infof("CasbinWatcherMux shut down")
 }
 
