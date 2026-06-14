@@ -128,11 +128,15 @@ func EnsureSubscriberClient(rc RedisConnectOptions) (*redis.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("redis subscriber: %w", err)
 	}
-	// best-effort Ping：失败不 Close、不返回 error，照样存。NewClient 惰性，
-	// 首命令才连网；GetSubscriberClient() 恒非 nil，casbin PSubscribe 自愈。
-	if err := client.Ping(context.Background()).Err(); err != nil {
+	// best-effort Ping：短超时 + 失败不 Close、不返回 error，照样存。此处持全局写锁，
+	// 故用 1s 超时（而非 context.Background）——否则死端口会触发 MaxRetries 重试，
+	// 阻塞写锁 ~1.7s 并卡住所有 Get*/Ensure*（健康检查的 3s 是周期性、非持锁，故不同）。
+	// NewClient 惰性，首命令才连网，失败靠 go-redis 重连 + mux 退避自愈。
+	pingCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	if err := client.Ping(pingCtx).Err(); err != nil {
 		fmt.Printf("EnsureSubscriberClient: initial ping failed (casbin sub self-heals on use): %v\n", err)
 	}
+	cancel()
 	_redisSub = client
 	return client, nil
 }

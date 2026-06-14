@@ -23,7 +23,7 @@ type QueueMemory struct {
 }
 
 type QueueNSQ struct {
-	NSQOptions `mapstructure:",squash"` // parity w/ QueueRedis; NSQOptions uses opt: tags today (inert until it gains mapstructure tags)
+	NSQOptions // opt: tags — decoded by opt, not mapstructure; defer squash until NSQOptions gains mapstructure tags
 	ChannelPrefix string
 }
 
