@@ -25,6 +25,14 @@ func setupMiniredis(t *testing.T) (*miniredis.Miniredis, *redis.Options) {
 	return mr, options
 }
 
+// rcFromOpts adapts a standalone *redis.Options to RedisConnectOptions for the
+// Ensure* signature (used to migrate the existing standalone tests). Standalone
+// tests only set Addr/DB; TLS/pool/sentinel paths have their own coverage
+// (TestRedisConnectOptions_FailoverOptions, TestNewClient_Sentinel_*).
+func rcFromOpts(o *redis.Options) RedisConnectOptions {
+	return RedisConnectOptions{Addr: o.Addr, DB: o.DB}
+}
+
 // --------------------------------------------------------------------------
 // TestGetRedisClient_ConcurrentAccess
 // --------------------------------------------------------------------------
@@ -82,54 +90,6 @@ func TestGetRedisClient_ConcurrentAccess(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// TestEnsureRedisClient_ConfigConflictDetected
-// --------------------------------------------------------------------------
-
-func TestEnsureRedisClient_ConfigConflictDetected(t *testing.T) {
-	mr, opts := setupMiniredis(t)
-	defer mr.Close()
-	defer ResetRedisClientsForTest()
-
-	// First call creates the client.
-	client1, err := EnsureRedisClient(opts)
-	if err != nil {
-		t.Fatalf("first EnsureRedisClient: %v", err)
-	}
-	if client1 == nil {
-		t.Fatal("expected non-nil client")
-	}
-
-	// Matching config returns the same instance.
-	client2, err := EnsureRedisClient(opts)
-	if err != nil {
-		t.Fatalf("matching EnsureRedisClient: %v", err)
-	}
-	if client2 != client1 {
-		t.Fatal("expected same client instance for matching config")
-	}
-
-	// Conflicting addr returns an error.
-	conflictOpts := &redis.Options{
-		Addr: "127.0.0.1:1", // different address
-		DB:   opts.DB,
-	}
-	_, err = EnsureRedisClient(conflictOpts)
-	if err == nil {
-		t.Fatal("expected error for conflicting addr, got nil")
-	}
-
-	// Conflicting DB returns an error.
-	conflictDB := &redis.Options{
-		Addr: opts.Addr,
-		DB:   7, // different DB
-	}
-	_, err = EnsureRedisClient(conflictDB)
-	if err == nil {
-		t.Fatal("expected error for conflicting DB, got nil")
-	}
-}
-
-// --------------------------------------------------------------------------
 // TestEnsureQueueConsumerClient
 // --------------------------------------------------------------------------
 
@@ -139,13 +99,13 @@ func TestEnsureQueueConsumerClient(t *testing.T) {
 	defer ResetRedisClientsForTest()
 
 	// Create Client #1 first.
-	_, err := EnsureRedisClient(opts)
+	_, err := EnsureRedisClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureRedisClient: %v", err)
 	}
 
 	// Create Client #2 — same addr/DB should succeed.
-	qc, err := EnsureQueueConsumerClient(opts)
+	qc, err := EnsureQueueConsumerClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureQueueConsumerClient: %v", err)
 	}
@@ -154,33 +114,12 @@ func TestEnsureQueueConsumerClient(t *testing.T) {
 	}
 
 	// Second call returns the same instance.
-	qc2, err := EnsureQueueConsumerClient(opts)
+	qc2, err := EnsureQueueConsumerClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("second EnsureQueueConsumerClient: %v", err)
 	}
 	if qc2 != qc {
 		t.Fatal("expected same queue consumer client instance")
-	}
-
-	// Conflicting addr against Client #1 should fail.
-	conflictOpts := &redis.Options{
-		Addr: "127.0.0.1:1",
-		DB:   opts.DB,
-	}
-	// Reset and re-create with a fresh state to test the conflict path.
-	ResetRedisClientsForTest()
-	_, _ = EnsureRedisClient(opts)
-	_, err = EnsureQueueConsumerClient(conflictOpts)
-	// This succeeds because the queue client doesn't exist yet, and we
-	// validate against Client #1's addr/DB. With Client #1 at mr.Addr(),
-	// conflictOpts should fail.
-	// Actually let's re-check: after reset, we create Client #1 again, then
-	// try a conflicting Client #2.
-	ResetRedisClientsForTest()
-	_, _ = EnsureRedisClient(opts)
-	_, err = EnsureQueueConsumerClient(conflictOpts)
-	if err == nil {
-		t.Fatal("expected error for queue consumer config conflict")
 	}
 }
 
@@ -194,13 +133,13 @@ func TestEnsureSubscriberClient(t *testing.T) {
 	defer ResetRedisClientsForTest()
 
 	// Create Client #1 first.
-	_, err := EnsureRedisClient(opts)
+	_, err := EnsureRedisClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureRedisClient: %v", err)
 	}
 
 	// Create Client #3.
-	sc, err := EnsureSubscriberClient(opts)
+	sc, err := EnsureSubscriberClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureSubscriberClient: %v", err)
 	}
@@ -209,21 +148,12 @@ func TestEnsureSubscriberClient(t *testing.T) {
 	}
 
 	// Second call returns the same instance.
-	sc2, err := EnsureSubscriberClient(opts)
+	sc2, err := EnsureSubscriberClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("second EnsureSubscriberClient: %v", err)
 	}
 	if sc2 != sc {
 		t.Fatal("expected same subscriber client instance")
-	}
-
-	// Conflicting addr against Client #1 should fail.
-	ResetRedisClientsForTest()
-	_, _ = EnsureRedisClient(opts)
-	conflictOpts := &redis.Options{Addr: "127.0.0.1:1", DB: opts.DB}
-	_, err = EnsureSubscriberClient(conflictOpts)
-	if err == nil {
-		t.Fatal("expected error for subscriber config conflict against Client #1")
 	}
 }
 
@@ -237,15 +167,15 @@ func TestCloseAllRedisClients(t *testing.T) {
 	defer ResetRedisClientsForTest()
 
 	// Create all three clients.
-	_, err := EnsureRedisClient(opts)
+	_, err := EnsureRedisClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureRedisClient: %v", err)
 	}
-	_, err = EnsureQueueConsumerClient(opts)
+	_, err = EnsureQueueConsumerClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureQueueConsumerClient: %v", err)
 	}
-	_, err = EnsureSubscriberClient(opts)
+	_, err = EnsureSubscriberClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureSubscriberClient: %v", err)
 	}
@@ -314,7 +244,7 @@ func TestRedisHealthCheck(t *testing.T) {
 
 	// Create Client #1
 	opts := &redis.Options{Addr: mr.Addr()}
-	_, err := EnsureRedisClient(opts)
+	_, err := EnsureRedisClient(rcFromOpts(opts))
 	if err != nil {
 		t.Fatalf("EnsureRedisClient: %v", err)
 	}
@@ -593,4 +523,68 @@ func TestNewClient_Sentinel_ReturnsFailoverClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	_ = client.Close()
+}
+
+// --------------------------------------------------------------------------
+// Setup-level regression + best-effort subscriber Ping（补丁 B）
+// --------------------------------------------------------------------------
+
+// TestSetup_MultiDB_NoConflict regressions the security-management crash-loop.
+// Old code: cache.Setup(db0) then queue.Setup(db1) hit EnsureRedisClient's
+// "redis config conflict" (db0 != db1) -> log.Fatalf -> restart loop.
+// New code: each consumer owns its client on its own db via Ensure*; no cross-db conflict.
+func TestSetup_MultiDB_NoConflict(t *testing.T) {
+	mr, opts := setupMiniredis(t)
+	defer mr.Close()
+	defer ResetRedisClientsForTest()
+
+	// save/restore Config globals — ResetRedisClientsForTest only resets clients,
+	// not CacheConfig/QueueConfig/LockerConfig, so restore explicitly to avoid
+	// polluting other tests in this package.
+	savedCache, savedQueue, savedLocker := CacheConfig.Redis, QueueConfig.Redis, LockerConfig.Redis
+	defer func() {
+		CacheConfig.Redis, QueueConfig.Redis, LockerConfig.Redis = savedCache, savedQueue, savedLocker
+	}()
+
+	// cache: db0（顺带建 _redisSub，非致命）
+	CacheConfig.Redis = &RedisConnectOptions{Addr: opts.Addr, DB: 0}
+	if _, err := CacheConfig.Setup(); err != nil {
+		t.Fatalf("cache.Setup(db0): %v", err)
+	}
+	// queue: db1 — 旧代码在此返回 conflict error（crash-loop 路径）
+	QueueConfig.Redis = &QueueRedis{
+		RedisConnectOptions: RedisConnectOptions{Addr: opts.Addr, DB: 1},
+	}
+	if _, err := QueueConfig.Setup(); err != nil {
+		t.Fatalf("queue.Setup(db1): %v (this is the crash-loop path)", err)
+	}
+	// locker: db2 — 旧代码在 queue 之后也会 conflict
+	LockerConfig.Redis = &RedisConnectOptions{Addr: opts.Addr, DB: 2}
+	if _, err := LockerConfig.Setup(); err != nil {
+		t.Fatalf("locker.Setup(db2): %v", err)
+	}
+
+	// 断言 db 隔离 + 幂等：cache 在 db0、queue consumer 在 db1、subscriber 在 db0
+	require.Equal(t, 0, GetRedisClient().Options().DB)
+	require.Equal(t, 1, GetQueueConsumerClient().Options().DB)
+	require.Equal(t, 0, GetSubscriberClient().Options().DB)
+
+	// 幂等回归：再次 Setup 不报错、不创建新 client（Ensure* 本槽复用）
+	cp1 := GetRedisClient()
+	CacheConfig.Setup()
+	require.Same(t, cp1, GetRedisClient(), "EnsureRedisClient must be idempotent")
+}
+
+// TestEnsureSubscriberClient_BestEffortPing 锁定"初始 Ping 失败也存 client"——
+// GetSubscriberClient() 恒非 nil，casbin PSubscribe 才有对象自愈（避免"失败即永久 nil"漏洞）。
+func TestEnsureSubscriberClient_BestEffortPing(t *testing.T) {
+	defer ResetRedisClientsForTest()
+	// 指向无服务端口：newClient() 惰性成功（不连网），Ping 必失败（ECONNREFUSED 即时返回）。
+	// 若 CI 环境过滤该端口，改用 miniredis 关闭后的 addr（deadAddr := opts.Addr; mr.Close()）。
+	rc := RedisConnectOptions{Addr: "127.0.0.1:1"}
+	c, err := EnsureSubscriberClient(rc)
+	require.NoError(t, err, "EnsureSubscriberClient must not error on Ping failure")
+	require.NotNil(t, c, "client must be stored even when Ping fails")
+	require.Same(t, c, GetSubscriberClient(), "GetSubscriberClient must return the stored client")
+	_ = c.Close()
 }

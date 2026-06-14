@@ -13,10 +13,12 @@ import (
 )
 
 var (
-	_redis      *redis.Client // Client #1: shared (non-blocking operations)
-	_redisQueue *redis.Client // Client #2: queue consumer (blocking XREADGROUP)
-	_redisSub   *redis.Client // Client #3: subscriber (PSUBSCRIBE)
-	_redisMu    sync.RWMutex  // RWMutex — reads don't block each other
+	_redis              *redis.Client // cache（casbin pub + 健康检查依赖）
+	_redisQueue         *redis.Client // queue consumer（adapter 用）
+	_redisQueueProducer *redis.Client // queue producer（adapter 用；独立池，避免阻塞 XREADGROUP 饿死非阻塞操作）
+	_redisLocker        *redis.Client // locker（adapter 用）
+	_redisSub           *redis.Client // subscriber（casbin sub 依赖）
+	_redisMu            sync.RWMutex  // RWMutex — reads don't block each other
 )
 
 // GetRedisClient returns Client #1 (shared) with a read lock.
@@ -32,6 +34,20 @@ func GetQueueConsumerClient() *redis.Client {
 	_redisMu.RLock()
 	defer _redisMu.RUnlock()
 	return _redisQueue
+}
+
+// GetQueueProducerClient returns the queue producer client with a read lock.
+func GetQueueProducerClient() *redis.Client {
+	_redisMu.RLock()
+	defer _redisMu.RUnlock()
+	return _redisQueueProducer
+}
+
+// GetLockerClient returns the locker client with a read lock.
+func GetLockerClient() *redis.Client {
+	_redisMu.RLock()
+	defer _redisMu.RUnlock()
+	return _redisLocker
 }
 
 // GetSubscriberClient returns Client #3 (subscriber) with a read lock.
@@ -57,92 +73,125 @@ func SetRedisClient(c *redis.Client) {
 	}
 }
 
-// EnsureRedisClient returns Client #1, creating it if necessary.
-// If a client already exists, it validates that addr and DB match the
-// requested options and returns an error on conflict.
-func EnsureRedisClient(options *redis.Options) (*redis.Client, error) {
+// EnsureRedisClient returns the cache client, creating it if necessary. MasterName
+// non-empty => Sentinel FailoverClient; otherwise standalone. Only cache wires this.
+func EnsureRedisClient(rc RedisConnectOptions) (*redis.Client, error) {
 	_redisMu.Lock()
 	defer _redisMu.Unlock()
 	if _redis != nil {
-		existing := _redis.Options()
-		if existing.Addr != options.Addr || existing.DB != options.DB {
-			return nil, fmt.Errorf("redis config conflict: existing client %s db=%d, requested %s db=%d",
-				existing.Addr, existing.DB, options.Addr, options.DB)
-		}
 		return _redis, nil
 	}
-	client := redis.NewClient(options)
+	client, err := rc.newClient()
+	if err != nil {
+		return nil, fmt.Errorf("redis connect: %w", err)
+	}
 	if err := client.Ping(context.Background()).Err(); err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("redis connect failed: %w", err)
 	}
 	_redis = client
 	return client, nil
 }
 
-// EnsureQueueConsumerClient returns Client #2 (queue consumer), creating it
-// if necessary. Validates addr/DB consistency against Client #1 if it exists.
-func EnsureQueueConsumerClient(options *redis.Options) (*redis.Client, error) {
+// EnsureQueueConsumerClient returns the queue consumer client, creating it if
+// necessary. Idempotent on its own global slot — no cross-consumer conflict check.
+func EnsureQueueConsumerClient(rc RedisConnectOptions) (*redis.Client, error) {
 	_redisMu.Lock()
 	defer _redisMu.Unlock()
 	if _redisQueue != nil {
 		return _redisQueue, nil
 	}
-	if _redis != nil {
-		existing := _redis.Options()
-		if existing.Addr != options.Addr || existing.DB != options.DB {
-			return nil, fmt.Errorf("redis queue config conflict: shared client %s db=%d, requested %s db=%d",
-				existing.Addr, existing.DB, options.Addr, options.DB)
-		}
+	client, err := rc.newClient()
+	if err != nil {
+		return nil, fmt.Errorf("redis queue connect: %w", err)
 	}
-	client := redis.NewClient(options)
 	if err := client.Ping(context.Background()).Err(); err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("redis queue connect failed: %w", err)
 	}
 	_redisQueue = client
 	return client, nil
 }
 
-// EnsureSubscriberClient returns Client #3 (subscriber), creating it if
-// necessary. Validates addr/DB consistency against Client #1 if it exists.
-func EnsureSubscriberClient(options *redis.Options) (*redis.Client, error) {
+// EnsureSubscriberClient returns the subscriber client, creating it if necessary.
+// Best-effort Ping: newClient()/NewFailoverClient() are lazy (only TLS/config
+// errors fail); even if the initial Ping fails, the client is stored so
+// GetSubscriberClient() is always non-nil and casbin's PSubscribe can self-heal
+// via go-redis reconnect + mux backoff.
+func EnsureSubscriberClient(rc RedisConnectOptions) (*redis.Client, error) {
 	_redisMu.Lock()
 	defer _redisMu.Unlock()
 	if _redisSub != nil {
 		return _redisSub, nil
 	}
-	if _redis != nil {
-		existing := _redis.Options()
-		if existing.Addr != options.Addr || existing.DB != options.DB {
-			return nil, fmt.Errorf("redis sub config conflict: shared client %s db=%d, requested %s db=%d",
-				existing.Addr, existing.DB, options.Addr, options.DB)
-		}
+	client, err := rc.newClient() // 惰性，仅 TLS 配置错才失败
+	if err != nil {
+		return nil, fmt.Errorf("redis subscriber: %w", err)
 	}
-	client := redis.NewClient(options)
+	// best-effort Ping：失败不 Close、不返回 error，照样存。NewClient 惰性，
+	// 首命令才连网；GetSubscriberClient() 恒非 nil，casbin PSubscribe 自愈。
 	if err := client.Ping(context.Background()).Err(); err != nil {
-		return nil, fmt.Errorf("redis sub connect failed: %w", err)
+		fmt.Printf("EnsureSubscriberClient: initial ping failed (casbin sub self-heals on use): %v\n", err)
 	}
 	_redisSub = client
 	return client, nil
 }
 
-// CloseAllRedisClients closes all three Redis clients and resets them to nil.
+// EnsureQueueProducerClient returns the queue producer client (separate pool from
+// the consumer so non-blocking XADD isn't starved by blocking XREADGROUP).
+func EnsureQueueProducerClient(rc RedisConnectOptions) (*redis.Client, error) {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
+	if _redisQueueProducer != nil {
+		return _redisQueueProducer, nil
+	}
+	client, err := rc.newClient()
+	if err != nil {
+		return nil, fmt.Errorf("redis queue producer connect: %w", err)
+	}
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("redis queue producer connect failed: %w", err)
+	}
+	_redisQueueProducer = client
+	return client, nil
+}
+
+// EnsureLockerClient returns the locker client (independent pool from cache).
+func EnsureLockerClient(rc RedisConnectOptions) (*redis.Client, error) {
+	_redisMu.Lock()
+	defer _redisMu.Unlock()
+	if _redisLocker != nil {
+		return _redisLocker, nil
+	}
+	client, err := rc.newClient()
+	if err != nil {
+		return nil, fmt.Errorf("redis locker connect: %w", err)
+	}
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("redis locker connect failed: %w", err)
+	}
+	_redisLocker = client
+	return client, nil
+}
+
+// CloseAllRedisClients closes all five Redis clients and resets them to nil.
 // This is the primary teardown path for all clients. SetRedisClient also
-// closes a replaced Client #1 to prevent connection pool leaks.
+// closes a replaced cache client to prevent connection pool leaks.
 func CloseAllRedisClients() {
 	_redisMu.Lock()
 	defer _redisMu.Unlock()
-	if _redis != nil {
-		_redis.Close()
-		_redis = nil
+	for _, c := range []*redis.Client{_redis, _redisQueue, _redisQueueProducer, _redisLocker, _redisSub} {
+		if c != nil {
+			c.Close()
+		}
 	}
-	if _redisQueue != nil {
-		_redisQueue.Close()
-		_redisQueue = nil
-	}
-	if _redisSub != nil {
-		_redisSub.Close()
-		_redisSub = nil
-	}
+	_redis = nil
+	_redisQueue = nil
+	_redisQueueProducer = nil
+	_redisLocker = nil
+	_redisSub = nil
 }
 
 // ResetRedisClientsForTest clears all global Redis clients WITHOUT closing
@@ -153,6 +202,8 @@ func ResetRedisClientsForTest() {
 	defer _redisMu.Unlock()
 	_redis = nil
 	_redisQueue = nil
+	_redisQueueProducer = nil
+	_redisLocker = nil
 	_redisSub = nil
 }
 

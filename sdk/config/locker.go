@@ -17,14 +17,10 @@ func (e Locker) Empty() bool {
 	return e.Redis == nil
 }
 
-// Setup 启用顺序 redis > 其他 > memory
+// Setup 启用顺序 redis > 其他 > memory。locker 按自身 db 持有独立 client（幂等）。
 func (e Locker) Setup() (storage.AdapterLocker, error) {
 	if e.Redis != nil {
-		options, err := e.Redis.GetRedisOptions()
-		if err != nil {
-			return nil, err
-		}
-		client, err := EnsureRedisClient(options)
+		client, err := EnsureLockerClient(*e.Redis) // db2 → _redisLocker
 		if err != nil {
 			return nil, err
 		}

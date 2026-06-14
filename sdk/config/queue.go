@@ -37,18 +37,14 @@ func (e Queue) Empty() bool {
 // Setup 启用顺序 redis > 其他 > memory
 func (e Queue) Setup() (storage.AdapterQueue, error) {
 	if e.Redis != nil {
-		options, err := e.Redis.RedisConnectOptions.GetRedisOptions()
+		rc := e.Redis.RedisConnectOptions
+		// producer：db1 → _redisQueueProducer（独立池，幂等）
+		producerClient, err := EnsureQueueProducerClient(rc)
 		if err != nil {
 			return nil, err
 		}
-		// Client #1: shared/producer (non-blocking operations)
-		producerClient, err := EnsureRedisClient(options)
-		if err != nil {
-			return nil, err
-		}
-		// Client #2: consumer (blocking XREADGROUP) — separate to avoid
-		// blocking calls from starving the shared connection pool.
-		consumerClient, err := EnsureQueueConsumerClient(options)
+		// consumer：db1 → _redisQueue（独立池，避免阻塞 XREADGROUP 饿死非阻塞操作，幂等）
+		consumerClient, err := EnsureQueueConsumerClient(rc)
 		if err != nil {
 			return nil, err
 		}

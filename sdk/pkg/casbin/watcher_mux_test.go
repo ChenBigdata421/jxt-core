@@ -993,7 +993,7 @@ func TestEnsureWatcherMux_LazyInit(t *testing.T) {
 
 	// Both Client #1 and Client #3 configured → mux is created on first use.
 	config.SetRedisClient(redis.NewClient(&redis.Options{Addr: mr.Addr()}))
-	_, err = config.EnsureSubscriberClient(&redis.Options{Addr: mr.Addr()})
+	_, err = config.EnsureSubscriberClient(config.RedisConnectOptions{Addr: mr.Addr()})
 	require.NoError(t, err)
 
 	m := ensureWatcherMux()
