@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	mapstructure "github.com/go-viper/mapstructure/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // setupMiniredis creates an in-process Redis server for testing.
@@ -504,4 +506,91 @@ func TestStartRedisHealthCheck_DoubleStartCancelsPrevious(t *testing.T) {
 	// Allow some slack but require no growth (the cancelled loop exited).
 	require.LessOrEqual(t, after, before+1,
 		"first checker goroutine should have been cancelled, no leak")
+}
+
+// --------------------------------------------------------------------------
+// Sentinel 支持 + 补丁 A（squash）回归（Workstream 1）
+// --------------------------------------------------------------------------
+
+// toMap turns raw YAML bytes into a generic map. Viper uses gopkg.in/yaml.v3
+// under the hood, so we mirror that here to feed mapstructure the same shape
+// of data that viper would produce after decoding settings.yml.
+func toMap(t *testing.T, raw []byte) map[string]interface{} {
+	t.Helper()
+	var m map[string]interface{}
+	if err := yaml.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("yaml unmarshal: %v", err)
+	}
+	return m
+}
+
+// TestQueueRedis_SquashDecodesFields 是补丁 A 的回归测试：修复前 mapstructure 不拍平
+// 内嵌 RedisConnectOptions，queue.redis.* 解析为零值（security-management crash-loop 根因）。
+func TestQueueRedis_SquashDecodesFields(t *testing.T) {
+	raw := []byte(`
+addr: "redis:6379"
+password: "p"
+db: 1
+master_name: "mymaster"
+`)
+	var q QueueRedis
+	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		TagName: "mapstructure", Result: &q,
+	})
+	require.NoError(t, err)
+	require.NoError(t, dec.Decode(toMap(t, raw)))
+	require.Equal(t, "redis:6379", q.Addr)
+	require.Equal(t, "p", q.Password)
+	require.Equal(t, 1, q.DB)
+	require.Equal(t, "mymaster", q.MasterName)
+}
+
+func TestRedisConnectOptions_FailoverOptions(t *testing.T) {
+	rc := RedisConnectOptions{
+		MasterName:       "mymaster",
+		SentinelAddrs:    []string{"s1:26379", "s2:26379"},
+		Username:         "u",
+		Password:         "p",
+		SentinelPassword: "sp",
+		DB:               3,
+		MaxRetries:       7,
+		PoolSize:         20,
+	}
+	fo, err := rc.failoverOptions()
+	require.NoError(t, err)
+	require.Equal(t, "mymaster", fo.MasterName)
+	require.Equal(t, []string{"s1:26379", "s2:26379"}, fo.SentinelAddrs)
+	require.Equal(t, "u", fo.Username)
+	require.Equal(t, "p", fo.Password)
+	require.Equal(t, "sp", fo.SentinelPassword)
+	require.Equal(t, 3, fo.DB)
+	require.Equal(t, 7, fo.MaxRetries)
+	require.Equal(t, 20, fo.PoolSize)
+	require.Nil(t, fo.TLSConfig)
+}
+
+func TestNewClient_Standalone(t *testing.T) {
+	mr, opts := setupMiniredis(t)
+	defer mr.Close()
+	rc := RedisConnectOptions{Addr: opts.Addr, DB: opts.DB}
+	client, err := rc.newClient()
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	require.NoError(t, client.Ping(context.Background()).Err())
+	_ = client.Close()
+}
+
+func TestNewClient_Sentinel_ReturnsFailoverClient(t *testing.T) {
+	// NewFailoverClient 是惰性的（首条命令前不连接），故无需真实 Sentinel，
+	// 只断言返回非 nil client（且不 panic）。
+	rc := RedisConnectOptions{
+		MasterName:    "mymaster",
+		SentinelAddrs: []string{"127.0.0.1:26379"},
+		Password:      "x",
+		DB:            0,
+	}
+	client, err := rc.newClient()
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	_ = client.Close()
 }

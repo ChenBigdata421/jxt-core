@@ -165,6 +165,11 @@ type RedisConnectOptions struct {
 	PoolSize   int    `mapstructure:"pool_size" json:"pool_size"`
 	Tls        *Tls   `mapstructure:"tls" json:"tls"`
 	MaxRetries int    `mapstructure:"max_retries" json:"max_retries"`
+
+	// Sentinel（可选）。MasterName 非空 => NewFailoverClient；空 => 保持单点行为。
+	MasterName       string   `mapstructure:"master_name" json:"master_name"`
+	SentinelAddrs    []string `mapstructure:"sentinel_addrs" json:"sentinel_addrs"`
+	SentinelPassword string   `mapstructure:"sentinel_password" json:"sentinel_password"`
 }
 
 type Tls struct {
@@ -186,6 +191,47 @@ func (e RedisConnectOptions) GetRedisOptions() (*redis.Options, error) {
 	var err error
 	r.TLSConfig, err = getTLS(e.Tls)
 	return r, err
+}
+
+// failoverOptions 构造 Sentinel 模式的 *redis.FailoverOptions，逐字段带过
+// 认证/连接池/重试配置。FailoverOptions（go-redis sentinel.go）无 Network 字段，
+// 连接走 SentinelAddrs，默认 tcp，故不设置。
+func (e RedisConnectOptions) failoverOptions() (*redis.FailoverOptions, error) {
+	tlsCfg, err := getTLS(e.Tls)
+	if err != nil {
+		return nil, err
+	}
+	return &redis.FailoverOptions{
+		MasterName:       e.MasterName,
+		SentinelAddrs:    e.SentinelAddrs,
+		Username:         e.Username,
+		Password:         e.Password,
+		SentinelPassword: e.SentinelPassword,
+		DB:               e.DB,
+		MaxRetries:       e.MaxRetries,
+		PoolSize:         e.PoolSize, // 0 => go-redis 内部默认值，与单点一致
+		TLSConfig:        tlsCfg,
+	}, nil
+}
+
+// newClient 构造 *redis.Client：MasterName 非空 => NewFailoverClient（Sentinel），
+// 否则 => NewClient（单点）。两者都返回 *redis.Client，调用方与适配器零感知。
+func (e RedisConnectOptions) newClient() (*redis.Client, error) {
+	if e.MasterName != "" {
+		if len(e.SentinelAddrs) == 0 {
+			return nil, fmt.Errorf("redis sentinel: master_name %q set but sentinel_addrs is empty", e.MasterName)
+		}
+		fo, err := e.failoverOptions()
+		if err != nil {
+			return nil, err
+		}
+		return redis.NewFailoverClient(fo), nil
+	}
+	opts, err := e.GetRedisOptions() // 复用现有单点构造，零分叉
+	if err != nil {
+		return nil, err
+	}
+	return redis.NewClient(opts), nil
 }
 
 func getTLS(c *Tls) (*tls.Config, error) {

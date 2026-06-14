@@ -13,7 +13,7 @@ type Queue struct {
 }
 
 type QueueRedis struct {
-	RedisConnectOptions
+	RedisConnectOptions `mapstructure:",squash"`
 	Producer *queue.ProducerConfig
 	Consumer *queue.ConsumerConfig
 }
@@ -23,7 +23,7 @@ type QueueMemory struct {
 }
 
 type QueueNSQ struct {
-	NSQOptions
+	NSQOptions `mapstructure:",squash"` // parity w/ QueueRedis; NSQOptions uses opt: tags today (inert until it gains mapstructure tags)
 	ChannelPrefix string
 }
 
