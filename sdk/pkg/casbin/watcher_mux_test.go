@@ -199,9 +199,9 @@ func TestMux_NilGuard(t *testing.T) {
 	resetMuxState()
 	defer resetMuxState()
 
-	// Calling setupRedisWatcherForEnforcer with nil mux should not panic.
+	// Calling SetupRedisWatcherForEnforcer with nil mux should not panic.
 	// We need a real enforcer to pass — create a minimal one.
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	require.NoError(t, err)
 
 	e, err := casbin.NewSyncedEnforcer(m, &SuccessAdapter{})
@@ -209,8 +209,8 @@ func TestMux_NilGuard(t *testing.T) {
 
 	// This should be a no-op (no panic, no watcher set).
 	assert.NotPanics(t, func() {
-		setupRedisWatcherForEnforcer(e, 42)
-	}, "setupRedisWatcherForEnforcer should not panic when mux is nil")
+		SetupRedisWatcherForEnforcer(e, 42)
+	}, "SetupRedisWatcherForEnforcer should not panic when mux is nil")
 
 	// Enforcer should still function normally (GetPolicy returns empty slice, not nil).
 	assert.NotPanics(t, func() { e.GetPolicy() }, "enforcer should be usable after nil mux guard")
@@ -307,7 +307,7 @@ func (a *fullAdapter) UpdateFilteredPolicies(string, string, [][]string, int, ..
 }
 
 func TestMux_DispatchToEnforcer_AllMethods(t *testing.T) {
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	require.NoError(t, err)
 
 	e, err := casbin.NewSyncedEnforcer(m, &fullAdapter{})
@@ -909,7 +909,7 @@ func TestMux_PreservesPerTenantOrder(t *testing.T) {
 
 	const tenantID = 7
 
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	require.NoError(t, err)
 	enforcer, err := casbin.NewSyncedEnforcer(m, &fullAdapter{})
 	require.NoError(t, err)
@@ -1087,7 +1087,7 @@ func TestMux_DispatchWorker_PerShardOrdering(t *testing.T) {
 	defer cleanup()
 
 	const tenantID = 7
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	require.NoError(t, err)
 	adapter := &recordingAdapter{}
 	enforcer, err := casbin.NewSyncedEnforcer(m, adapter)
@@ -1142,7 +1142,7 @@ func TestMux_WorkerPool_ConcurrentPerTenant(t *testing.T) {
 	enforcers := make([]*casbin.SyncedEnforcer, tenants)
 	adapters := make([]*recordingAdapter, tenants)
 	for tID := 0; tID < tenants; tID++ {
-		m, err := model.NewModelFromString(text)
+		m, err := model.NewModelFromString(ModelText)
 		require.NoError(t, err)
 		ad := &recordingAdapter{}
 		e, err := casbin.NewSyncedEnforcer(m, ad)
@@ -1202,7 +1202,7 @@ func TestMux_DispatchWorker_BurstBeyondBuffer(t *testing.T) {
 	defer cleanup()
 
 	const tenantID = 7
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	require.NoError(t, err)
 	adapter := &recordingAdapter{}
 	enforcer, err := casbin.NewSyncedEnforcer(m, adapter)

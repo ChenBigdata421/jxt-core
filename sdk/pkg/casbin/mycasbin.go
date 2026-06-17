@@ -33,7 +33,10 @@ import (
 )
 
 // Initialize the model from a string.
-var text = `
+// ModelText is the canonical RBAC model for Casbin enforcers. Exported so
+// security-management's local SetupForTenant reuses the same model instead
+// of copying (avoids model drift between local-DB and remote-provider paths).
+const ModelText = `
 [request_definition]
 r = sub, obj, act
 
@@ -79,7 +82,7 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 	}
 
 	// 2. 加载权限模型
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	if err != nil {
 		return nil, fmt.Errorf("加载 Casbin 模型失败: %w", err)
 	}
@@ -96,7 +99,7 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 	}
 
 	// 5. 设置 Redis Watcher（使用 CasbinWatcherMux）
-	setupRedisWatcherForEnforcer(e, tenantID)
+	SetupRedisWatcherForEnforcer(e, tenantID)
 
 	// 6. 设置日志
 	log.SetLogger(&Logger{})
@@ -105,7 +108,7 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 	return e, nil
 }
 
-// setupRedisWatcherForEnforcer sets up the CasbinWatcherMux watcher for an enforcer.
+// SetupRedisWatcherForEnforcer sets up the CasbinWatcherMux watcher for an enforcer.
 // Called by both SetupForTenant and SetupWithProvider to eliminate code duplication.
 //
 // Behavior:
@@ -114,7 +117,7 @@ func SetupForTenant(db *gorm.DB, tenantID int) (*casbin.SyncedEnforcer, error) {
 //   - If Redis is not configured, degrades gracefully (no cross-instance sync)
 //   - If Client #1 is configured but the subscriber Client #3 is missing, logs a
 //     warning so operators can tell that policy sync is silently disabled
-func setupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
+func SetupRedisWatcherForEnforcer(e *casbin.SyncedEnforcer, tenantID int) {
 	m := ensureWatcherMux()
 	if m == nil {
 		return // Redis not configured — graceful degradation
@@ -166,7 +169,7 @@ func SetupWithProvider(provider PolicyProvider, tenantID int) (*casbin.SyncedEnf
 	adapter := NewProviderAdapter(provider, tenantID)
 
 	// 2. Load the same RBAC model as SetupForTenant
-	m, err := model.NewModelFromString(text) // text variable is already defined in mycasbin.go
+	m, err := model.NewModelFromString(ModelText) // ModelText is defined in mycasbin.go
 	if err != nil {
 		return nil, fmt.Errorf("failed to create casbin model: %w", err)
 	}
@@ -183,7 +186,7 @@ func SetupWithProvider(provider PolicyProvider, tenantID int) (*casbin.SyncedEnf
 	}
 
 	// 5. Set up Redis Watcher using CasbinWatcherMux
-	setupRedisWatcherForEnforcer(e, tenantID)
+	SetupRedisWatcherForEnforcer(e, tenantID)
 
 	// 6. Enable logging
 	log.SetLogger(&Logger{})

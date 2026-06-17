@@ -67,7 +67,7 @@ func (a *SuccessAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldInd
 // 5. 关键问题：微服务内存中的原有策略是否被保留？
 func TestLoadPolicy_ErrorBehavior(t *testing.T) {
 	// 1. 创建 model（使用 jxt-core 实际的模型定义）
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	assert.NoError(t, err, "模型创建应成功")
 
 	// 2. 创建 enforcer（使用 SuccessAdapter，模拟正常启动）
@@ -126,7 +126,7 @@ func TestLoadPolicy_ErrorBehavior(t *testing.T) {
 
 // TestLoadPolicy_ErrorBehaviorWithMultiplePolicies 测试多条策略的保护
 func TestLoadPolicy_ErrorBehaviorWithMultiplePolicies(t *testing.T) {
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	assert.NoError(t, err, "模型创建应成功")
 
 	e, err := casbin.NewSyncedEnforcer(m, &SuccessAdapter{})

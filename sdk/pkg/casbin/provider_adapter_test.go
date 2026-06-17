@@ -51,7 +51,7 @@ func TestProviderAdapter_LoadPolicy_Success(t *testing.T) {
 
 	adapter := NewProviderAdapter(provider, 1)
 
-	m, err := model.NewModelFromString(text)
+	m, err := model.NewModelFromString(ModelText)
 	require.NoError(t, err)
 
 	err = adapter.LoadPolicy(m)
@@ -70,7 +70,7 @@ func TestProviderAdapter_LoadPolicy_ProviderError(t *testing.T) {
 
 	adapter := NewProviderAdapter(provider, 1)
 
-	m, _ := model.NewModelFromString(text)
+	m, _ := model.NewModelFromString(ModelText)
 	err := adapter.LoadPolicy(m)
 
 	assert.Error(t, err)
@@ -117,7 +117,7 @@ func TestProviderAdapter_LoadPolicy_Timeout(t *testing.T) {
 
 	adapter := NewProviderAdapter(provider, 1)
 
-	m, _ := model.NewModelFromString(text)
+	m, _ := model.NewModelFromString(ModelText)
 	err := adapter.LoadPolicy(m)
 
 	assert.Error(t, err)
@@ -129,7 +129,7 @@ func TestProviderAdapter_ReadOnlyMethods(t *testing.T) {
 	provider := &mockProviderForAdapter{}
 	adapter := NewProviderAdapter(provider, 1)
 
-	m, _ := model.NewModelFromString(text)
+	m, _ := model.NewModelFromString(ModelText)
 
 	assert.Error(t, adapter.SavePolicy(m))
 	assert.Error(t, adapter.AddPolicy("p", "p", []string{"admin", "/api", "GET"}))
