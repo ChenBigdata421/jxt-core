@@ -514,7 +514,14 @@ dbConfig, ok := p.GetServiceDatabaseConfig(tenantID, "security-management")
 
 ## 版本历史
 
-- v1.1.46 - Redis 基础设施重构：三客户端架构（共享/队列消费者/订阅者）、后台健康检查（IsRedisHealthy）、上下文感知 AdapterCache 接口、优雅 Close()；Casbin 策略同步改为单连接 PSUBSCRIBE 多路复用 + 8 分片有序派发
+- v1.1.53 - Casbin 精简（破坏性变更）：移除 SetupForTenant/Setup、去除 gorm-adapter 依赖（SetupForTenant 下沉至 security-management 自建本地 GormAdapter）；导出 watcher 初始化与 model 文本；新增 Linux-CI Sentinel 故障转移集成测试
+- v1.1.52 - Redis Sentinel 支持：新增 Sentinel 字段与 newClient、合并 QueueRedis/QueueNSQ；按 DB 幂等客户端（5 个 Ensure*）；订阅者 ping 收敛到写锁、移除无用的 NSQ squash；同步 casbin/redis README
+- v1.1.51 - Redis 基础设施重构：升级 go-redis 到稳定 v9.x（移除 redisqueue）、落地三客户端架构（共享/队列消费者/订阅者）；新增后台健康检查 IsRedisHealthy()、context-aware AdapterCache 接口、优雅 Close()；Casbin 策略同步改为单连接 PSUBSCRIBE 多路复用 + 8 分片有序派发；修复缓存/队列多处数据竞争
+- v1.1.50 - StorageConfig 新增 PublicUrl 字段，支持外部代理访问地址
+- v1.1.49 - 新增 WVP（视频平台）配置缓存：Provider 支持 ConfigTypeWvp / GetWvpConfig / WVP watch 事件；新增 tenant/wvp 缓存包与 TenantWvpConfig 模型；配套单元测试与设计文档
+- v1.1.48 - 多租户默认配置（DefaultTenantConfig）新增 TenantWvpDetailConfig，支持 settings.yml 初始化 WVP 配置
+- v1.1.47 - Outbox 新增 InProcessEventPublisher，支持进程内事件分发
+- v1.1.46 - Provider 新增 GetAllTenantIDs 方法；jwtauth 将 Dept 字段重命名为 Org（语义清晰）
 - v1.1.45 - 新增租户识别配置缓存，支持基于配置缓存进行租户识别
 - v1.1.41 - 新增域名查找（DomainLookuper）支持租户 ID 解析
 - v1.1.40 - 增强租户 ID 解析能力
