@@ -191,4 +191,3 @@ None (as of Stage 3). All multi-tenant isolation issues have been fixed.
 ## Related Documents
 
 - [Casbin Multi-Tenant Isolation Issue Analysis](../../../docs/权限检查的租户隔离问题/casbin-multi-tenant-isolation-issue.md)
-- [Fix Implementation Plan](../../../docs/权限检查的租户隔离问题/2026-02-06-fix-casbin-multi-tenant-isolation.md)

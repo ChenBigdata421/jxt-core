@@ -10,7 +10,6 @@
 
 **Related Documents:**
 - [casbin-multi-tenant-isolation-issue.md](../../权限检查的租户隔离问题/casbin-multi-tenant-isolation-issue.md)
-- [2026-02-06-fix-casbin-multi-tenant-isolation.md](../../权限检查的租户隔离问题/2026-02-06-fix-casbin-multi-tenant-isolation.md)
 
 ---
 
