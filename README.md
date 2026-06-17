@@ -3,8 +3,6 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/ChenBigdata421/jxt-core)](https://golang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-本仓库基于 [go-admin-core](https://github.com/ChenBigdata421/jxt-core) 修改，原项目遵循 Apache 2.0 协议
-
 ## 项目简介
 
 jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了构建现代化分布式应用所需的核心组件和工具。框架采用模块化设计，支持多种部署模式，适用于大型企业级应用开发。
