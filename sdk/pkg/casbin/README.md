@@ -138,12 +138,11 @@ PSUBSCRIBE pattern (all tenants): /casbin/tenant/*
    incremental `SelfAdd/Remove/UpdatePolicy`), skipping messages it published
    itself (UUID-based self-ignore).
 
-### Wire compatibility
+### Wire format
 
-The `MSG` payload is byte-for-byte compatible with
-`go-admin-team/redis-watcher/v2`, so instances running the old per-tenant
-watcher and instances running the mux can coexist in the same Redis during a
-rolling upgrade.
+The `MSG` payload uses a fixed on-wire format. Do not change the field set or
+JSON tag names — instances running different jxt-core versions can coexist in
+the same Redis during a rolling upgrade only as long as that format stays stable.
 
 ### Lifecycle
 

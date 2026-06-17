@@ -9,9 +9,10 @@ package mycasbin
 //	Client #3 (PSUBSCRIBE /casbin/tenant/*)  — 1 connection for all tenants
 //	Client #1 (PUBLISH /casbin/tenant/{id})  — shared pool
 //
-// Wire-compatible with go-admin-team/redis-watcher/v2 MSG payload for rolling
-// upgrade: instances running the old per-tenant watcher and instances running
-// the mux can coexist in the same Redis.
+// The MSG wire format is deliberately fixed: during a rolling upgrade,
+// instances still running the old per-tenant watcher and instances running
+// the mux can coexist in the same Redis. Do not change the MSG field set or
+// JSON tag names.
 import (
 	"context"
 	"encoding/json"
@@ -32,10 +33,10 @@ import (
 )
 
 // --------------------------------------------------------------------------
-// Wire-compatible MSG types (matches go-admin-team/redis-watcher/v2 exactly)
+// MSG types — the wire format is fixed for rolling-upgrade compatibility.
 // --------------------------------------------------------------------------
 
-// UpdateType mirrors redis-watcher/v2 UpdateType string constants.
+// UpdateType enumerates the policy-change message kinds carried on the wire.
 type UpdateType string
 
 const (
@@ -50,9 +51,9 @@ const (
 	UpdateForUpdatePolicies       UpdateType = "UpdateForUpdatePolicies"
 )
 
-// MSG is the wire payload, identical to redis-watcher/v2 MSG struct.
-// JSON field names are implicit (exported Go fields) so the encoding is
-// compatible.
+// MSG is the wire payload. Its exported-field JSON encoding is part of the
+// fixed wire format — do not change field names (see the rolling-upgrade note
+// above).
 type MSG struct {
 	Method      UpdateType `json:"Method"`
 	ID          string     `json:"ID"`
@@ -383,12 +384,15 @@ func (m *CasbinWatcherMux) handleMessage(msg *redis.Message) {
 		return
 	}
 
-	// Dispatch to the appropriate method on the enforcer, using the same
-	// logic as redis-watcher/v2 DefaultUpdateCallback.
+	// Dispatch to the appropriate method on the enforcer. Incremental ops
+	// (Add/Remove/Update) apply the delta in place; everything else triggers
+	// a full LoadPolicy.
 	dispatchToEnforcer(enforcer, parsed)
 }
 
-// dispatchToEnforcer mirrors redis-watcher/v2 DefaultUpdateCallback logic.
+// dispatchToEnforcer applies each MSG to the enforcer. Incremental ops
+// (Add/Remove/Update) apply the delta in place; everything else triggers a
+// full LoadPolicy.
 //
 // Concurrency note: the Self* methods it calls are NOT individually locked by
 // casbin — SyncedEnforcer does not override them, and addPolicyWithoutNotify
