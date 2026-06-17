@@ -116,9 +116,8 @@ http:
 
 # 数据库配置
 database:
-  masterDB:
-    driver: "mysql"
-    source: "user:pass@tcp(localhost:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
+  driver: "mysql"
+  source: "user:pass@tcp(localhost:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
 
 # 缓存配置
 cache:
@@ -130,7 +129,7 @@ cache:
 # 日志配置
 logger:
   level: "info"
-  format: "json"
+  path: "./logs"
 
 ### 多租户配置（Tenants）
 
@@ -275,8 +274,7 @@ db := app.GetTenantDB(tenantID)              // 映射到 security-management
   - At-Least-Once（Kafka/NATS Envelope）
 - **高性能编码**：
   - 默认：JSON（jsoniter，比标准库快 2-3 倍）
-  - 可选：Protobuf、Avro、MessagePack、CloudEvents
-  - 零拷贝：Cap'n Proto、FlatBuffers（适合极致性能场景）
+  - 可选：Protobuf、Avro、CloudEvents
 - **Outbox 集成**：与 Outbox 模式无缝集成，保证事件发布可靠性
 - **故障隔离**：Supervisor 自动重启机制，单个聚合故障不影响其他聚合
 - **性能监控**：集成 Prometheus 指标，实时监控吞吐量、延迟、错误率
@@ -291,12 +289,12 @@ db := app.GetTenantDB(tenantID)              // 映射到 security-management
 
 ### 编码方式选型
 
-| 编码方式            | 速度  | 体积  | 时延  | 适用场景       |
-| --------------- | --- | --- | --- | ---------- |
-| **JSON（默认）**    | 基线  | 基线  | 基线  | 通用场景，快速开发  |
-| **Protobuf**    | ↑↑  | ↑↑  | ↑↑  | 高吞吐、跨语言    |
-| **Cap'n Proto** | ↑↑↑ | ↑↑↑ | ↑↑↑ | 极致性能、零拷贝   |
-| **FlatBuffers** | ↑↑↑ | ↑↑↑ | ↑↑↑ | 游戏、移动端、IoT |
+| 编码方式          | 速度 | 体积 | 时延 | 适用场景       |
+| --------------- | -- | -- | -- | ---------- |
+| **JSON（默认）**   | 基线 | 基线 | 基线 | 通用场景，快速开发  |
+| **Protobuf**    | ↑↑ | ↑↑ | ↑↑ | 高吞吐、跨语言    |
+| **Avro**        | ↑↑ | ↑↑ | ↑↑ | 模式演进、大数据存储 |
+| **CloudEvents** | 基线 | 基线 | 基线 | 跨平台事件标准封装  |
 
 详见 [EventBus 文档](sdk/pkg/eventbus/README.md)
 
@@ -501,8 +499,8 @@ p.LoadAll(ctx)
 // 启动 Watch 监听变更
 p.StartWatch(ctx)
 
-// 获取租户数据库配置
-dbConfig := p.GetDatabaseConfig(tenantID)
+// 获取租户某服务的数据库配置（serviceCode 如 "security-management"）
+dbConfig, ok := p.GetServiceDatabaseConfig(tenantID, "security-management")
 ```
 
 ### 性能测试覆盖
