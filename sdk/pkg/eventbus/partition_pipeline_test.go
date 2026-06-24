@@ -1,6 +1,7 @@
 package eventbus
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -113,5 +114,51 @@ func TestNewPartitionPipeline_BufferInvariant(t *testing.T) {
 	t.Run("flush 超时 >= sessionTimeout/2 应 panic/报错", func(t *testing.T) {
 		cfg := PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 9 * time.Second, DLQTimeout: 30 * time.Second}
 		assert.Panics(t, func() { _, _, _ = newPartitionPipeline(cfg, 10*time.Second) })
+	})
+}
+
+// TestForwardCompletion_T17 bridge 非阻塞 drain：done 就绪 + ctx 同时触发，必转发（不随机丢）
+func TestForwardCompletion_T17(t *testing.T) {
+	t.Run("done 已就绪时 ctx 同时触发仍必转发且 canceled=true", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		done <- nil // handler 已完成（done 就绪）
+		compCh := make(chan completion, 4)
+
+		cancel() // ctx 立刻取消，与 done 就绪同时
+		forwardCompletion(ctx, 7, done, compCh)
+
+		select {
+		case c := <-compCh:
+			assert.Equal(t, int64(7), c.offset)
+			assert.Nil(t, c.err)
+			assert.True(t, c.canceled, "ctx 取消后补捞转发 → canceled=true")
+		default:
+			t.Fatal("completion 被丢弃：竞态未修复")
+		}
+	})
+
+	t.Run("done 空 + ctx 取消 → 不转发（留待重投递）", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1) // 空：handler 仍在跑
+		compCh := make(chan completion, 4)
+		cancel()
+		forwardCompletion(ctx, 7, done, compCh)
+		select {
+		case <-compCh:
+			t.Fatal("handler 仍在跑时不应转发")
+		default:
+		}
+	})
+
+	t.Run("正常完成 → canceled=false", func(t *testing.T) {
+		ctx := context.Background()
+		done := make(chan error, 1)
+		done <- errors.New("handler err")
+		compCh := make(chan completion, 4)
+		forwardCompletion(ctx, 9, done, compCh)
+		c := <-compCh
+		assert.False(t, c.canceled)
+		assert.Error(t, c.err)
 	})
 }

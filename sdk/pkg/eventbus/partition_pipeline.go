@@ -114,3 +114,29 @@ func advanceFrontier(inflight map[int64]*inflightEntry, frontier *int64) *sarama
 	}
 	return last
 }
+
+// forwardCompletion 是每条消息的「无状态 bridge」：把该消息的 Done chan 搬进固定 compCh。
+// ⭐ 决策 1-A：防止「done 已就绪 + ctx 同时触发」时 select 随机取 ctx.Done 而丢弃一个已完成的 completion。
+//
+//	做法：ctx 触发后再补一次非阻塞 drain——done 有值必捞起转发并置 canceled=true；done 空才放弃（留待重投递）。
+//
+// 调用契约：compCh 容量 >= 最大在飞数（构造期保证），故 compCh <- 永不阻塞。
+func forwardCompletion(ctx context.Context, off int64, done <-chan error, compCh chan<- completion) {
+	select {
+	case err := <-done:
+		// ⭐ 决策 1-A：done 与 ctx.Done 同时就绪时，外层 select 可能随机取到本分支。
+		//   只要 ctx 已取消，就按「取消后补捞」语义标记 canceled=true（与 ctx.Done 分支一致）。
+		canceled := false
+		if ctx.Err() != nil {
+			canceled = true
+		}
+		compCh <- completion{offset: off, err: err, canceled: canceled} // 正常完成（或竞态补捞）
+	case <-ctx.Done():
+		select { // ⭐ 非阻塞补捞：堵住「已知完成却被随机丢弃」的竞态窗口
+		case err := <-done:
+			compCh <- completion{offset: off, err: err, canceled: true} // ctx 取消后补捞 → canceled=true
+		default:
+			// done 仍空（handler 还在跑）→ 放弃转发，该消息从 frontier 重投递；同时防止 bridge 在 hung handler 上永久驻留
+		}
+	}
+}
