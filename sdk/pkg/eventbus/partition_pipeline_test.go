@@ -288,3 +288,144 @@ func TestFlush_T4_T11_T14(t *testing.T) {
 		assert.Equal(t, int64(12), frontier)
 	})
 }
+
+// fakePool 记录提交的 AggregateMessage，供测试按需驱动其 Done chan（模拟乱序/失败/成功）。
+type fakePool struct {
+	submitted []*AggregateMessage
+}
+
+func (f *fakePool) ProcessMessage(_ context.Context, msg *AggregateMessage) error {
+	f.submitted = append(f.submitted, msg)
+	return nil
+}
+
+func newPipelineForTest(windowSize int) (*partitionPipeline, chan completion, chan dlqResult) {
+	cfg := PipelineConfig{Enabled: true, WindowSize: windowSize, FlushTimeout: 100 * time.Millisecond, DLQTimeout: 200 * time.Millisecond}
+	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, 10*time.Second)
+	p.pool = &fakePool{}
+	p.buildAggMsg = func(m *sarama.ConsumerMessage) *AggregateMessage {
+		return &AggregateMessage{Topic: m.Topic, Partition: m.Partition, Offset: m.Offset, Value: m.Value,
+			Done: make(chan error, 1), IsEnvelope: true}
+	}
+	return p, compCh, dlqDoneCh
+}
+
+// recordingAlerter 记录是否触发毒消息告警（策略 A）。
+type recordingAlerter struct{ called bool }
+
+func (a *recordingAlerter) AlertPoisonMessage(*sarama.ConsumerMessage) { a.called = true }
+
+// TestRun_T2 envelope 失败处理：DLQ 成功路 + 【回归·强制】队头阻塞时后续成功不得泄漏提交
+func TestRun_T2(t *testing.T) {
+	t.Run("DLQ 成功 → 失败 offset 经 DLQ 后推进", func(t *testing.T) {
+		p, compCh, dlqDoneCh := newPipelineForTest(8)
+		pool := p.pool.(*fakePool)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		msgs := make(chan *sarama.ConsumerMessage, 4)
+		msgs <- &sarama.ConsumerMessage{Offset: 10}
+		close(msgs)
+
+		marker := &fakeMarker{}
+		p.dlq = &fakeDLQ{ok: true} // offset 10 失败但 DLQ 成功
+
+		done := make(chan struct{})
+		go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh); close(done) }()
+
+		<-time.After(50 * time.Millisecond)
+		require.NotEmpty(t, pool.submitted)
+		pool.submitted[0].Done <- errors.New("handler fail") // 10 失败
+		<-time.After(150 * time.Millisecond)                 // 等 DLQ 回送 + 推进
+
+		cancel()
+		<-done
+		// 10 经 DLQ 成功 → commitable 翻 true → 推进并提交：marker 必含 10（证明 DLQ 成功路把失败 offset 救回并提交，非静默跳过）
+		require.Contains(t, marker.marked, int64(10), "DLQ 成功后 offset 10 必须被提交")
+	})
+
+	// ⭐ 回归守护（IRON RULE）：队头失败被阻塞时，后续成功不得越过队头提交——这是本改动要修的静默丢数据 bug。
+	t.Run("队头阻塞·后续成功不泄漏提交（无跳过守护）", func(t *testing.T) {
+		p, compCh, dlqDoneCh := newPipelineForTest(8)
+		pool := p.pool.(*fakePool)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		msgs := make(chan *sarama.ConsumerMessage, 4)
+		msgs <- &sarama.ConsumerMessage{Offset: 10} // 队头 envelope
+		msgs <- &sarama.ConsumerMessage{Offset: 11} // 后续 envelope
+		close(msgs)
+
+		marker := &fakeMarker{}
+		p.dlq = &fakeDLQ{ok: false} // 队头 10 失败 + DLQ 失败 → 策略 A 永久阻塞
+
+		done := make(chan struct{})
+		go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh); close(done) }()
+
+		<-time.After(50 * time.Millisecond)
+		require.Len(t, pool.submitted, 2)
+		pool.submitted[0].Done <- errors.New("head fail") // 10 失败 → DLQ 失败 → 阻塞前沿
+		<-time.After(150 * time.Millisecond)
+		pool.submitted[1].Done <- nil // 11 成功
+		<-time.After(150 * time.Millisecond)
+
+		cancel()
+		<-done
+		// 关键断言：11 虽成功，但队头 10 阻塞 → 11 不得被提交（连续前缀提交）。对照旧路径会静默跳过 10。
+		assert.Empty(t, marker.marked, "队头阻塞时，后续成功不得泄漏一次越过队头的提交（无静默跳过）")
+	})
+}
+
+// TestRun_T3 envelope 失败 + DLQ 失败 → 策略 A：前沿永久阻塞、强告警、不 re-submit
+func TestRun_T3(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(8)
+	pool := p.pool.(*fakePool)
+	alerter := &recordingAlerter{}
+	p.alert = alerter
+	p.dlq = &fakeDLQ{ok: false} // DLQ 失败
+
+	ctx, cancel := context.WithCancel(context.Background())
+	msgs := make(chan *sarama.ConsumerMessage, 4)
+	msgs <- &sarama.ConsumerMessage{Offset: 10}
+	close(msgs)
+	marker := &fakeMarker{}
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh); close(done) }()
+
+	<-time.After(50 * time.Millisecond)
+	pool.submitted[0].Done <- errors.New("handler fail")
+	<-time.After(200 * time.Millisecond) // 等 DLQ 失败回送 + 告警
+
+	cancel()
+	<-done
+
+	assert.True(t, alerter.called, "策略 A：DLQ 失败必须强告警")
+	assert.Empty(t, marker.marked, "前沿阻塞，不提交毒消息")
+}
+
+// TestRun_Backpressure 窗口满则停读，腾位后才提交新消息（P3·次要，非阻塞）
+func TestRun_Backpressure(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(2) // windowSize=2
+	pool := p.pool.(*fakePool)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := make(chan *sarama.ConsumerMessage, 4)
+	msgs <- &sarama.ConsumerMessage{Offset: 0}
+	msgs <- &sarama.ConsumerMessage{Offset: 1}
+	msgs <- &sarama.ConsumerMessage{Offset: 2} // 第 3 条：窗口满时应未被提交
+	close(msgs)
+	marker := &fakeMarker{}
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh); close(done) }()
+
+	<-time.After(50 * time.Millisecond)
+	assert.Len(t, pool.submitted, 2, "窗口满（2）：第 3 条不得被 ProcessMessage")
+	pool.submitted[0].Done <- nil // 腾一个位
+	<-time.After(50 * time.Millisecond)
+	assert.Len(t, pool.submitted, 3, "腾位后才读第 3 条")
+	pool.submitted[1].Done <- nil
+	pool.submitted[2].Done <- nil
+	<-time.After(100 * time.Millisecond)
+	cancel()
+	<-done
+}

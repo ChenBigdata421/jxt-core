@@ -229,3 +229,79 @@ drain:
 		}
 	}
 }
+
+// run 是 ConsumeClaim 的核心事件循环。全部可变状态（inflight/frontier）只在本 goroutine 修改，无锁。
+// 背压惯用法：窗口满则 msgCh=nil，select 只处理完成事件，腾位后再读。
+// ⭐ A1：compCh/dlqDoneCh 由调用方（newPartitionPipeline）分配并传入——单一分配点 = 单一 buffer 守护点，
+//
+//	避免「守护的是被丢弃的 chan、真正在用的无人校验」。
+func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.ConsumerMessage, marker offsetMarker, compCh chan completion, dlqDoneCh chan dlqResult) error {
+	inflight := map[int64]*inflightEntry{}
+	var frontier int64 = -1 // 哨兵；收到首条消息时置为首条 offset
+	closed := false         // messages chan 已关闭（claim 结束）：停读新消息，继续冲刷在飞项直到 inflight 清空
+
+	for {
+		var msgCh <-chan *sarama.ConsumerMessage = messages
+		if closed || len(inflight) >= p.cfg.WindowSize {
+			msgCh = nil // 背压（窗口满）或 claim 已结束：停读新消息
+		}
+		if closed && len(inflight) == 0 {
+			return nil // claim 结束且在飞已全部 settle/推进：安全退出
+		}
+
+		select {
+		case msg := <-msgCh:
+			if msg == nil {
+				closed = true // claim 结束；不立即 return：继续 drain 在飞完成/DLQ，避免丢弃未结算消息
+				continue
+			}
+			if frontier < 0 {
+				frontier = msg.Offset
+			}
+			aggMsg := p.buildAggMsg(msg)
+			inflight[msg.Offset] = &inflightEntry{msg: msg, isEnvelope: aggMsg.IsEnvelope}
+			_ = p.pool.ProcessMessage(ctx, aggMsg) // 异步，不等 Done
+			// bridge：把这条的 Done 搬进 compCh（决策 1-A 非阻塞 drain）
+			go forwardCompletion(ctx, msg.Offset, aggMsg.Done, compCh)
+
+		case c := <-compCh:
+			e := inflight[c.offset]
+			if e == nil {
+				continue
+			}
+			e.settled = true
+			if c.canceled {
+				e.commitable = false // ctx 取消：留待重投递
+			} else {
+				switch decideCommitable(e, c.err) {
+				case commitSuccess, commitRegularFail:
+					e.commitable = true
+				case commitEnvelopeFail:
+					e.dlqPending = true // 暂不可推进；异步 DLQ
+					sendDLQ(p, c.offset, e.msg, dlqDoneCh)
+				}
+			}
+			if last := advanceFrontier(inflight, &frontier); last != nil {
+				marker.MarkMessage(last, "") // mark-once
+			}
+
+		case r := <-dlqDoneCh:
+			e := inflight[r.offset]
+			if e == nil {
+				continue
+			}
+			e.dlqPending = false
+			e.commitable = r.ok
+			if !r.ok {
+				p.alert.AlertPoisonMessage(e.msg) // 策略 A：DLQ 失败强告警、不 re-submit
+			}
+			if last := advanceFrontier(inflight, &frontier); last != nil {
+				marker.MarkMessage(last, "")
+			}
+
+		case <-ctx.Done():
+			flush(marker, inflight, &frontier, compCh, dlqDoneCh, p.alert, p.cfg.FlushTimeout)
+			return nil
+		}
+	}
+}
