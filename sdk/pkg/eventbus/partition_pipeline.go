@@ -1,6 +1,10 @@
 package eventbus
 
 import (
+	"context"
+	"fmt"
+	"time"
+
 	"github.com/IBM/sarama"
 )
 
@@ -46,9 +50,53 @@ func decideCommitable(e *inflightEntry, err error) commitDecision {
 	return commitRegularFail
 }
 
-// 占位：partitionPipeline 主体在后续任务补全。这里先保证文件可编译。
+// poolSubmitter 把消息异步提交给 actor pool（生产=HollywoodActorPool，测试=fake）。
+type poolSubmitter interface {
+	ProcessMessage(ctx context.Context, msg *AggregateMessage) error
+}
+
+// offsetMarker 只暴露 MarkMessage（sarama.ConsumerGroupSession 的窄适配）。
+type offsetMarker interface {
+	MarkMessage(msg *sarama.ConsumerMessage, metadata string)
+}
+
+// DLQSender 异步 DLQ 投递（jxt-core 自定义接口；各服务把自己的 DLQService 适配进来）。
+// Send 返回 false 表示投递失败 → 策略 A 阻塞前沿。
+type DLQSender interface {
+	Send(ctx context.Context, msg *sarama.ConsumerMessage) bool
+}
+
+// poisonAlerter 毒消息强告警（策略 A）。
+type poisonAlerter interface {
+	AlertPoisonMessage(msg *sarama.ConsumerMessage)
+}
+
+// noopAlerter 默认无操作告警器。
+type noopAlerter struct{}
+
+func (noopAlerter) AlertPoisonMessage(*sarama.ConsumerMessage) {}
+
+// partitionPipeline 单分区内消费流水线协调器（全部可变状态由 run() 主 goroutine 持有）。
 type partitionPipeline struct {
-	cfg PipelineConfig
+	cfg         PipelineConfig
+	pool        poolSubmitter
+	dlq         DLQSender // 可为 nil（无 DLQ 时 envelope 失败直接策略 A 阻塞）
+	alert       poisonAlerter
+	buildAggMsg func(*sarama.ConsumerMessage) *AggregateMessage // kafka.go 注入：构造含 Done 的 AggregateMessage
+}
+
+// newPartitionPipeline 构造协调器并分配两个 chan。
+// ⭐ buffer 硬约束（设计 §4.3）：两个 chan 容量都必须 == windowSize，且与 windowSize 同行分配，防漂移。
+func newPartitionPipeline(cfg PipelineConfig, sessionTimeout time.Duration) (*partitionPipeline, chan completion, chan dlqResult) {
+	if err := cfg.validate(sessionTimeout); err != nil {
+		panic(fmt.Sprintf("partition pipeline config invalid: %v", err))
+	}
+	compCh := make(chan completion, cfg.WindowSize)   // 同行分配，杜绝单独配置漂移
+	dlqDoneCh := make(chan dlqResult, cfg.WindowSize) // 同行分配，杜绝单独配置漂移
+	if cap(compCh) < cfg.WindowSize || cap(dlqDoneCh) < cfg.WindowSize {
+		panic(fmt.Sprintf("buffer invariant violated: compCh=%d dlqDoneCh=%d windowSize=%d", cap(compCh), cap(dlqDoneCh), cfg.WindowSize))
+	}
+	return &partitionPipeline{cfg: cfg, alert: noopAlerter{}}, compCh, dlqDoneCh
 }
 
 // advanceFrontier 推进连续前缀，返回推进段最高位 msg（供 mark-once）。仅主 goroutine 调用，纯 map 操作。

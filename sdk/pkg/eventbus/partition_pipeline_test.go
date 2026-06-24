@@ -99,3 +99,19 @@ func TestAdvanceFrontier_T1(t *testing.T) {
 		assert.Equal(t, int64(10), frontier, "策略 A：队头不可提交 → 阻塞")
 	})
 }
+
+// TestNewPartitionPipeline_BufferInvariant buffer 必须 >= windowSize 且运行期强制
+func TestNewPartitionPipeline_BufferInvariant(t *testing.T) {
+	t.Run("channel 容量 == windowSize", func(t *testing.T) {
+		cfg := PipelineConfig{Enabled: true, WindowSize: 32, FlushTimeout: 4 * time.Second, DLQTimeout: 30 * time.Second}
+		p, compCh, dlqDoneCh := newPartitionPipeline(cfg, 10*time.Second)
+		assert.Equal(t, 32, cap(compCh))
+		assert.Equal(t, 32, cap(dlqDoneCh))
+		assert.Equal(t, 32, p.cfg.WindowSize)
+	})
+
+	t.Run("flush 超时 >= sessionTimeout/2 应 panic/报错", func(t *testing.T) {
+		cfg := PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 9 * time.Second, DLQTimeout: 30 * time.Second}
+		assert.Panics(t, func() { _, _, _ = newPartitionPipeline(cfg, 10*time.Second) })
+	})
+}
