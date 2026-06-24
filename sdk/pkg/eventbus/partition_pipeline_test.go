@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IBM/sarama"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,5 +52,50 @@ func TestDecideCommitable(t *testing.T) {
 	t.Run("Envelope 失败 → commitEnvelopeFail（走异步 DLQ）", func(t *testing.T) {
 		e := &inflightEntry{isEnvelope: true}
 		assert.Equal(t, commitEnvelopeFail, decideCommitable(e, errors.New("boom")))
+	})
+}
+
+// TestAdvanceFrontier_T1 乱序完成无空洞：completion 乱序到达，但提交严格升序、max==连续前沿
+func TestAdvanceFrontier_T1(t *testing.T) {
+	t.Run("乱序完成只推进连续前缀", func(t *testing.T) {
+		inflight := map[int64]*inflightEntry{}
+		var frontier int64 = 10
+		mk := func(off int64) *sarama.ConsumerMessage { return &sarama.ConsumerMessage{Offset: off} }
+
+		// 乱序：12 先完成，但队头 10 未完成 → 连续前缀被队头阻塞，不应推进
+		inflight[12] = &inflightEntry{msg: mk(12), settled: true, commitable: true}
+		last := advanceFrontier(inflight, &frontier)
+		assert.Nil(t, last, "队头 10 未完成：12 单独完成不应让 frontier 越过 10")
+		assert.Equal(t, int64(10), frontier, "队头阻塞，不推进")
+
+		// 10、11 随后完成 → 连续前缀 10/11/12 全部就绪 → 一次性推进到 13，mark-once 最高位 12
+		inflight[10] = &inflightEntry{msg: mk(10), settled: true, commitable: true}
+		inflight[11] = &inflightEntry{msg: mk(11), settled: true, commitable: true}
+		last = advanceFrontier(inflight, &frontier)
+		require.NotNil(t, last)
+		assert.Equal(t, int64(12), last.Offset, "mark-once：连续 10/11/12 只 Mark 最高位 12")
+		assert.Equal(t, int64(13), frontier, "连续前缀推进到 13")
+		assert.Empty(t, inflight, "已推进的 entry 全部删除")
+	})
+
+	t.Run("DLQ 进行中不越过", func(t *testing.T) {
+		inflight := map[int64]*inflightEntry{}
+		var frontier int64 = 10
+		mk := func(off int64) *sarama.ConsumerMessage { return &sarama.ConsumerMessage{Offset: off} }
+		inflight[10] = &inflightEntry{msg: mk(10), settled: true, dlqPending: true} // 10 在 DLQ 中
+		inflight[11] = &inflightEntry{msg: mk(11), settled: true, commitable: true}
+		last := advanceFrontier(inflight, &frontier)
+		assert.Nil(t, last, "队头 10 的 dlqPending 阻挡，不应推进")
+		assert.Equal(t, int64(10), frontier)
+	})
+
+	t.Run("纯失败 Envelope（commitable=false）阻塞前沿", func(t *testing.T) {
+		inflight := map[int64]*inflightEntry{}
+		var frontier int64 = 10
+		mk := func(off int64) *sarama.ConsumerMessage { return &sarama.ConsumerMessage{Offset: off} }
+		inflight[10] = &inflightEntry{msg: mk(10), settled: true, commitable: false}
+		last := advanceFrontier(inflight, &frontier)
+		assert.Nil(t, last)
+		assert.Equal(t, int64(10), frontier, "策略 A：队头不可提交 → 阻塞")
 	})
 }

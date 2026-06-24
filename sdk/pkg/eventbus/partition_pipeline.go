@@ -50,3 +50,19 @@ func decideCommitable(e *inflightEntry, err error) commitDecision {
 type partitionPipeline struct {
 	cfg PipelineConfig
 }
+
+// advanceFrontier 推进连续前缀，返回推进段最高位 msg（供 mark-once）。仅主 goroutine 调用，纯 map 操作。
+// 停于：未到达 / 未 settled / DLQ 进行中（dlqPending）/ 不可提交（commitable=false，策略 A 阻塞点）。
+func advanceFrontier(inflight map[int64]*inflightEntry, frontier *int64) *sarama.ConsumerMessage {
+	var last *sarama.ConsumerMessage
+	for {
+		fe, ok := inflight[*frontier]
+		if !ok || !fe.settled || fe.dlqPending || !fe.commitable {
+			break
+		}
+		last = fe.msg
+		delete(inflight, *frontier)
+		*frontier++
+	}
+	return last
+}
