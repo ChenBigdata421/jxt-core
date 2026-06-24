@@ -3,6 +3,7 @@ package eventbus
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -160,5 +161,54 @@ func TestForwardCompletion_T17(t *testing.T) {
 		c := <-compCh
 		assert.False(t, c.canceled)
 		assert.Error(t, c.err)
+	})
+}
+
+// fakeDLQ 受控的 DLQSender：可设定延迟、结果、是否被调用。
+type fakeDLQ struct {
+	delay time.Duration
+	ok    bool
+	calls int32
+}
+
+func (f *fakeDLQ) Send(ctx context.Context, msg *sarama.ConsumerMessage) bool {
+	atomic.AddInt32(&f.calls, 1)
+	if f.delay > 0 {
+		select {
+		case <-time.After(f.delay):
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return f.ok
+}
+
+// TestSendDLQ 异步 DLQ：独立 ctx、结果经 dlqDoneCh 回送
+func TestSendDLQ(t *testing.T) {
+	t.Run("成功 → ok=true（T13 成功路）", func(t *testing.T) {
+		p := &partitionPipeline{cfg: PipelineConfig{DLQTimeout: time.Second}, dlq: &fakeDLQ{ok: true}}
+		dlqDoneCh := make(chan dlqResult, 4)
+		msg := &sarama.ConsumerMessage{Offset: 5}
+		sendDLQ(p, 5, msg, dlqDoneCh)
+		r := <-dlqDoneCh
+		assert.Equal(t, int64(5), r.offset)
+		assert.True(t, r.ok)
+	})
+
+	t.Run("失败 → ok=false（T13 失败路 → 策略 A 阻塞）", func(t *testing.T) {
+		p := &partitionPipeline{cfg: PipelineConfig{DLQTimeout: time.Second}, dlq: &fakeDLQ{ok: false}}
+		dlqDoneCh := make(chan dlqResult, 4)
+		sendDLQ(p, 5, &sarama.ConsumerMessage{Offset: 5}, dlqDoneCh)
+		r := <-dlqDoneCh
+		assert.False(t, r.ok)
+	})
+
+	t.Run("T15 用独立 ctx：session ctx 取消不打断在飞 DLQ", func(t *testing.T) {
+		// dlqTimeout 1s，DLQ 延迟 50ms。即便外层 session ctx 已取消，DLQ 仍应跑完返回 ok。
+		p := &partitionPipeline{cfg: PipelineConfig{DLQTimeout: time.Second}, dlq: &fakeDLQ{ok: true, delay: 50 * time.Millisecond}}
+		dlqDoneCh := make(chan dlqResult, 4)
+		sendDLQ(p, 5, &sarama.ConsumerMessage{Offset: 5}, dlqDoneCh)
+		r := <-dlqDoneCh
+		assert.True(t, r.ok, "独立 ctx 使 DLQ 不被 session 取消腰斩")
 	})
 }

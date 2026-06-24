@@ -140,3 +140,23 @@ func forwardCompletion(ctx context.Context, off int64, done <-chan error, compCh
 		}
 	}
 }
+
+// sendDLQ 在独立于 session 的 ctx 上异步投递 DLQ，结果经 dlqDoneCh 回送（事件循环零网络 I/O）。
+// ⭐ 用 context.Background() + dlqTimeout：rebalance/关闭不打断在飞 DLQ（设计 §4.3/T15），
+//
+//	避免「ctx 取消 → ok=false → 误告警毒消息」竞态。代价：DLQ goroutine 生命周期由 dlqTimeout 界定，
+//	dlqTimeout × windowSize 上界保证有界、不泄漏。
+//
+// 若 p.dlq == nil（未配置 DLQ），直接回送 ok=false（→ 策略 A 阻塞 + 告警）。
+func sendDLQ(p *partitionPipeline, off int64, msg *sarama.ConsumerMessage, dlqDoneCh chan<- dlqResult) {
+	go func() {
+		if p.dlq == nil {
+			dlqDoneCh <- dlqResult{offset: off, ok: false}
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), p.cfg.DLQTimeout)
+		defer cancel()
+		ok := p.dlq.Send(ctx, msg) // 网络 I/O 在事件循环外，自带退避重试由实现负责
+		dlqDoneCh <- dlqResult{offset: off, ok: ok}
+	}()
+}
