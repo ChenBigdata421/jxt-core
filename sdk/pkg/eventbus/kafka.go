@@ -131,7 +131,7 @@ type kafkaEventBus struct {
 
 	// 多租户 ACK 通道支持
 	tenantPublishResultChans map[int]chan *PublishResult // key: tenantID, value: ACK channel
-	tenantChannelsMu         sync.RWMutex                 // 保护 tenantPublishResultChans 的读写锁
+	tenantChannelsMu         sync.RWMutex                // 保护 tenantPublishResultChans 的读写锁
 
 	// 🔥 高频路径：改为 sync.Map（消息处理时无锁查找）
 	// 订阅管理（用于重连后恢复订阅）- 保持兼容性
@@ -974,8 +974,11 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 	}
 }
 
-// processMessageWithKeyedPool 使用 Hollywood Actor Pool 处理消息（统一架构）
-func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context.Context, message *sarama.ConsumerMessage, wrapper *handlerWrapper, session sarama.ConsumerGroupSession) error {
+// buildAggregateMessage 构造提交给 actor pool 的 AggregateMessage（含 Done chan），不阻塞。
+// 从 processMessageWithKeyedPool 抽出供流水线复用（DRY）。路由策略与字段填充保持原语义。
+func (h *preSubscriptionConsumerHandler) buildAggregateMessage(
+	ctx context.Context, message *sarama.ConsumerMessage, wrapper *handlerWrapper,
+) *AggregateMessage {
 	// 转换 Headers 为 map
 	headersMap := make(map[string]string, len(message.Headers))
 	for _, header := range message.Headers {
@@ -996,11 +999,6 @@ func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context
 		routingKey = fmt.Sprintf("rr-%d", index)
 	}
 
-	pool := h.eventBus.globalActorPool
-	if pool == nil {
-		return fmt.Errorf("hollywood actor pool not initialized")
-	}
-
 	aggMsg := &AggregateMessage{
 		Topic:       message.Topic,
 		Partition:   message.Partition,
@@ -1018,6 +1016,17 @@ func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context
 	for _, header := range message.Headers {
 		aggMsg.Headers[string(header.Key)] = header.Value
 	}
+	return aggMsg
+}
+
+// processMessageWithKeyedPool 使用 Hollywood Actor Pool 处理消息（统一架构）
+func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context.Context, message *sarama.ConsumerMessage, wrapper *handlerWrapper, session sarama.ConsumerGroupSession) error {
+	pool := h.eventBus.globalActorPool
+	if pool == nil {
+		return fmt.Errorf("hollywood actor pool not initialized")
+	}
+
+	aggMsg := h.buildAggregateMessage(ctx, message, wrapper)
 
 	// 提交到 Actor Pool
 	if err := pool.ProcessMessage(ctx, aggMsg); err != nil {
