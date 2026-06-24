@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -509,4 +510,73 @@ func TestRun_T6(t *testing.T) {
 	<-time.After(100 * time.Millisecond)
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&buildCount), "严禁对旧 offset re-submit：buildAggMsg 对 offset 10 只能调用一次")
+}
+
+// TestRun_T9 反复 rebalance 不泄漏 goroutine（bridge 有界、compCh buffer 足够）
+func TestRun_T9(t *testing.T) {
+	before := runtime.NumGoroutine()
+	for i := 0; i < 20; i++ {
+		p, compCh, dlqDoneCh := newPipelineForTest(8)
+		ctx, cancel := context.WithCancel(context.Background())
+		msgs := make(chan *sarama.ConsumerMessage, 8)
+		for off := int64(0); off < 8; off++ {
+			msgs <- &sarama.ConsumerMessage{Offset: off}
+		}
+		close(msgs)
+		done := make(chan struct{})
+		go func() { _ = p.run(ctx, msgs, &fakeMarker{}, compCh, dlqDoneCh); close(done) }()
+		<-time.After(30 * time.Millisecond)
+		cancel() // bridge 经 ctx.Done 分支退出
+		<-done
+	}
+	// ⭐ P2-3：轮询等 bridge goroutine 退出后再计数（避免调度抖动假阳/假阴），阈值收紧到 +2
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var after int
+	for time.Now().Before(deadline) {
+		runtime.GC()
+		after = runtime.NumGoroutine()
+		if after <= before+2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	assert.LessOrEqual(t, after, before+2, "反复 rebalance 后 goroutine 不应净增长（bridge 经 ctx.Done 退出、不泄漏）")
+}
+
+// TestRun_T10 compCh nil 守卫：构造 offset 不在 inflight 的 completion，不 panic
+func TestRun_T10(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(8)
+	ctx, cancel := context.WithCancel(context.Background())
+	msgs := make(chan *sarama.ConsumerMessage, 1)
+	close(msgs) // 无消息
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, &fakeMarker{}, compCh, dlqDoneCh); close(done) }()
+	compCh <- completion{offset: 9999, err: nil} // 不在 inflight（compCh 即 run 在用的同一 chan，A1）
+	cancel()
+	<-done // 不 panic 即通过
+}
+
+// TestRun_T16 windowSize=1 与现状串行行为等价（提交升序、无并发放大）
+func TestRun_T16(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(1) // windowSize=1
+	pool := p.pool.(*fakePool)
+	p.dlq = &fakeDLQ{ok: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	msgs := make(chan *sarama.ConsumerMessage, 5)
+	for off := int64(0); off < 5; off++ {
+		msgs <- &sarama.ConsumerMessage{Offset: off}
+	}
+	close(msgs)
+	marker := &fakeMarker{}
+	go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh) }()
+	<-time.After(50 * time.Millisecond)
+	// windowSize=1：同一时刻最多一条在飞
+	require.Len(t, pool.submitted, 1)
+	pool.submitted[0].Done <- nil // 完成第一条
+	<-time.After(50 * time.Millisecond)
+	cancel()
+	// 每完成一条才读下一条 → 提交严格升序、无空洞
+	for i := 1; i < len(marker.marked); i++ {
+		assert.Greater(t, marker.marked[i], marker.marked[i-1])
+	}
 }
