@@ -580,3 +580,34 @@ func TestRun_T16(t *testing.T) {
 		assert.Greater(t, marker.marked[i], marker.marked[i-1])
 	}
 }
+
+// fakeSession 实现 sarama.ConsumerGroupSession 用到的子集（MarkMessage + Context 功能性，其余 no-op）。
+// 方法集对齐 sarama v1.46.0 的 ConsumerGroupSession 接口（8 个方法）。
+type fakeSession struct {
+	marked []int64
+	ctx    context.Context
+}
+
+func (s *fakeSession) Claims() map[string][]int32               { return nil }
+func (s *fakeSession) MemberID() string                         { return "" }
+func (s *fakeSession) GenerationID() int32                      { return 0 }
+func (s *fakeSession) MarkOffset(string, int32, int64, string)  {}
+func (s *fakeSession) Commit()                                  {}
+func (s *fakeSession) ResetOffset(string, int32, int64, string) {}
+func (s *fakeSession) MarkMessage(msg *sarama.ConsumerMessage, _ string) {
+	s.marked = append(s.marked, msg.Offset)
+}
+func (s *fakeSession) Context() context.Context {
+	if s.ctx == nil {
+		return context.Background()
+	}
+	return s.ctx
+}
+
+// TestSaramaSessionMarker 验证适配器把 MarkMessage 调用透传到底层 sarama session。
+func TestSaramaSessionMarker(t *testing.T) {
+	s := &fakeSession{}
+	m := saramaSessionMarker{s: s}
+	m.MarkMessage(&sarama.ConsumerMessage{Offset: 3}, "")
+	assert.Equal(t, []int64{3}, s.marked)
+}

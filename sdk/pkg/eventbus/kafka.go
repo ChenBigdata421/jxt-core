@@ -893,6 +893,27 @@ type preSubscriptionConsumerHandler struct {
 	eventBus *kafkaEventBus
 }
 
+// saramaSessionMarker 把 sarama.ConsumerGroupSession 适配为流水线的 offsetMarker（窄接口）。
+type saramaSessionMarker struct{ s sarama.ConsumerGroupSession }
+
+// MarkMessage 透传到 sarama session（offsetMarker 契约）。
+func (m saramaSessionMarker) MarkMessage(msg *sarama.ConsumerMessage, metadata string) {
+	m.s.MarkMessage(msg, metadata)
+}
+
+// pipelineConfig 返回消费流水线配置；未配置（零值）时返回安全默认（关闭）。
+func (k *kafkaEventBus) pipelineConfig() PipelineConfig {
+	if k.config.Consumer.Pipeline == (PipelineConfig{}) {
+		return defaultPipelineConfig()
+	}
+	return k.config.Consumer.Pipeline
+}
+
+// consumerConfig 返回消费者配置（供流水线读取 SessionTimeout 等）。
+func (k *kafkaEventBus) consumerConfig() ConsumerConfig {
+	return k.config.Consumer
+}
+
 // Setup 消费者组设置
 func (h *preSubscriptionConsumerHandler) Setup(sarama.ConsumerGroupSession) error {
 	h.eventBus.logger.Info("Pre-subscription consumer group session started")
@@ -908,6 +929,11 @@ func (h *preSubscriptionConsumerHandler) Cleanup(sarama.ConsumerGroupSession) er
 // ConsumeClaim 预订阅消费消息 - 根据topic路由到激活的handler
 func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	ctx := session.Context()
+
+	// ⭐ 流水线路径（feature flag 开启时）：分区内 N 在飞 + 连续前缀提交（见 partition_pipeline.go）
+	if pipelineCfg := h.eventBus.pipelineConfig(); pipelineCfg.Enabled {
+		return h.consumeWithPipeline(ctx, session, claim, pipelineCfg)
+	}
 
 	for {
 		select {
@@ -1060,6 +1086,56 @@ func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// resolveWrapper 一次性解析 claim 对应 topic 的 handler wrapper（nil=未激活）。
+// sarama 一个 ConsumerGroupClaim = 单 (topic, partition)，故整 claim 共用一个 wrapper。
+func (h *preSubscriptionConsumerHandler) resolveWrapper(claim sarama.ConsumerGroupClaim) *handlerWrapper {
+	wrapperAny, exists := h.eventBus.activeTopicHandlers.Load(claim.Topic())
+	if !exists {
+		return nil
+	}
+	return wrapperAny.(*handlerWrapper)
+}
+
+// consumeWithPipeline 用 partitionPipeline 消费一个 claim（claim 单 topic，故 wrapper 一次性解析）。
+//
+// ⭐ P1-1（已对源码核实）：未激活 topic **绝不进流水线**。
+// 若合成占位 AggregateMessage，其 AggregateID 为空 → ProcessMessage 直接返回 error、不入队 →
+// Done 永不被写 → bridge 阻塞 → inflight 不 settle → frontier 卡在首条 → 队头阻塞其后的所有真消息。
+// 故镜像 legacy（ConsumeClaim 中未激活 topic 分支）直接 drain + MarkMessage。
+func (h *preSubscriptionConsumerHandler) consumeWithPipeline(
+	ctx context.Context,
+	session sarama.ConsumerGroupSession,
+	claim sarama.ConsumerGroupClaim,
+	cfg PipelineConfig,
+) error {
+	wrapper := h.resolveWrapper(claim) // claim 单 topic：一次性解析；nil = 未激活 topic
+	if wrapper == nil {
+		for {
+			select {
+			case msg := <-claim.Messages():
+				if msg == nil {
+					return nil
+				}
+				session.MarkMessage(msg, "")
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	}
+
+	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, h.eventBus.consumerConfig().SessionTimeout)
+	marker := saramaSessionMarker{s: session}
+	p.dlq = wrapper.dlq // 一次性设置（可选；nil 时 envelope 失败走策略 A 阻塞）
+
+	// buildAggMsg：复用抽出的 buildAggregateMessage（不再阻塞等 Done）。wrapper 必非 nil（上方已早返）。
+	p.buildAggMsg = func(message *sarama.ConsumerMessage) *AggregateMessage {
+		return h.buildAggregateMessage(ctx, message, wrapper)
+	}
+
+	p.pool = h.eventBus.globalActorPool
+	return p.run(ctx, claim.Messages(), marker, compCh, dlqDoneCh) // A1：chan 由调用方传入（守护真正在用的 chan）
 }
 
 // initEnterpriseFeatures 初始化企业级特性

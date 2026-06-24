@@ -27,7 +27,8 @@ type MessageHandler func(ctx context.Context, message []byte) error
 // ⭐ 用于区分 Envelope 消息（at-least-once）和普通消息（at-most-once）
 type handlerWrapper struct {
 	handler    MessageHandler
-	isEnvelope bool // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
+	isEnvelope bool      // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
+	dlq        DLQSender // 可选；nil 时 envelope 失败走策略 A 阻塞（流水线路径用）
 }
 
 // PublishResult 异步发布结果
@@ -63,7 +64,7 @@ type AggregateMessage struct {
 	Context     context.Context
 	Done        chan error
 	Handler     MessageHandler // 每个消息携带自己的 handler（支持全局池）
-	IsEnvelope  bool          // 标记是否是 Envelope 消息（at-least-once 语义）
+	IsEnvelope  bool           // 标记是否是 Envelope 消息（at-least-once 语义）
 }
 
 // EventBus 统一事件总线接口（合并基础功能和企业特性）
@@ -582,21 +583,21 @@ type ConsumerConfig struct {
 	FetchMaxWait      time.Duration `mapstructure:"fetchMaxWait"`      // 最大等待时间 (默认: 500ms)
 
 	// 高级技术字段 (程序员专用)
-	MaxPollRecords     int           `mapstructure:"maxPollRecords"`     // 最大轮询记录数 (默认: 500)
-	EnableAutoCommit   bool          `mapstructure:"enableAutoCommit"`   // 启用自动提交 (默认: false)
-	AutoCommitInterval time.Duration `mapstructure:"autoCommitInterval"` // 自动提交间隔 (默认: 5s)
-	IsolationLevel     string        `mapstructure:"isolationLevel"`     // 隔离级别 (默认: "read_committed")
-	RebalanceStrategy  string        `mapstructure:"rebalanceStrategy"`  // 再平衡策略 (默认: "range")
-	Pipeline           PipelineConfig `mapstructure:"pipeline"`          // 分区内消费流水线配置（默认关闭，灰度显式开启）
+	MaxPollRecords     int            `mapstructure:"maxPollRecords"`     // 最大轮询记录数 (默认: 500)
+	EnableAutoCommit   bool           `mapstructure:"enableAutoCommit"`   // 启用自动提交 (默认: false)
+	AutoCommitInterval time.Duration  `mapstructure:"autoCommitInterval"` // 自动提交间隔 (默认: 5s)
+	IsolationLevel     string         `mapstructure:"isolationLevel"`     // 隔离级别 (默认: "read_committed")
+	RebalanceStrategy  string         `mapstructure:"rebalanceStrategy"`  // 再平衡策略 (默认: "range")
+	Pipeline           PipelineConfig `mapstructure:"pipeline"`           // 分区内消费流水线配置（默认关闭，灰度显式开启）
 }
 
 // PipelineConfig 分区内消费流水线配置（见 docs/perftest/消费循环流水线优化设计.md）。
 // 默认 Enabled=false：灰度时显式开启。windowSize>1 的灰度须在扩分区（P0）之后（决策 2-A）。
 type PipelineConfig struct {
-	Enabled     bool          `mapstructure:"enabled"`     // 功能开关，默认 false
-	WindowSize  int           `mapstructure:"windowSize"`  // 最大在飞数，默认 16
+	Enabled      bool          `mapstructure:"enabled"`      // 功能开关，默认 false
+	WindowSize   int           `mapstructure:"windowSize"`   // 最大在飞数，默认 16
 	FlushTimeout time.Duration `mapstructure:"flushTimeout"` // ctx.Done 后限时冲刷，必须 < sessionTimeout/2
-	DLQTimeout  time.Duration `mapstructure:"dlqTimeout"`   // 异步 DLQ 投递超时（独立于 session ctx）
+	DLQTimeout   time.Duration `mapstructure:"dlqTimeout"`   // 异步 DLQ 投递超时（独立于 session ctx）
 }
 
 // defaultPipelineConfig 返回安全的默认配置（关闭）。
