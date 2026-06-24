@@ -587,6 +587,42 @@ type ConsumerConfig struct {
 	AutoCommitInterval time.Duration `mapstructure:"autoCommitInterval"` // 自动提交间隔 (默认: 5s)
 	IsolationLevel     string        `mapstructure:"isolationLevel"`     // 隔离级别 (默认: "read_committed")
 	RebalanceStrategy  string        `mapstructure:"rebalanceStrategy"`  // 再平衡策略 (默认: "range")
+	Pipeline           PipelineConfig `mapstructure:"pipeline"`          // 分区内消费流水线配置（默认关闭，灰度显式开启）
+}
+
+// PipelineConfig 分区内消费流水线配置（见 docs/perftest/消费循环流水线优化设计.md）。
+// 默认 Enabled=false：灰度时显式开启。windowSize>1 的灰度须在扩分区（P0）之后（决策 2-A）。
+type PipelineConfig struct {
+	Enabled     bool          `mapstructure:"enabled"`     // 功能开关，默认 false
+	WindowSize  int           `mapstructure:"windowSize"`  // 最大在飞数，默认 16
+	FlushTimeout time.Duration `mapstructure:"flushTimeout"` // ctx.Done 后限时冲刷，必须 < sessionTimeout/2
+	DLQTimeout  time.Duration `mapstructure:"dlqTimeout"`   // 异步 DLQ 投递超时（独立于 session ctx）
+}
+
+// defaultPipelineConfig 返回安全的默认配置（关闭）。
+// 注：FlushTimeout 默认 4s 而非 5s——必须在常见 sessionTimeout=10s 下严格满足
+// `FlushTimeout < sessionTimeout/2` 不变量（5s == 5s 会违反，见 validate）。
+func defaultPipelineConfig() PipelineConfig {
+	return PipelineConfig{
+		Enabled:      false,
+		WindowSize:   16,
+		FlushTimeout: 4 * time.Second,
+		DLQTimeout:   30 * time.Second,
+	}
+}
+
+// validate 校验不变量：windowSize 合法、flushTimeout < sessionTimeout/2（决策：flush 必须显著小于会话超时）。
+func (c PipelineConfig) validate(sessionTimeout time.Duration) error {
+	if c.WindowSize < 1 {
+		return fmt.Errorf("pipeline.windowSize must be >= 1, got %d", c.WindowSize)
+	}
+	if sessionTimeout > 0 && c.FlushTimeout >= sessionTimeout/2 {
+		return fmt.Errorf("pipeline.flushTimeout (%s) must be < sessionTimeout/2 (%s)", c.FlushTimeout, sessionTimeout/2)
+	}
+	if c.DLQTimeout <= 0 {
+		return fmt.Errorf("pipeline.dlqTimeout must be > 0")
+	}
+	return nil
 }
 
 // NetConfig 网络配置 - 程序员专用配置
