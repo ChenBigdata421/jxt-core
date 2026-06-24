@@ -3,6 +3,8 @@ package eventbus
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -428,4 +430,83 @@ func TestRun_Backpressure(t *testing.T) {
 	<-time.After(100 * time.Millisecond)
 	cancel()
 	<-done
+}
+
+// TestRun_T5 同聚合多在飞仍按 offset 升序执行（扩展现有 OrderGuarantee 到多在飞场景）
+func TestRun_T5(t *testing.T) {
+	// 用真实 HollywoodActorPool：同聚合哈希到同一 actor，邮箱 FIFO
+	metrics := &NoOpActorPoolMetricsCollector{}
+	pool := NewHollywoodActorPool(HollywoodActorPoolConfig{PoolSize: 8, InboxSize: 100, MaxRestarts: 3}, metrics)
+	defer pool.Stop()
+
+	var mu sync.Mutex
+	var order []int64
+	handler := func(_ context.Context, value []byte) error {
+		off := int64(0)
+		fmt.Sscanf(string(value), "%d", &off)
+		mu.Lock()
+		order = append(order, off)
+		mu.Unlock()
+		return nil
+	}
+
+	cfg := PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 100 * time.Millisecond, DLQTimeout: 200 * time.Millisecond}
+	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, 10*time.Second)
+	p.pool = pool
+	p.buildAggMsg = func(m *sarama.ConsumerMessage) *AggregateMessage {
+		return &AggregateMessage{
+			Offset: m.Offset, Value: m.Value, AggregateID: "same-agg", // 同聚合 → 同 actor
+			Done: make(chan error, 1), Handler: handler, IsEnvelope: false,
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	msgs := make(chan *sarama.ConsumerMessage, 8)
+	for _, off := range []int64{10, 11, 12, 13, 14} {
+		msgs <- &sarama.ConsumerMessage{Offset: off, Value: []byte(fmt.Sprintf("%d", off))}
+	}
+	close(msgs)
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, &fakeMarker{}, compCh, dlqDoneCh); close(done) }()
+	<-time.After(300 * time.Millisecond) // 等全部处理
+	cancel()
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, order, 5)
+	assert.Equal(t, []int64{10, 11, 12, 13, 14}, order, "同聚合多在飞仍按 offset 升序执行")
+}
+
+// TestRun_T6 队头阻塞期间不对旧 offset 做 re-submit（回归守护）
+func TestRun_T6(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(8)
+	pool := p.pool.(*fakePool)
+	p.dlq = &fakeDLQ{ok: false} // 让 offset 10 永久阻塞
+
+	// ⭐ P2-2：数 buildAggMsg 调用（真正的 re-submit 面），而非 pool.submitted（后者可能被 flush 空窗掩盖）
+	var buildCount int32
+	origBuild := p.buildAggMsg
+	p.buildAggMsg = func(m *sarama.ConsumerMessage) *AggregateMessage {
+		if m.Offset == 10 {
+			atomic.AddInt32(&buildCount, 1)
+		}
+		return origBuild(m)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	msgs := make(chan *sarama.ConsumerMessage, 4)
+	msgs <- &sarama.ConsumerMessage{Offset: 10}
+	close(msgs)
+
+	go func() { _ = p.run(ctx, msgs, &fakeMarker{}, compCh, dlqDoneCh) }()
+	<-time.After(50 * time.Millisecond)
+	pool.submitted[0].Done <- errors.New("fail") // 触发 DLQ → 失败 → 阻塞
+	<-time.After(200 * time.Millisecond)
+
+	cancel()
+	<-time.After(100 * time.Millisecond)
+
+	assert.Equal(t, int32(1), atomic.LoadInt32(&buildCount), "严禁对旧 offset re-submit：buildAggMsg 对 offset 10 只能调用一次")
 }
