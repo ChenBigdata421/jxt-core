@@ -160,3 +160,72 @@ func sendDLQ(p *partitionPipeline, off int64, msg *sarama.ConsumerMessage, dlqDo
 		dlqDoneCh <- dlqResult{offset: off, ok: ok}
 	}()
 }
+
+// flush 在主循环 ctx.Done 后限时冲刷。同时 drain compCh 与 dlqDoneCh，提交可推进的连续前缀；
+// 超时即返回，未 resolved 的留给 rebalance 重投递。冲刷期不新起 DLQ（Envelope 业务失败一律留待重投递）。
+//
+// ⭐ 决策 1-A / §4.6：据 completion.canceled 正向信号判定「取消」，不嗅探错误类型。
+func flush(
+	marker offsetMarker,
+	inflight map[int64]*inflightEntry,
+	frontier *int64,
+	compCh <-chan completion,
+	dlqDoneCh <-chan dlqResult,
+	alert poisonAlerter,
+	timeout time.Duration,
+) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	unresolved := func() int { // 未 settled 或 DLQ 进行中
+		n := 0
+		for _, e := range inflight {
+			if !e.settled || e.dlqPending {
+				n++
+			}
+		}
+		return n
+	}
+	commit := func() { // 推进连续前缀 + mark-once
+		if last := advanceFrontier(inflight, frontier); last != nil {
+			marker.MarkMessage(last, "")
+		}
+	}
+
+drain:
+	for unresolved() > 0 {
+		select {
+		case c := <-compCh:
+			e := inflight[c.offset]
+			if e == nil || e.settled {
+				continue // nil 守卫 + 幂等
+			}
+			e.settled = true
+			// ⭐ 区分 ctx 取消 vs 业务失败：用正向信号 c.canceled（不嗅探错误类型）；冲刷期 Envelope 失败不起 DLQ，留待重投递
+			if c.canceled {
+				e.commitable = false
+			} else {
+				switch decideCommitable(e, c.err) {
+				case commitSuccess, commitRegularFail:
+					e.commitable = true
+				case commitEnvelopeFail:
+					e.commitable = false // 下次 claim 再走正常异步 DLQ 路径
+				}
+			}
+			commit()
+		case r := <-dlqDoneCh: // 拆除前已起的 DLQ 在此收尾
+			e := inflight[r.offset]
+			if e == nil {
+				continue
+			}
+			e.dlqPending = false
+			e.commitable = r.ok
+			if !r.ok {
+				alert.AlertPoisonMessage(e.msg) // 策略 A 强告警
+			}
+			commit()
+		case <-timer.C:
+			break drain // 超时：未 resolved 的留待重投递
+		}
+	}
+}

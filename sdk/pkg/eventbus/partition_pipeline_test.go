@@ -212,3 +212,79 @@ func TestSendDLQ(t *testing.T) {
 		assert.True(t, r.ok, "独立 ctx 使 DLQ 不被 session 取消腰斩")
 	})
 }
+
+// fakeMarker 记录 MarkMessage 的调用序列（验证 mark-once 与升序）。
+type fakeMarker struct {
+	marked []int64
+}
+
+func (m *fakeMarker) MarkMessage(msg *sarama.ConsumerMessage, _ string) {
+	m.marked = append(m.marked, msg.Offset)
+}
+
+// TestFlush_T4_T11_T14 限时冲刷、canceled 正向信号、不新起 DLQ
+func TestFlush_T4_T11_T14(t *testing.T) {
+	t.Run("T14 冲刷期 Envelope 业务失败不新起 DLQ，置 commitable=false", func(t *testing.T) {
+		inflight := map[int64]*inflightEntry{}
+		var frontier int64 = 10
+		mk := func(o int64) *sarama.ConsumerMessage { return &sarama.ConsumerMessage{Offset: o} }
+		inflight[10] = &inflightEntry{msg: mk(10), isEnvelope: true}
+		compCh := make(chan completion, 4)
+		dlqDoneCh := make(chan dlqResult, 4)
+		compCh <- completion{offset: 10, err: errors.New("envelope fail"), canceled: false}
+
+		marker := &fakeMarker{}
+		flush(marker, inflight, &frontier, compCh, dlqDoneCh, noopAlerter{}, 200*time.Millisecond)
+
+		assert.False(t, inflight[10].commitable, "冲刷期 envelope 失败 → commitable=false 留待重投递")
+		assert.Equal(t, int64(10), frontier, "不推进")
+		assert.Empty(t, marker.marked, "不提交")
+	})
+
+	t.Run("ctx 取消（canceled=true）不当业务失败 → commitable=false 留待重投递", func(t *testing.T) {
+		inflight := map[int64]*inflightEntry{}
+		var frontier int64 = 10
+		inflight[10] = &inflightEntry{msg: &sarama.ConsumerMessage{Offset: 10}, isEnvelope: true}
+		compCh := make(chan completion, 4)
+		compCh <- completion{offset: 10, err: errors.New("grpc canceled"), canceled: true} // 正向信号，非错误类型
+		dlqDoneCh := make(chan dlqResult, 4)
+
+		marker := &fakeMarker{}
+		flush(marker, inflight, &frontier, compCh, dlqDoneCh, noopAlerter{}, 200*time.Millisecond)
+
+		assert.False(t, inflight[10].commitable)
+		assert.Equal(t, int64(10), frontier)
+	})
+
+	t.Run("T11 在飞 hang + flush 超时不死等", func(t *testing.T) {
+		inflight := map[int64]*inflightEntry{}
+		var frontier int64 = 10
+		inflight[10] = &inflightEntry{msg: &sarama.ConsumerMessage{Offset: 10}} // 永不 settle
+		compCh := make(chan completion, 4)                                      // 空，无 completion 到达
+		dlqDoneCh := make(chan dlqResult, 4)
+
+		start := time.Now()
+		flush(&fakeMarker{}, inflight, &frontier, compCh, dlqDoneCh, noopAlerter{}, 100*time.Millisecond)
+		elapsed := time.Since(start)
+		assert.Less(t, elapsed, 500*time.Millisecond, "必须在 timeout 内返回，不被 hang 卡死")
+		assert.Equal(t, int64(10), frontier, "未 settle → 不推进 → 留待重投递")
+	})
+
+	t.Run("已 settle 的连续前缀在 flush 内提交（mark-once）", func(t *testing.T) {
+		inflight := map[int64]*inflightEntry{}
+		var frontier int64 = 10
+		mk := func(o int64) *sarama.ConsumerMessage { return &sarama.ConsumerMessage{Offset: o} }
+		inflight[10] = &inflightEntry{msg: mk(10)}
+		inflight[11] = &inflightEntry{msg: mk(11)}
+		compCh := make(chan completion, 4)
+		compCh <- completion{offset: 11, err: nil, canceled: false}
+		compCh <- completion{offset: 10, err: nil, canceled: false}
+		dlqDoneCh := make(chan dlqResult, 4)
+
+		marker := &fakeMarker{}
+		// ⭐ P2-4：timer 取 1s（远大于两次即时读）；flush 在 unresolved()==0 时退出、timer 不会触发——确定性，无竞态窗。
+		flush(marker, inflight, &frontier, compCh, dlqDoneCh, noopAlerter{}, 1*time.Second)
+		assert.Equal(t, []int64{11}, marker.marked, "mark-once：连续 10/11 只 Mark 最高位 11")
+		assert.Equal(t, int64(12), frontier)
+	})
+}
