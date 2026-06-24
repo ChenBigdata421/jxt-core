@@ -1,6 +1,7 @@
 package eventbus
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -33,6 +34,22 @@ func TestPipelineConfig_Defaults(t *testing.T) {
 
 	t.Run("windowSize 非法应报错", func(t *testing.T) {
 		cfg := PipelineConfig{Enabled: true, WindowSize: 0, FlushTimeout: 5 * time.Second, DLQTimeout: 30 * time.Second}
-		assert.Error(t, cfg.validate(10 * time.Second))
+		assert.Error(t, cfg.validate(10*time.Second))
+	})
+}
+
+// TestDecideCommitable 验证三分支提交判定（无网络，纯逻辑）
+func TestDecideCommitable(t *testing.T) {
+	t.Run("成功 → commitSuccess", func(t *testing.T) {
+		e := &inflightEntry{isEnvelope: true}
+		assert.Equal(t, commitSuccess, decideCommitable(e, nil))
+	})
+	t.Run("普通消息失败 → commitRegularFail（at-most-once，丢弃）", func(t *testing.T) {
+		e := &inflightEntry{isEnvelope: false}
+		assert.Equal(t, commitRegularFail, decideCommitable(e, errors.New("boom")))
+	})
+	t.Run("Envelope 失败 → commitEnvelopeFail（走异步 DLQ）", func(t *testing.T) {
+		e := &inflightEntry{isEnvelope: true}
+		assert.Equal(t, commitEnvelopeFail, decideCommitable(e, errors.New("boom")))
 	})
 }
