@@ -595,10 +595,11 @@ type ConsumerConfig struct {
 // PipelineConfig 分区内消费流水线配置（见 docs/perftest/消费循环流水线优化设计.md）。
 // 默认 Enabled=false：灰度时显式开启。windowSize>1 的灰度须在扩分区（P0）之后（决策 2-A）。
 type PipelineConfig struct {
-	Enabled      bool          `mapstructure:"enabled"`      // 功能开关，默认 false
-	WindowSize   int           `mapstructure:"windowSize"`   // 最大在飞数，默认 16
-	FlushTimeout time.Duration `mapstructure:"flushTimeout"` // ctx.Done 后限时冲刷，必须 < sessionTimeout/2
-	DLQTimeout   time.Duration `mapstructure:"dlqTimeout"`   // 异步 DLQ 投递超时（独立于 session ctx）
+	Enabled           bool          `mapstructure:"enabled"`           // 功能开关，默认 false
+	WindowSize        int           `mapstructure:"windowSize"`        // 最大在飞数，默认 16
+	FlushTimeout      time.Duration `mapstructure:"flushTimeout"`      // ctx.Done 后限时冲刷，必须 < sessionTimeout/2
+	DLQTimeout        time.Duration `mapstructure:"dlqTimeout"`        // 异步 DLQ 投递超时（独立于 session ctx）
+	StallWarnInterval time.Duration `mapstructure:"stallWarnInterval"` // 慢 handler 停滞告警间隔：窗口满且前沿停滞超此时长 → warn（仅观测、无副作用；未配置=默认 10s，负值如 -1s=显式关闭）
 }
 
 // defaultPipelineConfig 返回安全的默认配置（关闭）。
@@ -606,10 +607,11 @@ type PipelineConfig struct {
 // `FlushTimeout < sessionTimeout/2` 不变量（5s == 5s 会违反，见 validate）。
 func defaultPipelineConfig() PipelineConfig {
 	return PipelineConfig{
-		Enabled:      false,
-		WindowSize:   16,
-		FlushTimeout: 4 * time.Second,
-		DLQTimeout:   30 * time.Second,
+		Enabled:           false,
+		WindowSize:        16,
+		FlushTimeout:      4 * time.Second,
+		DLQTimeout:        30 * time.Second,
+		StallWarnInterval: 10 * time.Second, // 默认开（纯观测、无副作用）；灰度盯「前沿停滞」以区分慢 handler 与毒消息
 	}
 }
 
@@ -618,6 +620,9 @@ func (c PipelineConfig) validate(sessionTimeout time.Duration) error {
 	if c.WindowSize < 1 {
 		return fmt.Errorf("pipeline.windowSize must be >= 1, got %d", c.WindowSize)
 	}
+	if c.FlushTimeout <= 0 {
+		return fmt.Errorf("pipeline.flushTimeout must be > 0")
+	}
 	if sessionTimeout > 0 && c.FlushTimeout >= sessionTimeout/2 {
 		return fmt.Errorf("pipeline.flushTimeout (%s) must be < sessionTimeout/2 (%s)", c.FlushTimeout, sessionTimeout/2)
 	}
@@ -625,6 +630,27 @@ func (c PipelineConfig) validate(sessionTimeout time.Duration) error {
 		return fmt.Errorf("pipeline.dlqTimeout must be > 0")
 	}
 	return nil
+}
+
+// applyPipelineDefaults 用默认值填充零字段，使「最自然的启用写法」pipeline:{enabled:true} 不致因 WindowSize=0
+// 等零字段在 validate → newPartitionPipeline 处 panic。旧 pipelineConfig 仅在整个结构体为零值时才补默认，
+// 任意非零字段即原样返回 → 部分配置 = 运行期 panic（ConsumeClaim 内，sarama 不 recover → 崩消费者/进程）。
+// Enabled 不默认：保持「未显式开启即关闭」（走 legacy 串行路径）。
+func applyPipelineDefaults(cfg PipelineConfig) PipelineConfig {
+	d := defaultPipelineConfig()
+	if cfg.WindowSize == 0 {
+		cfg.WindowSize = d.WindowSize
+	}
+	if cfg.FlushTimeout == 0 {
+		cfg.FlushTimeout = d.FlushTimeout
+	}
+	if cfg.DLQTimeout == 0 {
+		cfg.DLQTimeout = d.DLQTimeout
+	}
+	if cfg.StallWarnInterval == 0 {
+		cfg.StallWarnInterval = d.StallWarnInterval // 0=未配置→默认；负值原样保留（run 内 >0 判定为关闭）
+	}
+	return cfg
 }
 
 // NetConfig 网络配置 - 程序员专用配置

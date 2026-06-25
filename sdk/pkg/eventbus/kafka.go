@@ -919,12 +919,10 @@ func (a loggerPoisonAlerter) AlertPoisonMessage(msg PoisonMessage, cause error) 
 	)
 }
 
-// pipelineConfig 返回消费流水线配置；未配置（零值）时返回安全默认（关闭）。
+// pipelineConfig 返回消费流水线配置；零字段按默认补全（字段级默认，而非整结构体零值判断）——
+// 使 pipeline:{enabled:true} 这类部分配置也安全。Enabled 不默认：未显式置 true 即关闭（走 legacy 串行路径）。
 func (k *kafkaEventBus) pipelineConfig() PipelineConfig {
-	if k.config.Consumer.Pipeline == (PipelineConfig{}) {
-		return defaultPipelineConfig()
-	}
-	return k.config.Consumer.Pipeline
+	return applyPipelineDefaults(k.config.Consumer.Pipeline)
 }
 
 // consumerConfig 返回消费者配置（供流水线读取 SessionTimeout 等）。
@@ -1143,10 +1141,19 @@ func (h *preSubscriptionConsumerHandler) consumeWithPipeline(
 		}
 	}
 
+	// 防御：流水线依赖 actor pool；未初始化时不得进 run——否则 p.run 内 p.pool.ProcessMessage 会空指针 panic
+	// 直接崩掉 claim。镜像 legacy processMessageWithKeyedPool 的 nil 守卫；返回 error 让 sarama 显式失败而非静默崩。
+	if h.eventBus.globalActorPool == nil {
+		h.eventBus.logger.Error("partition pipeline enabled but globalActorPool not initialized; aborting claim",
+			zap.String("topic", claim.Topic()))
+		return fmt.Errorf("partition pipeline enabled but globalActorPool not initialized (topic %s)", claim.Topic())
+	}
+
 	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, h.eventBus.consumerConfig().SessionTimeout)
 	marker := saramaSessionMarker{s: session}
 	p.dlq = wrapper.dlq       // 一次性设置（可选；nil 时 envelope 失败走策略 A 阻塞）
 	p.alert = wrapper.alerter // 一次性设置；activateTopicHandler 已保证非 nil（未注入→logger 兜底）
+	p.log = h.eventBus.logger // 停滞告警日志通道（warnStall 内判 nil，未注入则静默）
 
 	// buildAggMsg：复用抽出的 buildAggregateMessage（不再阻塞等 Done）。wrapper 必非 nil（上方已早返）。
 	p.buildAggMsg = func(message *sarama.ConsumerMessage) *AggregateMessage {
@@ -2815,6 +2822,7 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 //	    // 同一订单的所有事件会路由到同一个 Actor，确保顺序处理
 //	    return processDomainEvent(env)
 //	})
+//
 // SubscribeEnvelope 订阅 Envelope 消息（at-least-once）。等价于不带选项的 SubscribeEnvelopeWithOptions：
 // 不注入 DLQ（业务失败走策略 A），告警器由 activateTopicHandler 兜底为 loggerPoisonAlerter（永不静默）。
 func (k *kafkaEventBus) SubscribeEnvelope(ctx context.Context, topic string, handler EnvelopeHandler) error {

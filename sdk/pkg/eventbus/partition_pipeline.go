@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	"go.uber.org/zap"
 )
 
 // commitDecision 是 decideCommitable 的纯逻辑判定结果（无网络 I/O）。
@@ -37,7 +38,7 @@ type completion struct {
 type dlqResult struct {
 	offset int64
 	ok     bool  // DLQ 投递成功=true（→commitable）；失败=false（→策略 A 阻塞前沿 + 告警）
-	cause error // 失败原因：p.dlq==nil 时为「未配置 DLQ」；否则为 Send 返回的 error。随告警上报，便于排查
+	cause  error // 失败原因：p.dlq==nil 时为「未配置 DLQ」；否则为 Send 返回的 error。随告警上报，便于排查
 }
 
 // decideCommitable 只做纯逻辑判定（无网络 I/O）。
@@ -108,8 +109,9 @@ func (noopAlerter) AlertPoisonMessage(PoisonMessage, error) {}
 type partitionPipeline struct {
 	cfg         PipelineConfig
 	pool        poolSubmitter
-	dlq         DLQSender   // 可为 nil（无 DLQ 时 envelope 失败直接策略 A 阻塞）
-	alert       PoisonAlerter // 默认 noopAlerter（构造期地板）；生产路径由 consumeWithPipeline 注入 loggerPoisonAlerter
+	dlq         DLQSender                                       // 可为 nil（无 DLQ 时 envelope 失败直接策略 A 阻塞）
+	alert       PoisonAlerter                                   // 默认 noopAlerter（构造期地板）；生产路径由 consumeWithPipeline 注入 loggerPoisonAlerter
+	log         *zap.Logger                                     // 可为 nil（nil 时停滞告警静默）；生产路径由 consumeWithPipeline 注入 eventbus logger
 	buildAggMsg func(*sarama.ConsumerMessage) *AggregateMessage // kafka.go 注入：构造含 Done 的 AggregateMessage
 }
 
@@ -195,6 +197,9 @@ func sendDLQ(p *partitionPipeline, off int64, msg *sarama.ConsumerMessage, cause
 // 超时即返回，未 resolved 的留给 rebalance 重投递。冲刷期不新起 DLQ（Envelope 业务失败一律留待重投递）。
 //
 // ⭐ 决策 1-A / §4.6：据 completion.canceled 正向信号判定「取消」，不嗅探错误类型。
+//
+// 注：本函数在 ctx.Done 分支运行，此时 session 已在被取消；sarama 可能丢弃取消后到达的 MarkMessage，
+// 故冲刷期提交为「尽力而为」——未生效的提交由下次 claim 的 rebalance 重投递覆盖（at-least-once 可接受）。
 func flush(
 	marker offsetMarker,
 	inflight map[int64]*inflightEntry,
@@ -269,6 +274,19 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 	inflight := map[int64]*inflightEntry{}
 	var frontier int64 = -1 // 哨兵；收到首条消息时置为首条 offset
 	closed := false         // messages chan 已关闭（claim 结束）：停读新消息，继续冲刷在飞项直到 inflight 清空
+	// 策略 A 退出说明：若前沿被毒消息（commitable=false）阻塞，inflight 永不清空 → `closed && len(inflight)==0`
+	// 不可达，run 改由 ctx.Done 分支返回（sarama 结束 claim 时取消 session ctx），毒消息留待下次 claim 重投递。
+
+	// 慢 handler 停滞告警：窗口满（背压）且前沿停滞 ≥ StallWarnInterval → warn。与毒消息告警（p.alert）区分——
+	// 毒消息是「单条永久失败」，停滞是「整窗被慢聚合 / actor 钉住、不推进」。StallWarnInterval<=0 或 nil log = 关闭
+	// （注：配置层 0 已被 applyPipelineDefaults 补成默认 10s，故显式关闭须用负值）。
+	var stallCh <-chan time.Time
+	lastAdvance := time.Now()
+	if p.cfg.StallWarnInterval > 0 {
+		stallTicker := time.NewTicker(p.cfg.StallWarnInterval)
+		defer stallTicker.Stop()
+		stallCh = stallTicker.C
+	}
 
 	for {
 		var msgCh <-chan *sarama.ConsumerMessage = messages
@@ -290,7 +308,7 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			}
 			aggMsg := p.buildAggMsg(msg)
 			inflight[msg.Offset] = &inflightEntry{msg: msg, isEnvelope: aggMsg.IsEnvelope}
-			_ = p.pool.ProcessMessage(ctx, aggMsg) // 异步，不等 Done
+			_ = p.pool.ProcessMessage(ctx, aggMsg) // 异步，不等 Done。返回值仅 AggregateID=="" 时非 nil（buildAggMsg 的 RR 兜底已杜绝该情形）；inbox 满时 engine.Send 静默丢消息、不报 error，由 stall 告警覆盖 → 此处安全忽略
 			// bridge：把这条的 Done 搬进 compCh（决策 1-A 非阻塞 drain）
 			go forwardCompletion(ctx, msg.Offset, aggMsg.Done, compCh)
 
@@ -313,6 +331,7 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			}
 			if last := advanceFrontier(inflight, &frontier); last != nil {
 				marker.MarkMessage(last, "") // mark-once
+				lastAdvance = time.Now()     // 前沿推进：重置停滞告警计时
 			}
 
 		case r := <-dlqDoneCh:
@@ -327,11 +346,33 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			}
 			if last := advanceFrontier(inflight, &frontier); last != nil {
 				marker.MarkMessage(last, "")
+				lastAdvance = time.Now() // 前沿推进：重置停滞告警计时
 			}
 
+		case <-stallCh:
+			// 窗口满（背压）且前沿停滞 ≥ StallWarnInterval：慢 handler / 热点聚合钉住某 actor，与毒消息告警区分。
+			// 刷新 lastAdvance 避免每个 tick 重复告警；下一窗再判。
+			if len(inflight) >= p.cfg.WindowSize && time.Since(lastAdvance) >= p.cfg.StallWarnInterval {
+				p.warnStall(frontier, len(inflight))
+				lastAdvance = time.Now()
+			}
 		case <-ctx.Done():
 			flush(marker, inflight, &frontier, compCh, dlqDoneCh, p.alert, p.cfg.FlushTimeout)
 			return nil
 		}
 	}
+}
+
+// warnStall 记录「窗口满且前沿停滞」的慢 handler 告警（nil log 时静默，便于测试与未注入路径）。
+// 与毒消息告警（PoisonAlerter）刻意分离：毒消息是单条永久失败；停滞是整窗被慢聚合 / actor 钉住、不推进。
+func (p *partitionPipeline) warnStall(frontier int64, inflight int) {
+	if p.log == nil {
+		return
+	}
+	p.log.Warn("partition pipeline stalled: window full and frontier not advancing (slow handler / hot aggregate pinning an actor)",
+		zap.Int("windowSize", p.cfg.WindowSize),
+		zap.Int("inflight", inflight),
+		zap.Int64("frontier", frontier),
+		zap.Duration("stallWarnInterval", p.cfg.StallWarnInterval),
+	)
 }

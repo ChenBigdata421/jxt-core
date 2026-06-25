@@ -13,6 +13,9 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // TestPipelineConfig_Defaults 验证 PipelineConfig 默认值（关闭、合理 windowSize、flush 受 sessionTimeout 约束）
@@ -41,6 +44,45 @@ func TestPipelineConfig_Defaults(t *testing.T) {
 	t.Run("windowSize 非法应报错", func(t *testing.T) {
 		cfg := PipelineConfig{Enabled: true, WindowSize: 0, FlushTimeout: 5 * time.Second, DLQTimeout: 30 * time.Second}
 		assert.Error(t, cfg.validate(10*time.Second))
+	})
+
+	t.Run("flush 超时 <=0 应报错", func(t *testing.T) {
+		cfg := PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 0, DLQTimeout: 30 * time.Second}
+		assert.Error(t, cfg.validate(10*time.Second), "flushTimeout 必须 > 0（0 会让 flush 近乎不冲刷）")
+	})
+}
+
+// TestApplyPipelineDefaults 字段级默认：仅 enabled:true 的部分配置必须补全默认、通过 validate（不 panic）。
+// 回归守护：旧 pipelineConfig 仅整结构体零值才补默认 → {enabled:true} 因 WindowSize=0 在 newPartitionPipeline panic。
+func TestApplyPipelineDefaults(t *testing.T) {
+	t.Run("仅 enabled:true 补全默认并通过 validate", func(t *testing.T) {
+		cfg := applyPipelineDefaults(PipelineConfig{Enabled: true})
+		assert.True(t, cfg.Enabled)
+		assert.Equal(t, 16, cfg.WindowSize)
+		assert.Equal(t, 4*time.Second, cfg.FlushTimeout)
+		assert.Equal(t, 30*time.Second, cfg.DLQTimeout)
+		assert.True(t, cfg.StallWarnInterval > 0)
+		assert.NoError(t, cfg.validate(10*time.Second), "补全后必须通过 validate（旧路径 WindowSize=0 会 panic）")
+	})
+
+	t.Run("显式值不被默认覆盖", func(t *testing.T) {
+		cfg := applyPipelineDefaults(PipelineConfig{
+			Enabled: true, WindowSize: 8, FlushTimeout: 2 * time.Second, DLQTimeout: 10 * time.Second, StallWarnInterval: 5 * time.Second,
+		})
+		assert.Equal(t, 8, cfg.WindowSize)
+		assert.Equal(t, 2*time.Second, cfg.FlushTimeout)
+		assert.Equal(t, 10*time.Second, cfg.DLQTimeout)
+		assert.Equal(t, 5*time.Second, cfg.StallWarnInterval)
+	})
+
+	t.Run("零值 Enabled 保持 false（默认关闭）", func(t *testing.T) {
+		cfg := applyPipelineDefaults(PipelineConfig{})
+		assert.False(t, cfg.Enabled, "Enabled 不默认：未显式开启即关闭")
+	})
+
+	t.Run("负值 StallWarnInterval 不被默认覆盖（显式关闭路径）", func(t *testing.T) {
+		cfg := applyPipelineDefaults(PipelineConfig{Enabled: true, StallWarnInterval: -1 * time.Second})
+		assert.Equal(t, -1*time.Second, cfg.StallWarnInterval, "负值须原样保留作为「关闭」哨兵（run 内 >0 判定；0 在配置层会被补成默认）")
 	})
 }
 
@@ -615,4 +657,149 @@ func TestSaramaSessionMarker(t *testing.T) {
 	m := saramaSessionMarker{s: s}
 	m.MarkMessage(&sarama.ConsumerMessage{Offset: 3}, "")
 	assert.Equal(t, []int64{3}, s.marked)
+}
+
+// TestRun_NonEnvelopeFail 普通消息失败 → commitable=true（at-most-once 丢弃）：run() 端到端验证与 legacy 等价。
+// 回归守护：非 envelope 失败必须推进前沿并提交，且**不**触发 DLQ（DLQ 仅 envelope 终态失败用）。
+func TestRun_NonEnvelopeFail(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(8)
+	pool := p.pool.(*fakePool)
+	dlq := &fakeDLQ{ok: true}
+	p.dlq = dlq
+	p.buildAggMsg = func(m *sarama.ConsumerMessage) *AggregateMessage {
+		return &AggregateMessage{Offset: m.Offset, Done: make(chan error, 1), IsEnvelope: false}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := make(chan *sarama.ConsumerMessage, 4)
+	msgs <- &sarama.ConsumerMessage{Offset: 10}
+	msgs <- &sarama.ConsumerMessage{Offset: 11}
+	close(msgs)
+	marker := &fakeMarker{}
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh); close(done) }()
+
+	<-time.After(50 * time.Millisecond)
+	require.Len(t, pool.submitted, 2)
+	pool.submitted[0].Done <- errors.New("non-envelope fail") // 10 失败
+	<-time.After(50 * time.Millisecond)
+	assert.Contains(t, marker.marked, int64(10), "非 envelope 失败仍推进提交（at-most-once 丢弃，与 legacy 等价）")
+	pool.submitted[1].Done <- errors.New("non-envelope fail") // 11 失败
+	<-time.After(50 * time.Millisecond)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("claim 关闭后在飞排空应自动返回（closed && inflight==0），无需 ctx 取消")
+	}
+	assert.Equal(t, []int64{10, 11}, marker.marked, "两条失败均推进、mark-once 升序")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&dlq.calls), "非 envelope 失败不得触发 DLQ")
+}
+
+// TestRun_ClaimCloseDrain claim 结束（messages chan 关闭）但 ctx 未取消：在飞项全部 settle 后 run 自行返回，
+// 每条都提交、不丢。回归守护 `closed && len(inflight)==0` 退出路径——既有 close 测试都先 cancel ctx，未覆盖此路。
+func TestRun_ClaimCloseDrain(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(8)
+	pool := p.pool.(*fakePool)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := make(chan *sarama.ConsumerMessage, 8)
+	for off := int64(10); off <= 13; off++ {
+		msgs <- &sarama.ConsumerMessage{Offset: off}
+	}
+	close(msgs) // 关闭但**不**取消 ctx
+	marker := &fakeMarker{}
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh); close(done) }()
+
+	<-time.After(50 * time.Millisecond)
+	require.Len(t, pool.submitted, 4, "4 条全部读入在飞")
+	// 乱序完成：先 12/13，再 11，最后 10（队头）——队头未就绪时不得越权提交，队头就绪后连续推进
+	pool.submitted[2].Done <- nil // 12
+	pool.submitted[3].Done <- nil // 13
+	<-time.After(50 * time.Millisecond)
+	assert.Empty(t, marker.marked, "队头 10 未完成：12/13 已 settle 不得越过队头提交")
+	pool.submitted[1].Done <- nil // 11
+	pool.submitted[0].Done <- nil // 10 → 队头就绪，连续 10/11/12/13 一次性推进
+	<-time.After(50 * time.Millisecond)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("在飞排空后 run 必须自行返回（无需 ctx 取消）")
+	}
+	// mark 序列取决于 completion 到达顺序（各 offset 的 bridge 是独立 goroutine，可能交错）：
+	// 如 [10,13]（10 先单独推进、后 11/12/13）或 [13]（一次性）都合法。不变量：单调非降、最终 == 前沿最高位 13。
+	require.NotEmpty(t, marker.marked)
+	assert.Equal(t, int64(13), marker.marked[len(marker.marked)-1], "最终 mark == 连续前沿最高位 13（10..13 全部提交）")
+	for i := 1; i < len(marker.marked); i++ {
+		assert.GreaterOrEqual(t, marker.marked[i], marker.marked[i-1], "mark 序列单调非降（completion 乱序到达仍只升不降）")
+	}
+}
+
+// TestRun_MarkMonotonic 队头 envelope 走延迟 DLQ 成功，期间后续成功不得越过队头；DLQ 回送后一次性推进。
+// 回归守护：sarama MarkOffset 依赖 mark 偏移单调非降；DLQ 结果与新 completion 交错不得产生回退 mark。
+func TestRun_MarkMonotonic(t *testing.T) {
+	p, compCh, dlqDoneCh := newPipelineForTest(8)
+	pool := p.pool.(*fakePool)
+	p.dlq = &fakeDLQ{ok: true, delay: 80 * time.Millisecond} // 队头 10 走 DLQ、延迟 80ms 成功
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := make(chan *sarama.ConsumerMessage, 8)
+	msgs <- &sarama.ConsumerMessage{Offset: 10} // 队头 envelope，将失败 → DLQ 延迟成功
+	msgs <- &sarama.ConsumerMessage{Offset: 11}
+	msgs <- &sarama.ConsumerMessage{Offset: 12}
+	close(msgs)
+	marker := &fakeMarker{}
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, marker, compCh, dlqDoneCh); close(done) }()
+
+	<-time.After(50 * time.Millisecond)
+	require.Len(t, pool.submitted, 3)
+	pool.submitted[0].Done <- errors.New("head fail") // 10 失败 → DLQ（延迟 80ms）
+	pool.submitted[1].Done <- nil                     // 11 成功（先于 10 的 DLQ 就绪）
+	pool.submitted[2].Done <- nil                     // 12 成功
+	<-time.After(50 * time.Millisecond)
+	assert.Empty(t, marker.marked, "队头 10 的 DLQ 未回：11/12 虽成功不得越过队头提交")
+	<-time.After(150 * time.Millisecond) // 等 DLQ(10) 延迟成功 + 推进
+
+	cancel()
+	<-done
+
+	require.NotEmpty(t, marker.marked, "DLQ(10) 成功后 10/11/12 连续推进、必提交")
+	assert.Equal(t, int64(12), marker.marked[len(marker.marked)-1], "最终 mark == 连续前沿最高位 12")
+	for i := 1; i < len(marker.marked); i++ {
+		assert.GreaterOrEqual(t, marker.marked[i], marker.marked[i-1], "mark 序列必须单调非降（sarama MarkOffset 依赖）")
+	}
+}
+
+// TestRun_StallWarn 窗口满且前沿停滞 ≥ StallWarnInterval → 慢 handler 告警（与毒消息告警区分）。
+// 回归守护：单条慢聚合 / actor 钉住整窗时必须有可观测信号，否则 partition 静默冻结。
+func TestRun_StallWarn(t *testing.T) {
+	core, recorded := observer.New(zapcore.WarnLevel)
+	p, compCh, dlqDoneCh := newPipelineForTest(2) // windowSize=2
+	p.log = zap.New(core)
+	p.cfg.StallWarnInterval = 50 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := make(chan *sarama.ConsumerMessage, 4)
+	msgs <- &sarama.ConsumerMessage{Offset: 0}
+	msgs <- &sarama.ConsumerMessage{Offset: 1} // 填满窗口（2）；Done 永不驱动 → 前沿停滞
+	close(msgs)
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, &fakeMarker{}, compCh, dlqDoneCh); close(done) }()
+	<-time.After(200 * time.Millisecond) // > 2 个 stall tick
+
+	cancel()
+	<-done
+
+	all := recorded.All()
+	require.NotEmpty(t, all, "窗口满且前沿停滞必须触发慢 handler 告警")
+	assert.Contains(t, all[0].Message, "stalled", "告警消息应标识为停滞（与毒消息告警区分）")
 }
