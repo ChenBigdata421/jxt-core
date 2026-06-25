@@ -36,7 +36,8 @@ type completion struct {
 // dlqResult 是异步 DLQ 投递的回送结果。
 type dlqResult struct {
 	offset int64
-	ok     bool // DLQ 投递成功=true（→commitable）；失败=false（→策略 A 阻塞前沿 + 告警）
+	ok     bool  // DLQ 投递成功=true（→commitable）；失败=false（→策略 A 阻塞前沿 + 告警）
+	cause error // 失败原因：p.dlq==nil 时为「未配置 DLQ」；否则为 Send 返回的 error。随告警上报，便于排查
 }
 
 // decideCommitable 只做纯逻辑判定（无网络 I/O）。
@@ -60,28 +61,55 @@ type offsetMarker interface {
 	MarkMessage(msg *sarama.ConsumerMessage, metadata string)
 }
 
-// DLQSender 异步 DLQ 投递（jxt-core 自定义接口；各服务把自己的 DLQService 适配进来）。
-// Send 返回 false 表示投递失败 → 策略 A 阻塞前沿。
+// PoisonMessage 跨 broker 的毒消息抽象（DLQSender / PoisonAlerter 契约）。
+// 不把 *sarama.ConsumerMessage 泄漏到调用方（六边形架构：基础设施类型不出域）。
+// 调用方据此把毒消息重发到自家 DLQ topic，无需依赖 sarama。
+type PoisonMessage struct {
+	Topic     string
+	Partition int32
+	Offset    int64
+	Key       []byte
+	Value     []byte
+	Headers   map[string]string
+}
+
+// toPoisonMessage 把 sarama 消息转成 PoisonMessage（边界转换，仅流水线内部用）。
+func toPoisonMessage(msg *sarama.ConsumerMessage) PoisonMessage {
+	headers := make(map[string]string, len(msg.Headers))
+	for _, h := range msg.Headers {
+		headers[string(h.Key)] = string(h.Value)
+	}
+	return PoisonMessage{
+		Topic: msg.Topic, Partition: msg.Partition, Offset: msg.Offset,
+		Key: msg.Key, Value: msg.Value, Headers: headers,
+	}
+}
+
+// DLQSender 死信投递（jxt-core 自定义接口；各服务把自家 DLQService 适配进来）。
+// cause=处理失败原因（实现方应作为 header/字段保留，便于死信下游排查）。
+// 返回 error：nil=投递成功（→推进前沿）；非 nil=投递失败（→策略 A 阻塞前沿 + 告警）。
 type DLQSender interface {
-	Send(ctx context.Context, msg *sarama.ConsumerMessage) bool
+	Send(ctx context.Context, msg PoisonMessage, cause error) error
 }
 
-// poisonAlerter 毒消息强告警（策略 A）。
-type poisonAlerter interface {
-	AlertPoisonMessage(msg *sarama.ConsumerMessage)
+// PoisonAlerter 毒消息告警（策略 A：DLQ 失败 / 未配置 DLQ 时的 Envelope 终态失败）。
+// 导出：各服务可注入 metrics / PagerDuty / 自家告警通道。
+// 默认实现见 kafka.go 的 loggerPoisonAlerter（用 eventbus 自带 logger，永不静默）。
+type PoisonAlerter interface {
+	AlertPoisonMessage(msg PoisonMessage, cause error)
 }
 
-// noopAlerter 默认无操作告警器。
+// noopAlerter 构造期地板：测试或未注入时的占位（生产路径由 consumeWithPipeline 注入 loggerPoisonAlerter）。
 type noopAlerter struct{}
 
-func (noopAlerter) AlertPoisonMessage(*sarama.ConsumerMessage) {}
+func (noopAlerter) AlertPoisonMessage(PoisonMessage, error) {}
 
 // partitionPipeline 单分区内消费流水线协调器（全部可变状态由 run() 主 goroutine 持有）。
 type partitionPipeline struct {
 	cfg         PipelineConfig
 	pool        poolSubmitter
-	dlq         DLQSender // 可为 nil（无 DLQ 时 envelope 失败直接策略 A 阻塞）
-	alert       poisonAlerter
+	dlq         DLQSender   // 可为 nil（无 DLQ 时 envelope 失败直接策略 A 阻塞）
+	alert       PoisonAlerter // 默认 noopAlerter（构造期地板）；生产路径由 consumeWithPipeline 注入 loggerPoisonAlerter
 	buildAggMsg func(*sarama.ConsumerMessage) *AggregateMessage // kafka.go 注入：构造含 Done 的 AggregateMessage
 }
 
@@ -147,17 +175,19 @@ func forwardCompletion(ctx context.Context, off int64, done <-chan error, compCh
 //	避免「ctx 取消 → ok=false → 误告警毒消息」竞态。代价：DLQ goroutine 生命周期由 dlqTimeout 界定，
 //	dlqTimeout × windowSize 上界保证有界、不泄漏。
 //
-// 若 p.dlq == nil（未配置 DLQ），直接回送 ok=false（→ 策略 A 阻塞 + 告警）。
-func sendDLQ(p *partitionPipeline, off int64, msg *sarama.ConsumerMessage, dlqDoneCh chan<- dlqResult) {
+// cause=原始处理失败原因，随 DLQ 投递一并传给实现方（便于死信记录诊断）。
+// 若 p.dlq == nil（未配置 DLQ），回送 ok=false + cause="DLQ 未配置"（→ 策略 A 阻塞 + 告警，
+// 告警原因直接指出「漏接 DLQ」，便于运维定位）。
+func sendDLQ(p *partitionPipeline, off int64, msg *sarama.ConsumerMessage, cause error, dlqDoneCh chan<- dlqResult) {
 	go func() {
 		if p.dlq == nil {
-			dlqDoneCh <- dlqResult{offset: off, ok: false}
+			dlqDoneCh <- dlqResult{offset: off, ok: false, cause: fmt.Errorf("DLQ not configured for topic %s (envelope subscription has no DLQSender)", msg.Topic)}
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), p.cfg.DLQTimeout)
 		defer cancel()
-		ok := p.dlq.Send(ctx, msg) // 网络 I/O 在事件循环外，自带退避重试由实现负责
-		dlqDoneCh <- dlqResult{offset: off, ok: ok}
+		err := p.dlq.Send(ctx, toPoisonMessage(msg), cause) // 网络 I/O 在事件循环外，自带退避重试由实现负责
+		dlqDoneCh <- dlqResult{offset: off, ok: err == nil, cause: err}
 	}()
 }
 
@@ -171,7 +201,7 @@ func flush(
 	frontier *int64,
 	compCh <-chan completion,
 	dlqDoneCh <-chan dlqResult,
-	alert poisonAlerter,
+	alert PoisonAlerter,
 	timeout time.Duration,
 ) {
 	timer := time.NewTimer(timeout)
@@ -221,7 +251,7 @@ drain:
 			e.dlqPending = false
 			e.commitable = r.ok
 			if !r.ok {
-				alert.AlertPoisonMessage(e.msg) // 策略 A 强告警
+				alert.AlertPoisonMessage(toPoisonMessage(e.msg), r.cause) // 策略 A 强告警
 			}
 			commit()
 		case <-timer.C:
@@ -278,7 +308,7 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 					e.commitable = true
 				case commitEnvelopeFail:
 					e.dlqPending = true // 暂不可推进；异步 DLQ
-					sendDLQ(p, c.offset, e.msg, dlqDoneCh)
+					sendDLQ(p, c.offset, e.msg, c.err, dlqDoneCh)
 				}
 			}
 			if last := advanceFrontier(inflight, &frontier); last != nil {
@@ -293,7 +323,7 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			e.dlqPending = false
 			e.commitable = r.ok
 			if !r.ok {
-				p.alert.AlertPoisonMessage(e.msg) // 策略 A：DLQ 失败强告警、不 re-submit
+				p.alert.AlertPoisonMessage(toPoisonMessage(e.msg), r.cause) // 策略 A：DLQ 失败强告警、不 re-submit
 			}
 			if last := advanceFrontier(inflight, &frontier); last != nil {
 				marker.MarkMessage(last, "")

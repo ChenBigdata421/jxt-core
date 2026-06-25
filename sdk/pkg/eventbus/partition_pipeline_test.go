@@ -174,16 +174,21 @@ type fakeDLQ struct {
 	calls int32
 }
 
-func (f *fakeDLQ) Send(ctx context.Context, msg *sarama.ConsumerMessage) bool {
+func (f *fakeDLQ) Send(ctx context.Context, msg PoisonMessage, cause error) error {
 	atomic.AddInt32(&f.calls, 1)
+	_ = cause // 测试 fake 不校验 cause
+	_ = msg
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):
 		case <-ctx.Done():
-			return false
+			return fmt.Errorf("ctx canceled")
 		}
 	}
-	return f.ok
+	if f.ok {
+		return nil
+	}
+	return fmt.Errorf("fake dlq failure")
 }
 
 // TestSendDLQ 异步 DLQ：独立 ctx、结果经 dlqDoneCh 回送
@@ -192,7 +197,7 @@ func TestSendDLQ(t *testing.T) {
 		p := &partitionPipeline{cfg: PipelineConfig{DLQTimeout: time.Second}, dlq: &fakeDLQ{ok: true}}
 		dlqDoneCh := make(chan dlqResult, 4)
 		msg := &sarama.ConsumerMessage{Offset: 5}
-		sendDLQ(p, 5, msg, dlqDoneCh)
+		sendDLQ(p, 5, msg, fmt.Errorf("test"), dlqDoneCh)
 		r := <-dlqDoneCh
 		assert.Equal(t, int64(5), r.offset)
 		assert.True(t, r.ok)
@@ -201,7 +206,7 @@ func TestSendDLQ(t *testing.T) {
 	t.Run("失败 → ok=false（T13 失败路 → 策略 A 阻塞）", func(t *testing.T) {
 		p := &partitionPipeline{cfg: PipelineConfig{DLQTimeout: time.Second}, dlq: &fakeDLQ{ok: false}}
 		dlqDoneCh := make(chan dlqResult, 4)
-		sendDLQ(p, 5, &sarama.ConsumerMessage{Offset: 5}, dlqDoneCh)
+		sendDLQ(p, 5, &sarama.ConsumerMessage{Offset: 5}, fmt.Errorf("test"), dlqDoneCh)
 		r := <-dlqDoneCh
 		assert.False(t, r.ok)
 	})
@@ -210,7 +215,7 @@ func TestSendDLQ(t *testing.T) {
 		// dlqTimeout 1s，DLQ 延迟 50ms。即便外层 session ctx 已取消，DLQ 仍应跑完返回 ok。
 		p := &partitionPipeline{cfg: PipelineConfig{DLQTimeout: time.Second}, dlq: &fakeDLQ{ok: true, delay: 50 * time.Millisecond}}
 		dlqDoneCh := make(chan dlqResult, 4)
-		sendDLQ(p, 5, &sarama.ConsumerMessage{Offset: 5}, dlqDoneCh)
+		sendDLQ(p, 5, &sarama.ConsumerMessage{Offset: 5}, fmt.Errorf("test"), dlqDoneCh)
 		r := <-dlqDoneCh
 		assert.True(t, r.ok, "独立 ctx 使 DLQ 不被 session 取消腰斩")
 	})
@@ -316,7 +321,7 @@ func newPipelineForTest(windowSize int) (*partitionPipeline, chan completion, ch
 // recordingAlerter 记录是否触发毒消息告警（策略 A）。
 type recordingAlerter struct{ called bool }
 
-func (a *recordingAlerter) AlertPoisonMessage(*sarama.ConsumerMessage) { a.called = true }
+func (a *recordingAlerter) AlertPoisonMessage(PoisonMessage, error) { a.called = true }
 
 // TestRun_T2 envelope 失败处理：DLQ 成功路 + 【回归·强制】队头阻塞时后续成功不得泄漏提交
 func TestRun_T2(t *testing.T) {

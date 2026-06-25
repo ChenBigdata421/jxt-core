@@ -27,8 +27,9 @@ type MessageHandler func(ctx context.Context, message []byte) error
 // ⭐ 用于区分 Envelope 消息（at-least-once）和普通消息（at-most-once）
 type handlerWrapper struct {
 	handler    MessageHandler
-	isEnvelope bool      // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
-	dlq        DLQSender // 可选；nil 时 envelope 失败走策略 A 阻塞（流水线路径用）
+	isEnvelope bool          // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
+	dlq        DLQSender     // 可选；nil 时 envelope 失败走策略 A 阻塞（流水线路径用）
+	alerter    PoisonAlerter // 可选；nil 时由 activateTopicHandler 兜底为 loggerPoisonAlerter（永不静默）
 }
 
 // PublishResult 异步发布结果
@@ -748,6 +749,26 @@ type SubscribeOptions struct {
 	RetryBackoff      time.Duration `json:"retryBackoff"`      // 重试退避时间
 	DeadLetterEnabled bool          `json:"deadLetterEnabled"` // 是否启用死信队列
 	RetryPolicy       RetryPolicy   `json:"retryPolicy"`       // 重试策略
+}
+
+// EnvelopeSubscribeOptions Envelope（at-least-once）订阅选项：按「每订阅」粒度注入 DLQ 与毒消息告警。
+// 仅 Kafka 分区流水线路径消费这些字段（见 partition_pipeline.go）；NATS/Memory 暂无分区流水线，字段被忽略。
+//
+// 使用：bus.(EnvelopeOptionsSubscriber).SubscribeEnvelopeWithOptions(ctx, topic, h, EnvelopeSubscribeOptions{...})
+type EnvelopeSubscribeOptions struct {
+	DLQ     DLQSender     // 可选：毒消息死信目标（强烈建议为 Envelope 订阅注入）；nil→策略 A 阻塞前沿
+	Alerter PoisonAlerter // 可选：毒消息告警；nil→eventbus logger 兜底（永不静默）
+}
+
+// EnvelopeOptionsSubscriber 可选能力接口：支持带 DLQ/告警注入的 Envelope 订阅。
+// kafkaEventBus 实现；调用方通过类型断言探测能力，避免把「仅 Kafka 流水线需要」的语义强加给所有后端：
+//
+//	if s, ok := bus.(eventbus.EnvelopeOptionsSubscriber); ok {
+//	    return s.SubscribeEnvelopeWithOptions(ctx, topic, handler, opts)
+//	}
+//	// 回退：普通 SubscribeEnvelope（无 DLQ）
+type EnvelopeOptionsSubscriber interface {
+	SubscribeEnvelopeWithOptions(ctx context.Context, topic string, handler EnvelopeHandler, opts EnvelopeSubscribeOptions) error
 }
 
 // PublishOptions 发布选项

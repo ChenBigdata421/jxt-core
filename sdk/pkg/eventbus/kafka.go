@@ -901,6 +901,24 @@ func (m saramaSessionMarker) MarkMessage(msg *sarama.ConsumerMessage, metadata s
 	m.s.MarkMessage(msg, metadata)
 }
 
+// loggerPoisonAlerter 默认毒消息告警器：用 eventbus 自带 zap logger 记录（永不静默）。
+// 修复：原 noopAlerter 使「策略 A」在生产为 no-op → 分区静默冻结。现默认至少有 Error 日志可观测；
+// 服务方可通过 EnvelopeSubscribeOptions.Alerter 注入 metrics/PagerDuty 等更强实现。
+type loggerPoisonAlerter struct{ log *zap.Logger }
+
+// AlertPoisonMessage 记录毒消息（DLQ 失败 / 未配置 DLQ 时的 Envelope 终态失败 → 策略 A 阻塞前沿）。
+func (a loggerPoisonAlerter) AlertPoisonMessage(msg PoisonMessage, cause error) {
+	if a.log == nil {
+		return
+	}
+	a.log.Error("poison message: DLQ failed/unconfigured, partition frontier stalled (Strategy A)",
+		zap.String("topic", msg.Topic),
+		zap.Int32("partition", msg.Partition),
+		zap.Int64("offset", msg.Offset),
+		zap.Error(cause),
+	)
+}
+
 // pipelineConfig 返回消费流水线配置；未配置（零值）时返回安全默认（关闭）。
 func (k *kafkaEventBus) pipelineConfig() PipelineConfig {
 	if k.config.Consumer.Pipeline == (PipelineConfig{}) {
@@ -1127,7 +1145,8 @@ func (h *preSubscriptionConsumerHandler) consumeWithPipeline(
 
 	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, h.eventBus.consumerConfig().SessionTimeout)
 	marker := saramaSessionMarker{s: session}
-	p.dlq = wrapper.dlq // 一次性设置（可选；nil 时 envelope 失败走策略 A 阻塞）
+	p.dlq = wrapper.dlq       // 一次性设置（可选；nil 时 envelope 失败走策略 A 阻塞）
+	p.alert = wrapper.alerter // 一次性设置；activateTopicHandler 已保证非 nil（未注入→logger 兜底）
 
 	// buildAggMsg：复用抽出的 buildAggregateMessage（不再阻塞等 Done）。wrapper 必非 nil（上方已早返）。
 	p.buildAggMsg = func(message *sarama.ConsumerMessage) *AggregateMessage {
@@ -1397,10 +1416,21 @@ func (k *kafkaEventBus) GetWarmupInfo() (completed bool, duration time.Duration)
 
 // activateTopicHandler 激活topic处理器（预订阅模式）
 // 🔥 P0修复：使用 sync.Map 存储，无锁操作
-func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandler, isEnvelope bool) {
+func (k *kafkaEventBus) activateTopicHandler(topic string, handler MessageHandler, isEnvelope bool, dlq DLQSender, alerter PoisonAlerter) {
+	// 告警器兜底：未注入时用 eventbus 自带 logger——策略 A 永不静默（修复原 noopAlerter no-op）。
+	if alerter == nil {
+		alerter = loggerPoisonAlerter{log: k.logger}
+	}
+	// 危险默认要"响"：Envelope 订阅未注入 DLQ 时，业务失败会阻塞前沿；订阅期 warn 让运维知情。
+	if isEnvelope && dlq == nil {
+		k.logger.Warn("envelope subscription has no DLQ; business failures will stall the partition until rebalance (Strategy A)",
+			zap.String("topic", topic))
+	}
 	wrapper := &handlerWrapper{
 		handler:    handler,
 		isEnvelope: isEnvelope,
+		dlq:        dlq,
+		alerter:    alerter,
 	}
 	k.activeTopicHandlers.Store(topic, wrapper)
 
@@ -1573,7 +1603,7 @@ func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler Mes
 
 	// 激活topic处理器（立即生效）
 	// ⭐ 普通 Subscribe：isEnvelope = false（at-most-once 语义）
-	k.activateTopicHandler(topic, handler, false)
+	k.activateTopicHandler(topic, handler, false, nil, nil)
 
 	// 🔧 修复死锁：在释放锁之前记录日志，然后释放锁再启动consumer
 	k.logger.Info("Subscribed to topic via pre-subscription consumer",
@@ -2785,7 +2815,22 @@ func (k *kafkaEventBus) PublishEnvelope(ctx context.Context, topic string, envel
 //	    // 同一订单的所有事件会路由到同一个 Actor，确保顺序处理
 //	    return processDomainEvent(env)
 //	})
+// SubscribeEnvelope 订阅 Envelope 消息（at-least-once）。等价于不带选项的 SubscribeEnvelopeWithOptions：
+// 不注入 DLQ（业务失败走策略 A），告警器由 activateTopicHandler 兜底为 loggerPoisonAlerter（永不静默）。
 func (k *kafkaEventBus) SubscribeEnvelope(ctx context.Context, topic string, handler EnvelopeHandler) error {
+	return k.subscribeEnvelope(ctx, topic, handler, EnvelopeSubscribeOptions{})
+}
+
+// SubscribeEnvelopeWithOptions 带选项的 Envelope 订阅：按「每订阅」注入 DLQ 与毒消息告警。
+// 实现 EnvelopeOptionsSubscriber（kafkaEventBus 专属；NATS/Memory 暂无分区流水线，不实现此接口）。
+//   - opts.DLQ == nil：Envelope 业务失败走策略 A（阻塞前沿）；订阅时 warn 提示
+//   - opts.Alerter == nil：兜底为 loggerPoisonAlerter（永不静默）
+func (k *kafkaEventBus) SubscribeEnvelopeWithOptions(ctx context.Context, topic string, handler EnvelopeHandler, opts EnvelopeSubscribeOptions) error {
+	return k.subscribeEnvelope(ctx, topic, handler, opts)
+}
+
+// subscribeEnvelope Envelope 订阅的共享实现（SubscribeEnvelope / SubscribeEnvelopeWithOptions 均委托至此，避免逻辑复制漂移）。
+func (k *kafkaEventBus) subscribeEnvelope(ctx context.Context, topic string, handler EnvelopeHandler, opts EnvelopeSubscribeOptions) error {
 	// 包装EnvelopeHandler为MessageHandler
 	wrappedHandler := func(ctx context.Context, message []byte) error {
 		// 尝试解析为Envelope
@@ -2801,8 +2846,6 @@ func (k *kafkaEventBus) SubscribeEnvelope(ctx context.Context, topic string, han
 		return handler(ctx, envelope)
 	}
 
-	// ⭐ 重要：不能直接调用 Subscribe，因为需要设置 isEnvelope = true
-	// 复制 Subscribe 的逻辑，但使用 isEnvelope = true
 	k.mu.Lock()
 
 	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
@@ -2822,13 +2865,14 @@ func (k *kafkaEventBus) SubscribeEnvelope(ctx context.Context, topic string, han
 	k.addTopicToPreSubscription(topic)
 
 	// 激活topic处理器（立即生效）
-	// ⭐ SubscribeEnvelope：isEnvelope = true（at-least-once 语义）
-	k.activateTopicHandler(topic, wrappedHandler, true)
+	// ⭐ SubscribeEnvelope：isEnvelope = true（at-least-once 语义）；注入 DLQ / Alerter（修复：原路径 dlq 永远为 nil）
+	k.activateTopicHandler(topic, wrappedHandler, true, opts.DLQ, opts.Alerter)
 
 	// 🔧 修复死锁：在释放锁之前记录日志，然后释放锁再启动consumer
 	k.logger.Info("Subscribed to envelope topic via pre-subscription consumer",
 		zap.String("topic", topic),
-		zap.String("groupID", k.config.Consumer.GroupID))
+		zap.String("groupID", k.config.Consumer.GroupID),
+		zap.Bool("hasDLQ", opts.DLQ != nil))
 
 	// 释放锁，避免在启动consumer时持有锁导致死锁
 	k.mu.Unlock()
