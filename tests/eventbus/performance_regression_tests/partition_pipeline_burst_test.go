@@ -159,11 +159,11 @@ func TestPartitionPipelineBurstLoad(t *testing.T) {
 		}
 	}
 	maxTps, minTps := 0.0, 0.0
-	for _, v := range tpsList {
+	for i, v := range tpsList {
 		if v > maxTps {
 			maxTps = v
 		}
-		if minTps == 0 || v < minTps {
+		if i == 0 || v < minTps { // 首元素初始化：避免把合法 0 桶当作「未初始化」覆盖（修旧 ==0 判定 bug）
 			minTps = v
 		}
 	}

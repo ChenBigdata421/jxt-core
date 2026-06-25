@@ -195,7 +195,7 @@ func TestPartitionPipelineSoak(t *testing.T) {
 				firstB = v
 			}
 			lastB = v
-			if minB == 0 || v < minB {
+			if i == 0 || v < minB { // 首元素初始化：避免合法 0 桶被 ==0 判定覆盖（与 burst 同修）
 				minB = v
 			}
 		}
