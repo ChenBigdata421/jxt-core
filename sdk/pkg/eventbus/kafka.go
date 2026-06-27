@@ -3066,7 +3066,13 @@ func (k *kafkaEventBus) ConfigureTopic(ctx context.Context, topic string, option
 	case shouldCreate:
 		// 创建模式：创建新配置
 		action = "created"
-		err = k.ensureKafkaTopicIdempotent(ctx, topic, options, false)
+		// create_or_update 时，已存在的 Kafka 主题也必须 reconcile（含分区扩容）：
+		// 进程重启后本地 topicConfigs 缓存为空 → exists=false → 误走"仅新建"分支，
+		// 导致存量低分区主题永远无法回填（正是被报告的 bug 场景）。
+		// ensureKafkaTopicIdempotent 本身幂等（不存在则建、存在则按需更新），
+		// 故对 update 策略放宽 allowUpdate；create_only 仍保持 false 不触碰已存在主题。
+		allowUpdateOnCreate := k.topicConfigStrategy == StrategyCreateOrUpdate
+		err = k.ensureKafkaTopicIdempotent(ctx, topic, options, allowUpdateOnCreate)
 
 	case shouldUpdate:
 		// 更新模式：更新现有配置
@@ -3277,6 +3283,31 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 
 	// 如果允许更新，更新主题配置
 	if allowUpdate {
+		// 🔥 修复（缺口2）：分区数 reconcile（只增不减）。
+		// 复用上面已取到的 metadata，避免重复 DescribeTopics。
+		// count 为目标分区总数（Kafka 仅支持增加），assignment=nil 让 broker 自动分配副本。
+		if options.Partitions > 0 && len(metadata) > 0 {
+			actualPartitions := int32(len(metadata[0].Partitions))
+			if actualPartitions > 0 && actualPartitions < int32(options.Partitions) {
+				k.logger.Info("Expanding Kafka topic partitions",
+					zap.String("topic", topic),
+					zap.Int32("from", actualPartitions),
+					zap.Int32("to", int32(options.Partitions)))
+				if perr := admin.CreatePartitions(topic, int32(options.Partitions), nil, false); perr != nil {
+					// 与 AlterConfig 失败处理一致：记日志、不中断整体配置流程
+					k.logger.Warn("Failed to expand topic partitions",
+						zap.String("topic", topic),
+						zap.Error(perr))
+				}
+			} else if actualPartitions > int32(options.Partitions) {
+				// Kafka 不支持缩减分区，仅告警，不动作
+				k.logger.Warn("Topic has more partitions than configured; Kafka cannot shrink partitions",
+					zap.String("topic", topic),
+					zap.Int32("actual", actualPartitions),
+					zap.Int("configured", options.Partitions))
+			}
+		}
+
 		configEntries := make(map[string]*string)
 
 		// 构建配置更新
@@ -3359,6 +3390,10 @@ func (k *kafkaEventBus) getActualTopicConfig(ctx context.Context, topic string) 
 		metadata, err := admin.DescribeTopics([]string{topic})
 		if err == nil && len(metadata) > 0 {
 			topicMeta := metadata[0]
+			// 🔥 修复（缺口1）：填充实际分区数。否则 compareTopicOptions 的
+			// `actual.Partitions > 0` 守卫恒为假，分区漂移永远检测不到
+			// （连 StrategyValidateOnly 模式也是静默失明的）。
+			actualConfig.Partitions = len(topicMeta.Partitions)
 			if len(topicMeta.Partitions) > 0 {
 				actualConfig.Replicas = len(topicMeta.Partitions[0].Replicas)
 			}
