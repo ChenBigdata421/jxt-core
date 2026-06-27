@@ -69,11 +69,15 @@ func TestEventBusManager_PublishEnvelope_LargePayload(t *testing.T) {
 	err = bus.SubscribeEnvelope(ctx, topic, handler)
 	require.NoError(t, err)
 
-	// 创建大负载（1MB）
+	// 创建大负载（1MB）。Payload 是 json.RawMessage，必须是合法 JSON——
+	// 用 JSON 字符串字面量（首尾引号 + 全 'a' 内容），否则 ToBytes→FromBytes 往返
+	// 会让 Payload 变空、订阅端报 "payload is required"。
 	largePayload := make([]byte, 1024*1024)
-	for i := range largePayload {
-		largePayload[i] = byte(i % 256)
+	largePayload[0] = '"'
+	for i := 1; i < len(largePayload)-1; i++ {
+		largePayload[i] = 'a'
 	}
+	largePayload[len(largePayload)-1] = '"'
 
 	// 创建 Envelope
 	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, largePayload)

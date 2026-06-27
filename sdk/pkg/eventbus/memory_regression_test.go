@@ -468,7 +468,9 @@ func TestEnvelope_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create envelope
-	testData := []byte("test message")
+	// 注意：Payload 是 json.RawMessage，必须装合法 JSON 字节，否则 ToBytes→FromBytes 往返
+	// 会让 Payload 变空、订阅端报 "payload is required"。这里用 JSON 字符串字面量。
+	testData := []byte(`"test message"`)
 	envelope := NewEnvelopeWithAutoID("test-aggregate-1", "test.event", 1, testData)
 
 	// Publish with envelope
@@ -479,7 +481,8 @@ func TestEnvelope_Integration(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify
-	assert.NotNil(t, receivedEnvelope)
+	// 用 require 而非 assert：若 envelope 为 nil，直接失败，避免下面解引用 panic 把真因盖掉。
+	require.NotNil(t, receivedEnvelope)
 	assert.Equal(t, "test-aggregate-1", receivedEnvelope.AggregateID)
 	assert.Equal(t, "test.event", receivedEnvelope.EventType)
 	assert.Equal(t, testData, []byte(receivedEnvelope.Payload))

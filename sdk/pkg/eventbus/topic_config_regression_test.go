@@ -870,7 +870,7 @@ func TestEventBusManager_PublishEnvelope_Success_Coverage(t *testing.T) {
 	defer bus.Close()
 	ctx := context.Background()
 	// 创建 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 	envelope.Timestamp = time.Now()
 	envelope.TraceID = "test-trace-id"
 	// 发布 Envelope
@@ -899,7 +899,7 @@ func TestEventBusManager_PublishEnvelope_EmptyTopic(t *testing.T) {
 	defer bus.Close()
 	ctx := context.Background()
 	// 创建 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 	// 发布 Envelope（空主题）
 	err = bus.PublishEnvelope(ctx, "", envelope)
 	assert.Error(t, err)
@@ -920,7 +920,7 @@ func TestEventBusManager_SubscribeEnvelope_Success_Coverage(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	// 发布 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 	envelope.Timestamp = time.Now()
 	err = bus.PublishEnvelope(ctx, "test-topic", envelope)
 	assert.NoError(t, err)

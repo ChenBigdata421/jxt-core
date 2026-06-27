@@ -855,7 +855,7 @@ func TestEventBusManager_PublishEnvelope_Success(t *testing.T) {
 	ctx := context.Background()
 
 	// 创建一个有效的 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 
 	err = manager.PublishEnvelope(ctx, "test-topic", envelope)
 	assert.NoError(t, err)
@@ -881,7 +881,7 @@ func TestEventBusManager_SubscribeEnvelope_Success(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 发布一个 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 
 	err = manager.PublishEnvelope(ctx, "test-topic", envelope)
 	assert.NoError(t, err)
@@ -984,7 +984,7 @@ func TestEventBusManager_PublishEnvelope_Closed(t *testing.T) {
 	ctx := context.Background()
 
 	// 创建 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 
 	// 尝试发布（应该失败）
 	err = bus.PublishEnvelope(ctx, "test-topic", envelope)
@@ -1054,7 +1054,7 @@ func TestEventBusManager_PublishEnvelope_WithTraceID(t *testing.T) {
 	ctx := context.Background()
 
 	// 创建带 TraceID 的 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 	envelope.TraceID = "trace-123"
 	envelope.CorrelationID = "correlation-456"
 
@@ -1083,7 +1083,7 @@ func TestEventBusManager_SubscribeEnvelope_WithTraceID(t *testing.T) {
 	require.NoError(t, err)
 
 	// 创建带 TraceID 的 Envelope
-	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte("test payload"))
+	envelope := NewEnvelopeWithAutoID("test-aggregate", "test-event", 1, []byte(`"test payload"`))
 	envelope.TraceID = "trace-123"
 	envelope.CorrelationID = "correlation-456"
 
