@@ -238,6 +238,13 @@ func TestKafkaEventBus_GetTopicPartitions(t *testing.T) {
 		_, err := k.GetTopicPartitions(context.Background(), "t")
 		assert.Error(t, err, "describe failure must surface as error")
 	})
+
+	t.Run("error when admin not initialized", func(t *testing.T) {
+		// 未注入 admin(getAdmin 返回 error)——覆盖之前漏掉的分支
+		k := &kafkaEventBus{logger: zap.NewNop()}
+		_, err := k.GetTopicPartitions(context.Background(), "any-topic")
+		assert.Error(t, err, "admin not initialized must surface as error")
+	})
 }
 
 // TestTopicPartitionInfo_InterfaceSatisfaction 验证可选接口归属:
