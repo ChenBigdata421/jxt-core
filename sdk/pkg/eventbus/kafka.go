@@ -3347,6 +3347,9 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 // GetTopicPartitions 返回主题当前的实际分区数（实现 TopicPartitionInfo）。
 // 复用内部 admin.DescribeTopics；主题不存在或 admin 不可用时返回 error。
 // 供外部启动断言使用（实际分区 != 预期则 fail-fast）。
+//
+// 注意：ctx 当前仅用于满足接口签名统一——sarama 的 DescribeTopics 不接受 ctx，
+// 故本实现不响应 ctx 的取消/超时。
 func (k *kafkaEventBus) GetTopicPartitions(ctx context.Context, topic string) (int32, error) {
 	admin, err := k.getAdmin()
 	if err != nil {
@@ -3356,8 +3359,15 @@ func (k *kafkaEventBus) GetTopicPartitions(ctx context.Context, topic string) (i
 	if err != nil {
 		return 0, fmt.Errorf("failed to describe topic %s: %w", topic, err)
 	}
+	// 真实 sarama 下，不存在的主题不会让 DescribeTopics 返回顶层 error，
+	// 而是返回长度为 1 的切片，其中 metadata[0].Err == ErrUnknownTopicOrPartition
+	// 且 Partitions 为空。仅判 len(metadata)==0 会漏掉这一最该 fail-fast 的情形
+	// （误返回 (0, nil)），故必须显式检查 per-topic 错误码。
 	if len(metadata) == 0 {
 		return 0, fmt.Errorf("topic %s not found", topic)
+	}
+	if metadata[0].Err != sarama.ErrNoError {
+		return 0, fmt.Errorf("topic %s not available: %w", topic, metadata[0].Err)
 	}
 	return int32(len(metadata[0].Partitions)), nil
 }

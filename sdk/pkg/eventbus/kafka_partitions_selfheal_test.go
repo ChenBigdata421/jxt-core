@@ -223,12 +223,30 @@ func TestKafkaEventBus_GetTopicPartitions(t *testing.T) {
 		assert.Equal(t, int32(8), got, "must report the actual partition count")
 	})
 
-	t.Run("error when topic missing", func(t *testing.T) {
+	t.Run("error when topic missing (empty metadata slice)", func(t *testing.T) {
+		// 防御性路径：某些实现/未来版本可能对缺失主题返回空切片。
+		// 真实 sarama 返回的是非空切片 + per-topic Err，由下面那个用例覆盖。
 		admin := &mockClusterAdmin{} // topicMetadata=nil、describeErr=nil → 空元数据
 		k := newBusWithAdmin(admin)
 
 		_, err := k.GetTopicPartitions(context.Background(), "missing")
 		assert.Error(t, err, "missing topic must return error (not 0)")
+	})
+
+	t.Run("error when broker reports ErrUnknownTopicOrPartition", func(t *testing.T) {
+		// 真实 sarama 对不存在的主题不返回顶层 error，而是返回长度为 1 的切片，
+		// 其中 metadata[0].Err == ErrUnknownTopicOrPartition、Partitions 为空。
+		// 这正是 P2 修复要覆盖的路径：旧实现仅判 len==0 会漏判，返回 (0, nil)。
+		admin := &mockClusterAdmin{
+			topicMetadata: []*sarama.TopicMetadata{
+				{Name: "ghost", Err: sarama.ErrUnknownTopicOrPartition},
+			},
+		}
+		k := newBusWithAdmin(admin)
+
+		got, err := k.GetTopicPartitions(context.Background(), "ghost")
+		assert.Error(t, err, "broker-reported missing topic must surface as error (not 0,nil)")
+		assert.Equal(t, int32(0), got, "must not return a partition count for a missing topic")
 	})
 
 	t.Run("error when DescribeTopics fails", func(t *testing.T) {
