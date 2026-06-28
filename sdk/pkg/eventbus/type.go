@@ -235,6 +235,24 @@ type EventBus interface {
 	GetRegisteredTenants() []int
 }
 
+// TopicPartitionInfo 可选能力接口：查询主题的实际分区数。
+// 仅 Kafka 这类有"分区"概念的实现支持；memory/nats 不实现。
+// 调用方通过类型断言判断是否可用，不可用时跳过分区相关断言：
+//
+//	if q, ok := bus.(TopicPartitionInfo); ok {
+//	    got, err := q.GetTopicPartitions(ctx, topic)
+//	    ...
+//	}
+//
+// 典型用途：preCreateTopics 之后做启动断言——实际分区 != 预期则 fail-fast，
+// 防止服务静默跑在错误分区上。与 create_or_update 的自动扩容互补：
+// 自愈层默默修，本接口让"配置与实际不一致"暴露成可 fail-fast 的错误。
+type TopicPartitionInfo interface {
+	// GetTopicPartitions 返回主题当前的实际分区数。
+	// 主题不存在、admin 不可用或实现不支持分区概念时返回 error。
+	GetTopicPartitions(ctx context.Context, topic string) (int32, error)
+}
+
 // Publisher 发布器接口
 type Publisher interface {
 	// 发布消息

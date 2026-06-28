@@ -211,3 +211,43 @@ func TestConfigureTopic_CreateOnlyDoesNotExpand(t *testing.T) {
 	assert.Empty(t, admin.createPartitionsCalls,
 		"create_only must not touch an existing topic (no expansion, no config update)")
 }
+
+// TestKafkaEventBus_GetTopicPartitions 验证 TopicPartitionInfo 能力:查询实际分区数。
+func TestKafkaEventBus_GetTopicPartitions(t *testing.T) {
+	t.Run("returns actual partition count", func(t *testing.T) {
+		admin := &mockClusterAdmin{topicMetadata: metaWithPartitions("t-parts", 8, 1)}
+		k := newBusWithAdmin(admin)
+
+		got, err := k.GetTopicPartitions(context.Background(), "t-parts")
+		require.NoError(t, err)
+		assert.Equal(t, int32(8), got, "must report the actual partition count")
+	})
+
+	t.Run("error when topic missing", func(t *testing.T) {
+		admin := &mockClusterAdmin{} // topicMetadata=nil、describeErr=nil → 空元数据
+		k := newBusWithAdmin(admin)
+
+		_, err := k.GetTopicPartitions(context.Background(), "missing")
+		assert.Error(t, err, "missing topic must return error (not 0)")
+	})
+
+	t.Run("error when DescribeTopics fails", func(t *testing.T) {
+		admin := &mockClusterAdmin{describeErr: assert.AnError}
+		k := newBusWithAdmin(admin)
+
+		_, err := k.GetTopicPartitions(context.Background(), "t")
+		assert.Error(t, err, "describe failure must surface as error")
+	})
+}
+
+// TestTopicPartitionInfo_InterfaceSatisfaction 验证可选接口归属:
+// kafka 实现它,memory 不实现 —— 调用方据此决定是否做分区断言(memory 自动跳过)。
+func TestTopicPartitionInfo_InterfaceSatisfaction(t *testing.T) {
+	var kafkaBus *kafkaEventBus
+	_, ok := interface{}(kafkaBus).(TopicPartitionInfo)
+	assert.True(t, ok, "kafkaEventBus must implement TopicPartitionInfo")
+
+	var memBus *memoryEventBus
+	_, ok = interface{}(memBus).(TopicPartitionInfo)
+	assert.False(t, ok, "memoryEventBus must NOT implement TopicPartitionInfo (optional capability)")
+}

@@ -3344,6 +3344,24 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 	return nil
 }
 
+// GetTopicPartitions 返回主题当前的实际分区数（实现 TopicPartitionInfo）。
+// 复用内部 admin.DescribeTopics；主题不存在或 admin 不可用时返回 error。
+// 供外部启动断言使用（实际分区 != 预期则 fail-fast）。
+func (k *kafkaEventBus) GetTopicPartitions(ctx context.Context, topic string) (int32, error) {
+	admin, err := k.getAdmin()
+	if err != nil {
+		return 0, fmt.Errorf("Kafka admin client not available: %w", err)
+	}
+	metadata, err := admin.DescribeTopics([]string{topic})
+	if err != nil {
+		return 0, fmt.Errorf("failed to describe topic %s: %w", topic, err)
+	}
+	if len(metadata) == 0 {
+		return 0, fmt.Errorf("topic %s not found", topic)
+	}
+	return int32(len(metadata[0].Partitions)), nil
+}
+
 // getActualTopicConfig 获取主题在Kafka中的实际配置
 func (k *kafkaEventBus) getActualTopicConfig(ctx context.Context, topic string) (TopicOptions, error) {
 	// ✅ 无锁读取 admin
