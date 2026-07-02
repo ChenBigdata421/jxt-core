@@ -41,7 +41,7 @@ type EventPublisher interface {
 	//   envelope: Envelope 消息（包含 EventID、AggregateID、EventType 等元数据）
 	//
 	// 返回：
-	//   error: 提交失败时返回错误（注意：立即返回，不等待 ACK）
+	//   error: 提交失败时返回错误（返回时机取决于实现，详见下方"注意"）
 	//
 	// 注意：
 	//   - 此方法 MAY 是同步或异步的，取决于实现：
