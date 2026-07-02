@@ -2,6 +2,8 @@ package outbox
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,11 +62,10 @@ func TestFilterPublishedEvents_EmptyKeysPassthrough(t *testing.T) {
 }
 
 // === Test helpers (adapted from plan Task 4 helper block; Task 4 will extend these) ===
-// NOTE: uses BatchUpdate (not MarkBatchAsPublished) because the interface rename
-// happens in Task 4. Task 4 will rename this method and add markBatchCallCount.
 
 type countingRepo struct {
-	events map[string]*OutboxEvent
+	events             map[string]*OutboxEvent
+	markBatchCallCount atomic.Int32
 }
 
 func (r *countingRepo) Save(_ context.Context, e *OutboxEvent) error          { r.events[e.ID] = e; return nil }
@@ -119,7 +120,10 @@ func (r *countingRepo) FindPublishedByIdempotencyKeys(_ context.Context, _ []str
 func (r *countingRepo) FindMaxRetryEvents(_ context.Context, _ int, _ int) ([]*OutboxEvent, error) {
 	return nil, nil
 }
-func (r *countingRepo) BatchUpdate(_ context.Context, _ []*OutboxEvent) error { return nil }
+func (r *countingRepo) MarkBatchAsPublished(_ context.Context, _ []*OutboxEvent) error {
+	r.markBatchCallCount.Add(1)
+	return nil
+}
 
 type asyncFakePublisher struct{}
 
@@ -136,3 +140,135 @@ func (*asyncFakePublisher) GetPublishResultChannel() <-chan *PublishResult {
 type staticTopicMapper struct{ topic string }
 
 func (m *staticTopicMapper) GetTopic(_ string) string { return m.topic }
+
+// TestPublishBatch_SyncPublisher_MarksSynchronously verifies that when the
+// EventPublisher implements SyncSemanticsPublisher, PublishBatch calls
+// MarkBatchAsPublished synchronously after publish success.
+func TestPublishBatch_SyncPublisher_MarksSynchronously(t *testing.T) {
+	repo := &countingRepo{events: map[string]*OutboxEvent{}}
+	publisher := NewOutboxPublisher(
+		repo,
+		&syncFakePublisher{}, // implements IsSyncSemantics
+		&staticTopicMapper{topic: "test"},
+		DefaultPublisherConfig(),
+	)
+
+	event := &OutboxEvent{
+		ID: "e1", Status: EventStatusPending, AggregateType: "Test", EventType: "Test",
+		Payload: []byte("{}"), IdempotencyKey: "",
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	_, err := publisher.PublishBatch(context.Background(), []*OutboxEvent{event})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), repo.markBatchCallCount.Load(),
+		"sync publisher should trigger MarkBatchAsPublished synchronously")
+}
+
+// TestPublishBatch_AsyncPublisher_DoesNotMark verifies that when the
+// EventPublisher does NOT implement SyncSemanticsPublisher, PublishBatch
+// skips the synchronous MarkBatchAsPublished call (deferred to ACK listener).
+func TestPublishBatch_AsyncPublisher_DoesNotMark(t *testing.T) {
+	repo := &countingRepo{events: map[string]*OutboxEvent{}}
+	publisher := NewOutboxPublisher(
+		repo,
+		&asyncFakePublisher{}, // does NOT implement IsSyncSemantics
+		&staticTopicMapper{topic: "test"},
+		DefaultPublisherConfig(),
+	)
+
+	event := &OutboxEvent{
+		ID: "e1", Status: EventStatusPending, AggregateType: "Test", EventType: "Test",
+		Payload: []byte("{}"), IdempotencyKey: "",
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	_, err := publisher.PublishBatch(context.Background(), []*OutboxEvent{event})
+	require.NoError(t, err)
+	require.Equal(t, int32(0), repo.markBatchCallCount.Load(),
+		"async publisher must NOT trigger synchronous MarkBatchAsPublished")
+}
+
+type syncFakePublisher struct{}
+
+func (*syncFakePublisher) Publish(_ context.Context, _ string, _ []byte) error { return nil }
+func (*syncFakePublisher) PublishEnvelope(_ context.Context, _ string, _ *Envelope) error {
+	return nil
+}
+func (*syncFakePublisher) GetPublishResultChannel() <-chan *PublishResult {
+	return make(chan *PublishResult, 1)
+}
+func (*syncFakePublisher) IsSyncSemantics() {} // marker — qualifies as SyncSemanticsPublisher
+
+// failingRepo wraps countingRepo and returns configurable errors for testing error paths.
+type failingRepo struct {
+	countingRepo
+	findPublishedErr error
+	markBatchErr     error
+	errorHandlerSeen atomic.Int32
+}
+
+func (r *failingRepo) FindPublishedByIdempotencyKeys(_ context.Context, _ []string) (map[string]struct{}, error) {
+	return nil, r.findPublishedErr
+}
+
+func (r *failingRepo) MarkBatchAsPublished(_ context.Context, _ []*OutboxEvent) error {
+	if r.markBatchErr != nil {
+		return r.markBatchErr
+	}
+	r.markBatchCallCount.Add(1)
+	return nil
+}
+
+func TestPublishBatch_FindPublishedError_Propagates(t *testing.T) {
+	repo := &failingRepo{
+		countingRepo:     countingRepo{events: map[string]*OutboxEvent{}},
+		findPublishedErr: fmt.Errorf("simulated DB timeout"),
+	}
+	publisher := NewOutboxPublisher(
+		repo,
+		&syncFakePublisher{},
+		&staticTopicMapper{topic: "test"},
+		DefaultPublisherConfig(),
+	)
+
+	event := &OutboxEvent{
+		ID: "e1", Status: EventStatusPending, AggregateType: "Test", EventType: "Test",
+		Payload: []byte("{}"), IdempotencyKey: "k1",
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	_, err := publisher.PublishBatch(context.Background(), []*OutboxEvent{event})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to filter published events")
+	require.Contains(t, err.Error(), "simulated DB timeout")
+	require.Equal(t, int32(0), repo.markBatchCallCount.Load(),
+		"MarkBatchAsPublished must not be called when FindPublished fails")
+}
+
+func TestPublishBatch_MarkBatchError_ContinuesAndInvokesErrorHandler(t *testing.T) {
+	repo := &failingRepo{
+		countingRepo: countingRepo{events: map[string]*OutboxEvent{}},
+		markBatchErr: fmt.Errorf("simulated UPDATE failure"),
+	}
+	handlerCalled := atomic.Int32{}
+	cfg := DefaultPublisherConfig()
+	cfg.ErrorHandler = func(_ *OutboxEvent, err error) {
+		handlerCalled.Add(1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "MarkBatchAsPublished failed")
+	}
+	publisher := NewOutboxPublisher(repo, &syncFakePublisher{}, &staticTopicMapper{topic: "test"}, cfg)
+
+	event := &OutboxEvent{
+		ID: "e1", Status: EventStatusPending, AggregateType: "Test", EventType: "Test",
+		Payload: []byte("{}"), IdempotencyKey: "",
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+
+	published, err := publisher.PublishBatch(context.Background(), []*OutboxEvent{event})
+	require.NoError(t, err, "PublishBatch must not fail just because MarkBatchAsPublished did")
+	require.Equal(t, 1, published, "the event was still published to the bus")
+	require.Equal(t, int32(1), handlerCalled.Load(),
+		"ErrorHandler must be invoked exactly once when MarkBatchAsPublished fails")
+}

@@ -153,11 +153,18 @@ type OutboxRepository interface {
 	// 返回：事件列表
 	FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*OutboxEvent, error)
 
-	// BatchUpdate 批量更新事件（可选接口，用于性能优化）
-	// ctx: 上下文
-	// events: 要更新的事件列表
-	// 返回：更新失败时返回错误
-	BatchUpdate(ctx context.Context, events []*OutboxEvent) error
+	// MarkBatchAsPublished transitions a batch of events from Pending to Published
+	// using a single UPDATE statement (status='published', published_at=now,
+	// updated_at=now WHERE id IN (?) AND status='pending').
+	//
+	// Intended for use by sync-semantics publishers (InProcess) where
+	// PublishEnvelope's nil return means the publish has effectively completed.
+	// Async-semantics publishers (Kafka/NATS) must rely on the ACK listener
+	// for marking instead — they do NOT call this method synchronously.
+	//
+	// The method is idempotent: events already in a non-Pending state are
+	// skipped by the WHERE clause.
+	MarkBatchAsPublished(ctx context.Context, events []*OutboxEvent) error
 }
 
 // RepositoryStats 仓储统计信息

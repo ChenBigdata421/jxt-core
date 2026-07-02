@@ -322,14 +322,20 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context, events []*OutboxEven
 		publishedEvents, failedEvents = p.batchPublishToEventBus(ctx, eventsToPublish)
 	}
 
-	// 3. 批量更新成功发布的事件状态
-	if len(publishedEvents) > 0 {
-		if err := p.batchUpdatePublished(ctx, publishedEvents); err != nil {
-			// 更新失败不影响发布结果（事件已经发布到 EventBus）
-			// 下次轮询时会重新发布（幂等性保证不会重复）
+	// 3. Sync publishers only: mark events as Published synchronously.
+	// Async publishers (Kafka/NATS) skip this — the ACK listener handles marking
+	// after broker ACK arrives. Marking async-publish events here would pre-empt
+	// the broker's verdict and lose events on NACK.
+	if _, isSync := p.eventPublisher.(SyncSemanticsPublisher); isSync && len(publishedEvents) > 0 {
+		if err := p.repo.MarkBatchAsPublished(ctx, publishedEvents); err != nil {
 			if p.metrics != nil {
 				p.metrics.LastError = err
 			}
+			if p.config.ErrorHandler != nil {
+				p.config.ErrorHandler(nil, fmt.Errorf("MarkBatchAsPublished failed: %w", err))
+			}
+			// Events stay Pending; next poll cycle retries. Idempotency keys
+			// prevent double-processing on the consumer side.
 		}
 	}
 
@@ -564,25 +570,6 @@ func (p *OutboxPublisher) publishSingleEventToEventBus(ctx context.Context, even
 	}
 
 	// ✅ 提交成功（等待 ACK 监听器处理）
-	return nil
-}
-
-// batchUpdatePublished 批量更新已发布事件的状态
-func (p *OutboxPublisher) batchUpdatePublished(ctx context.Context, events []*OutboxEvent) error {
-	// 使用批量更新接口（如果仓储支持）
-	if batchRepo, ok := p.repo.(interface {
-		BatchUpdate(ctx context.Context, events []*OutboxEvent) error
-	}); ok {
-		return batchRepo.BatchUpdate(ctx, events)
-	}
-
-	// 降级到逐个更新
-	for _, event := range events {
-		if err := p.repo.Update(ctx, event); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 

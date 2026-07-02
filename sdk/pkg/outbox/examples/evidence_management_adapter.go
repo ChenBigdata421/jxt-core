@@ -186,15 +186,9 @@ func (a *OutboxRepositoryAdapter) FindByAggregateType(ctx context.Context, aggre
 	return a.repo.FindByAggregateType(ctx, aggregateType, limit)
 }
 
-// BatchUpdate 批量更新事件（性能优化）
-func (a *OutboxRepositoryAdapter) BatchUpdate(ctx context.Context, events []*outbox.OutboxEvent) error {
-	// 降级到逐个更新
-	for _, event := range events {
-		if err := a.Update(ctx, event); err != nil {
-			return err
-		}
-	}
-	return nil
+// MarkBatchAsPublished delegates to the underlying jxt-core repository.
+func (a *OutboxRepositoryAdapter) MarkBatchAsPublished(ctx context.Context, events []*outbox.OutboxEvent) error {
+	return a.repo.MarkBatchAsPublished(ctx, events)
 }
 
 // Count 统计事件数量

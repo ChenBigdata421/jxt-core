@@ -466,26 +466,29 @@ func (r *GormOutboxRepository) FindMaxRetryEvents(ctx context.Context, limit int
 	return ToEntities(models), nil
 }
 
-// BatchUpdate 批量更新事件（性能优化）
-func (r *GormOutboxRepository) BatchUpdate(ctx context.Context, events []*outbox.OutboxEvent) error {
+// MarkBatchAsPublished transitions a batch of events from Pending to Published
+// using a single UPDATE statement. Idempotent: events already in non-Pending
+// state are skipped by the WHERE clause.
+func (r *GormOutboxRepository) MarkBatchAsPublished(ctx context.Context, events []*outbox.OutboxEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	// 使用事务批量更新
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, event := range events {
-			model := FromEntity(event)
+	ids := make([]string, len(events))
+	for i, e := range events {
+		ids[i] = e.ID
+	}
 
-			// 使用 Updates 方法更新所有字段
-			if err := tx.Model(&OutboxEventModel{}).
-				Where("id = ?", model.ID).
-				Updates(model).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	now := time.Now()
+	return r.db.WithContext(ctx).
+		Model(&OutboxEventModel{}).
+		Where("id IN ?", ids).
+		Where("status = ?", outbox.EventStatusPending).
+		Updates(map[string]interface{}{
+			"status":       outbox.EventStatusPublished,
+			"published_at": now,
+			"updated_at":   now,
+		}).Error
 }
 
 // Ensure GormOutboxRepository implements the interfaces

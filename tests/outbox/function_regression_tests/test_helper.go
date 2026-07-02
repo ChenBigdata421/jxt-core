@@ -189,10 +189,11 @@ func (m *MockRepository) Update(ctx context.Context, event *outbox.OutboxEvent) 
 	return nil
 }
 
-// BatchUpdate 批量更新事件
-func (m *MockRepository) BatchUpdate(ctx context.Context, events []*outbox.OutboxEvent) error {
+// MarkBatchAsPublished marks each event as Published via the per-event MarkAsPublished.
+// (Mock implementation — production GORM impl uses a single bulk UPDATE.)
+func (m *MockRepository) MarkBatchAsPublished(ctx context.Context, events []*outbox.OutboxEvent) error {
 	for _, event := range events {
-		if err := m.Update(ctx, event); err != nil {
+		if err := m.MarkAsPublished(ctx, event.ID); err != nil {
 			return err
 		}
 	}
