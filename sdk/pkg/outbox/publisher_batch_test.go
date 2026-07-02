@@ -61,6 +61,29 @@ func TestFilterPublishedEvents_EmptyKeysPassthrough(t *testing.T) {
 	require.Equal(t, "e1", out[0].ID)
 }
 
+// TestFilterPublishedEvents_FiltersOutPublishedKeys verifies the core skip
+// branch: events whose idempotency key is already Published are dropped, while
+// non-published and empty-key events survive in input order. The other filter
+// tests use a stub returning an empty published set, so they never hit this.
+func TestFilterPublishedEvents_FiltersOutPublishedKeys(t *testing.T) {
+	repo := &publishedKeysRepo{
+		countingRepo: countingRepo{events: map[string]*OutboxEvent{}},
+		published:    map[string]struct{}{"k2": {}, "k4": {}},
+	}
+	p := NewOutboxPublisher(repo, &asyncFakePublisher{}, &staticTopicMapper{topic: "t"}, DefaultPublisherConfig())
+
+	in := []*OutboxEvent{
+		{ID: "e1", IdempotencyKey: "k1"}, // not published -> keep
+		{ID: "e2", IdempotencyKey: "k2"}, // published -> drop
+		{ID: "e3", IdempotencyKey: ""},   // no key -> keep
+		{ID: "e4", IdempotencyKey: "k4"}, // published -> drop
+	}
+	out, err := p.filterPublishedEvents(context.Background(), in)
+	require.NoError(t, err)
+	require.Equal(t, []string{"e1", "e3"}, eventIDs(out),
+		"only events whose key is NOT published (plus empty-key events) survive, in order")
+}
+
 // === Test helpers (adapted from plan Task 4 helper block; Task 4 will extend these) ===
 
 type countingRepo struct {
@@ -225,6 +248,25 @@ func (r *failingRepo) MarkBatchAsPublished(_ context.Context, _ []*OutboxEvent) 
 	}
 	r.markBatchCallCount.Add(1)
 	return nil
+}
+
+// publishedKeysRepo wraps countingRepo and returns a configurable published-key
+// set, so filter tests can exercise the "key already published -> skip" branch.
+type publishedKeysRepo struct {
+	countingRepo
+	published map[string]struct{}
+}
+
+func (r *publishedKeysRepo) FindPublishedByIdempotencyKeys(_ context.Context, _ []string) (map[string]struct{}, error) {
+	return r.published, nil
+}
+
+func eventIDs(es []*OutboxEvent) []string {
+	ids := make([]string, len(es))
+	for i, e := range es {
+		ids[i] = e.ID
+	}
+	return ids
 }
 
 func TestPublishBatch_FindPublishedError_Propagates(t *testing.T) {
