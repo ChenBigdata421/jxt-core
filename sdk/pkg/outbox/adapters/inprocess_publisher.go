@@ -118,6 +118,10 @@ func (p *InProcessEventPublisher) GetPublishResultChannel() <-chan *outbox.Publi
 	return p.resultChan
 }
 
+// IsSyncSemantics marks InProcessEventPublisher as a sync-semantics publisher.
+// PublishEnvelope runs all registered handlers synchronously and returns when done.
+func (*InProcessEventPublisher) IsSyncSemantics() {}
+
 // Close 关闭发布器。可安全多次调用（sync.Once）。
 func (p *InProcessEventPublisher) Close() error {
 	p.closeOnce.Do(func() {

@@ -44,10 +44,15 @@ type EventPublisher interface {
 	//   error: 提交失败时返回错误（注意：立即返回，不等待 ACK）
 	//
 	// 注意：
-	//   - 此方法是异步的，立即返回，不等待 ACK
-	//   - ACK 结果通过 GetPublishResultChannel() 异步通知
-	//   - 实现者应该记录日志
-	//   - 实现者应该处理超时
+	//   - 此方法 MAY 是同步或异步的，取决于实现：
+	//     - 同步发布器（如 InProcessEventPublisher）：handlers 执行完毕后才返回，
+	//       返回 nil 即表示发布实际已完成。实现 SyncSemanticsPublisher 标记接口
+	//       以便 OutboxPublisher 同步标记事件为 Published。
+	//     - 异步发布器（如 Kafka/NATS EventBusAdapter）：提交到 broker 后立即返回，
+	//       ACK 通过 GetPublishResultChannel() 异步通知。不要实现 SyncSemanticsPublisher。
+	//   - OutboxPublisher 通过 SyncSemanticsPublisher 标记区分两种语义，决定是否
+	//     在 PublishBatch 成功后同步调用 MarkBatchAsPublished。
+	//   - 实现者应该记录日志、处理超时。
 	PublishEnvelope(ctx context.Context, topic string, envelope *Envelope) error
 
 	// GetPublishResultChannel 获取异步发布结果通道
