@@ -68,8 +68,13 @@ type countingRepo struct {
 	markBatchCallCount atomic.Int32
 }
 
-func (r *countingRepo) Save(_ context.Context, e *OutboxEvent) error          { r.events[e.ID] = e; return nil }
-func (r *countingRepo) SaveBatch(_ context.Context, evs []*OutboxEvent) error { for _, e := range evs { r.events[e.ID] = e }; return nil }
+func (r *countingRepo) Save(_ context.Context, e *OutboxEvent) error { r.events[e.ID] = e; return nil }
+func (r *countingRepo) SaveBatch(_ context.Context, evs []*OutboxEvent) error {
+	for _, e := range evs {
+		r.events[e.ID] = e
+	}
+	return nil
+}
 func (r *countingRepo) FindPendingEvents(_ context.Context, _ int, _ int) ([]*OutboxEvent, error) {
 	return nil, nil
 }
@@ -86,7 +91,10 @@ func (r *countingRepo) FindByID(_ context.Context, _ string) (*OutboxEvent, erro
 func (r *countingRepo) FindByAggregateID(_ context.Context, _ string, _ int) ([]*OutboxEvent, error) {
 	return nil, nil
 }
-func (r *countingRepo) Update(_ context.Context, e *OutboxEvent) error          { r.events[e.ID] = e; return nil }
+func (r *countingRepo) Update(_ context.Context, e *OutboxEvent) error {
+	r.events[e.ID] = e
+	return nil
+}
 func (r *countingRepo) MarkAsPublished(_ context.Context, _ string) error       { return nil }
 func (r *countingRepo) MarkAsFailed(_ context.Context, _ string, _ error) error { return nil }
 func (r *countingRepo) IncrementRetry(_ context.Context, _ string, _ string) error {

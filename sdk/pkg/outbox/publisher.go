@@ -395,11 +395,11 @@ func (p *OutboxPublisher) PublishPendingEvents(ctx context.Context, limit int, t
 // `events` slice, not a map keyed by idempotency key. The map only holds the
 // batched published-lookup result. Iterating the slice preserves two behaviors the
 // old per-event implementation had:
-//   1. Output ORDER matches input order (created_at ASC from FindPendingEvents).
-//      A map would randomize iteration order and break per-aggregate publish order.
-//   2. Intra-batch DUPLICATE idempotency keys are both kept. A map keyed by the
-//      idempotency key would collapse duplicates (last-writer-wins) and silently
-//      drop events.
+//  1. Output ORDER matches input order (created_at ASC from FindPendingEvents).
+//     A map would randomize iteration order and break per-aggregate publish order.
+//  2. Intra-batch DUPLICATE idempotency keys are both kept. A map keyed by the
+//     idempotency key would collapse duplicates (last-writer-wins) and silently
+//     drop events.
 func (p *OutboxPublisher) filterPublishedEvents(ctx context.Context, events []*OutboxEvent) ([]*OutboxEvent, error) {
 	// Collect the distinct non-empty keys for the single batched lookup.
 	keySet := make(map[string]struct{})
