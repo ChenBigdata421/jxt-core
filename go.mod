@@ -52,6 +52,10 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.4.4
+	// sqlite (gorm.io/driver/sqlite + modernc.org/sqlite; pulls mattn/go-sqlite3 indirectly):
+	// TEST-ONLY — used solely by sdk/pkg/outbox/adapters/gorm/mark_batch_test.go.
+	// Not compiled into production or any downstream build (Go module-graph pruning).
+	// Treat sqlite/modernc/mattn CVEs as unreachable; confirm a production path before escalating.
 	gorm.io/driver/sqlite v1.4.4
 	gorm.io/gorm v1.24.2
 	gorm.io/plugin/dbresolver v1.3.0
