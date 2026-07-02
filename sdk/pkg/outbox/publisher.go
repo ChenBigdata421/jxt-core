@@ -381,32 +381,54 @@ func (p *OutboxPublisher) PublishPendingEvents(ctx context.Context, limit int, t
 	return p.PublishBatch(ctx, events)
 }
 
-// filterPublishedEvents 过滤已发布的事件（批量幂等性检查）
+// filterPublishedEvents filters out events whose idempotency key is already marked
+// as Published. Uses a single batched FindPublishedByIdempotencyKeys query instead
+// of N individual FindByIdempotencyKey queries.
+//
+// IMPORTANT (behavior parity — eng review Issue 1): this MUST iterate the original
+// `events` slice, not a map keyed by idempotency key. The map only holds the
+// batched published-lookup result. Iterating the slice preserves two behaviors the
+// old per-event implementation had:
+//   1. Output ORDER matches input order (created_at ASC from FindPendingEvents).
+//      A map would randomize iteration order and break per-aggregate publish order.
+//   2. Intra-batch DUPLICATE idempotency keys are both kept. A map keyed by the
+//      idempotency key would collapse duplicates (last-writer-wins) and silently
+//      drop events.
 func (p *OutboxPublisher) filterPublishedEvents(ctx context.Context, events []*OutboxEvent) ([]*OutboxEvent, error) {
-	var eventsToPublish []*OutboxEvent
-
+	// Collect the distinct non-empty keys for the single batched lookup.
+	keySet := make(map[string]struct{})
 	for _, event := range events {
-		// 跳过没有幂等性键的事件（直接发布）
-		if event.IdempotencyKey == "" {
-			eventsToPublish = append(eventsToPublish, event)
-			continue
+		if event.IdempotencyKey != "" {
+			keySet[event.IdempotencyKey] = struct{}{}
 		}
-
-		// 检查是否已发布
-		existingEvent, err := p.repo.FindByIdempotencyKey(ctx, event.IdempotencyKey)
-		if err != nil {
-			return nil, err
-		}
-
-		// 如果已发布，跳过
-		if existingEvent != nil && existingEvent.IsPublished() {
-			continue
-		}
-
-		eventsToPublish = append(eventsToPublish, event)
 	}
 
-	return eventsToPublish, nil
+	if len(keySet) == 0 {
+		// No idempotency keys — nothing to check, publish all (order preserved).
+		return events, nil
+	}
+
+	keys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		keys = append(keys, k)
+	}
+
+	publishedKeys, err := p.repo.FindPublishedByIdempotencyKeys(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch-check idempotency: %w", err)
+	}
+
+	// Iterate the ORIGINAL slice: preserves order and keeps intra-batch duplicates.
+	result := make([]*OutboxEvent, 0, len(events))
+	for _, event := range events {
+		if event.IdempotencyKey != "" {
+			if _, alreadyPublished := publishedKeys[event.IdempotencyKey]; alreadyPublished {
+				continue
+			}
+		}
+		result = append(result, event)
+	}
+	return result, nil
 }
 
 // batchPublishToEventBus 批量发布到 EventBus
