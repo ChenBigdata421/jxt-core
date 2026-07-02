@@ -237,16 +237,17 @@ func (p *OutboxPublisher) publishSingleEventToEventBus(ctx context.Context, even
 
 ### 3.1 方案概述
 
-**不需要修改接口，只需要修改实现**：
+**不需要修改接口，只需要修改实现**，且实现需按发布器语义分流：
 
 1. ✅ Outbox 使用 `PublishEnvelope()` 而不是 `Publish()`
 2. ✅ 启动 ACK 监听器，监听 `GetPublishResultChannel()`
-3. ✅ 发布时乐观更新为 `Published`
-4. ✅ ACK 失败时回滚为 `Failed`
+3. ✅ **同步语义发布器**（实现 `SyncSemanticsPublisher` 标记接口，如 `InProcessEventPublisher`）：`PublishEnvelope()` 返回 nil 即代表发布实际完成，`PublishBatch` 成功后立即同步调用 `MarkBatchAsPublished`（单条 `UPDATE ... WHERE id IN (?) AND status='pending'`，幂等）
+4. ✅ **异步语义发布器**（Kafka/NATS `EventBusAdapter`，**不**实现 `SyncSemanticsPublisher`）：`PublishEnvelope()` 返回 nil 仅代表“已提交到 broker”，不代表“已 ACK”；`PublishBatch` **跳过**同步标记，状态迁移延迟到 ACK 监听器——在 broker NACK 时不能抢先标记为 `Published`，否则会丢事件
+5. ✅ ACK 失败时（异步语义路径）记录错误，事件保持 `Pending`，等待下次轮询重试
 
-**这正是 EventBus README 中推荐的 Outbox 模式！**
+**这正是 EventBus README 中推荐的 Outbox 模式！** 关键约束：只有异步语义发布器才走 ACK 监听器路径，同步语义发布器在 `PublishBatch` 内同步标记即可。
 
-### 3.2 EventBus README 中的 Outbox 示例
+### 3.2 EventBus README 中的 Outbox 示例（异步语义路径）
 
 根据 `jxt-core/sdk/pkg/eventbus/README.md` 第 829-895 行：
 

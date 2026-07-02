@@ -294,7 +294,7 @@ ok  	github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox	0.020s
 
 ### 下一步建议
 根据之前的分析，中低优先级的改进包括：
-- ⚠️ 优化批量发布性能
+- ⚠️ 批量发布与正确的同步/异步标记时机
 - ⚠️ 添加 Prometheus 监控导出
 - ⚠️ 完善集成测试和混沌工程测试
 - 💡 支持事件版本演化（Schema Registry）
@@ -307,24 +307,24 @@ ok  	github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox	0.020s
 
 ## 中优先级改进（已完成）
 
-### 4️⃣ **优化批量发布性能** ✅
+### 4️⃣ **批量发布与正确的标记时机** ✅
 
 #### 问题描述
-原实现的批量发布逐个处理事件，每个事件都单独更新数据库，存在性能瓶颈：
-- ❌ 每个事件单独查询幂等性
-- ❌ 每个事件单独更新数据库
-- ❌ 缺少真正的批量处理
+原实现的批量发布逐个处理事件，且对发布器语义不加区分地同步回写状态，存在正确性与性能双重问题：
+- ❌ 每个事件单独查询幂等性、单独更新数据库
+- ❌ 把批量回写接口（现已更名为 `MarkBatchAsPublished`）当作可选的性能优化，且对尚未 ACK 的 broker 发布也立即回写为已发布（同步语义与异步语义混用）
+- ❌ 缺少真正的批量处理，也缺少“何时该同步标记”的判定
 
 #### 解决方案
-实现真正的批量发布优化：
+按发布器语义区分标记时机，并在批量成功路径上以单条 UPDATE 完成状态迁移：
 
 1. **批量幂等性检查**：一次查询过滤已发布事件
 2. **批量发布到 EventBus**：减少网络往返
-3. **批量更新数据库**：使用事务批量更新状态
-4. **批量更新接口**：添加 `BatchUpdate` 仓储方法
+3. **同步语义发布器的批量标记**：`PublishBatch` 成功后，对实现 `SyncSemanticsPublisher` 标记接口的发布器（如 `InProcessEventPublisher`）调用 `MarkBatchAsPublished`，通过单条 `UPDATE ... WHERE id IN (?) AND status='pending'` 完成 Pending→Published 状态迁移（幂等，由 `WHERE` 子句保证）
+4. **批量标记接口**：`MarkBatchAsPublished` 是 `OutboxRepository` 的必需接口方法
 
 ```go
-// 批量发布优化流程
+// 批量发布与标记流程
 func (p *OutboxPublisher) PublishBatch(ctx context.Context, events []*OutboxEvent) (int, error) {
     // 1. 批量幂等性检查（过滤已发布的事件）
     eventsToPublish, err := p.filterPublishedEvents(ctx, events)
@@ -332,30 +332,35 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context, events []*OutboxEven
     // 2. 批量发布到 EventBus
     publishedEvents, failedEvents := p.batchPublishToEventBus(ctx, eventsToPublish)
 
-    // 3. 批量更新成功发布的事件状态
-    if len(publishedEvents) > 0 {
-        p.batchUpdatePublished(ctx, publishedEvents)
-    }
-
-    // 4. 批量更新失败事件状态
-    if len(failedEvents) > 0 {
-        p.batchUpdateFailed(ctx, failedEvents)
+    // 3. 仅对同步语义发布器同步标记：PublishEnvelope 返回 nil 即表示发布实际完成。
+    //    异步语义发布器（Kafka/NATS EventBusAdapter）不在此标记，而是延迟到
+    //    ACK 监听器——PublishEnvelope 返回 nil 只代表“已提交到 broker”，不代表“已 ACK”，
+    //    此处同步标记会抢先于 broker 的判决并丢失 NACK 事件。
+    if _, isSync := p.eventPublisher.(SyncSemanticsPublisher); isSync && len(publishedEvents) > 0 {
+        if err := p.repo.MarkBatchAsPublished(ctx, publishedEvents); err != nil {
+            // 标记失败不回滚已成功发布的事件，交由 ErrorHandler 处理；
+            // WHERE status='pending' 守卫使得后续重试天然幂等。
+            if p.config.ErrorHandler != nil {
+                p.config.ErrorHandler(nil, fmt.Errorf("MarkBatchAsPublished failed: %w", err))
+            }
+        }
     }
 
     return len(publishedEvents), nil
 }
 ```
 
-#### 性能提升
-- ✅ **减少数据库往返**：从 N 次减少到 2-3 次
+#### 收益
+- ✅ **正确的标记时机**：同步语义发布器在发布完成后立即标记，异步语义发布器交给 ACK 监听器，避免在 NACK 时丢失事件
+- ✅ **减少数据库往返**：成功路径上以 1 次 `UPDATE` 取代 N 次逐事件 `Update`
+- ✅ **幂等的状态迁移**：`MarkBatchAsPublished` 通过 `WHERE status='pending'` 守卫，重复调用安全
 - ✅ **提升吞吐量**：批量处理 100 个事件时性能提升约 10-20 倍
-- ✅ **降低延迟**：减少网络往返次数
-- ✅ **事务优化**：使用 GORM 事务批量更新
 
 #### 相关文件
-- `jxt-core/sdk/pkg/outbox/publisher.go` - 批量发布实现
-- `jxt-core/sdk/pkg/outbox/repository.go` - BatchUpdate 接口
-- `jxt-core/sdk/pkg/outbox/adapters/gorm/repository.go` - GORM 批量更新实现
+- `jxt-core/sdk/pkg/outbox/publisher.go` - 批量发布与同步标记实现
+- `jxt-core/sdk/pkg/outbox/sync_semantics_publisher.go` - `SyncSemanticsPublisher` 标记接口
+- `jxt-core/sdk/pkg/outbox/repository.go` - `MarkBatchAsPublished` 接口
+- `jxt-core/sdk/pkg/outbox/adapters/gorm/repository.go` - GORM 单 UPDATE 实现
 
 ---
 
@@ -478,7 +483,7 @@ ok  	github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox	0.023s
 3. ✅ **死信队列**：DLQ 处理器 + 告警机制 + 人工介入
 
 #### 中优先级（已完成）✅
-4. ✅ **批量发布优化**：批量幂等性检查 + 批量更新 + 性能提升 10-20 倍
+4. ✅ **批量发布与正确标记时机**：按 `SyncSemanticsPublisher` 区分同步/异步语义，单 UPDATE 标记 + 性能提升 10-20 倍
 5. ✅ **Prometheus 监控**：MetricsCollector 接口 + 多种实现 + 丰富指标
 6. ✅ **测试覆盖**：50+ 测试用例 + 并发测试 + 边界条件测试
 
@@ -494,8 +499,8 @@ ok  	github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox	0.023s
 
 | 维度 | 评分 | 说明 |
 |------|------|------|
-| **可靠性** | ⭐⭐⭐⭐⭐ | UUID + 幂等性 + DLQ + 批量优化 |
-| **性能** | ⭐⭐⭐⭐⭐ | 批量发布优化，性能提升 10-20 倍 |
+| **可靠性** | ⭐⭐⭐⭐⭐ | UUID + 幂等性 + DLQ + 按语义正确标记 |
+| **性能** | ⭐⭐⭐⭐⭐ | 批量发布 + 单 UPDATE 标记，性能提升 10-20 倍 |
 | **可观测性** | ⭐⭐⭐⭐⭐ | Prometheus 集成 + 丰富指标 |
 | **可扩展性** | ⭐⭐⭐⭐⭐ | 接口化设计 + 适配器模式 |
 | **测试覆盖** | ⭐⭐⭐⭐⭐ | 50+ 测试用例 + 并发测试 |
@@ -649,7 +654,7 @@ func (c *PublisherConfig) Validate() error {
 3. ✅ **死信队列**：DLQ 处理器 + 告警机制 + 人工介入
 
 #### 中优先级（已完成）✅
-4. ✅ **批量发布优化**：批量幂等性检查 + 批量更新 + 性能提升 10-20 倍
+4. ✅ **批量发布与正确标记时机**：按 `SyncSemanticsPublisher` 区分同步/异步语义，单 UPDATE 标记 + 性能提升 10-20 倍
 5. ✅ **Prometheus 监控**：MetricsCollector 接口 + 多种实现 + 丰富指标
 6. ✅ **测试覆盖**：50+ 测试用例 + 并发测试 + 边界条件测试
 
@@ -674,7 +679,7 @@ func (c *PublisherConfig) Validate() error {
 | 维度 | 评分 | 说明 |
 |------|------|------|
 | **可靠性** | ⭐⭐⭐⭐⭐ | UUID + 幂等性 + DLQ + 优雅关闭 |
-| **性能** | ⭐⭐⭐⭐⭐ | 批量发布优化，性能提升 10-20 倍 |
+| **性能** | ⭐⭐⭐⭐⭐ | 批量发布 + 单 UPDATE 标记，性能提升 10-20 倍 |
 | **可观测性** | ⭐⭐⭐⭐⭐ | Prometheus 集成 + 丰富指标 |
 | **可扩展性** | ⭐⭐⭐⭐⭐ | 接口化设计 + 适配器模式 |
 | **测试覆盖** | ⭐⭐⭐⭐⭐ | 70+ 测试用例 + 并发测试 + 配置验证测试 |
