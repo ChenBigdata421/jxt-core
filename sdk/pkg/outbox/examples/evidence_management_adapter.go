@@ -217,6 +217,11 @@ func (a *OutboxRepositoryAdapter) ExistsByIdempotencyKey(ctx context.Context, id
 	return a.repo.ExistsByIdempotencyKey(ctx, idempotencyKey)
 }
 
+// FindPublishedByIdempotencyKeys delegates to the underlying jxt-core repository.
+func (a *OutboxRepositoryAdapter) FindPublishedByIdempotencyKeys(ctx context.Context, keys []string) (map[string]struct{}, error) {
+	return a.repo.FindPublishedByIdempotencyKeys(ctx, keys)
+}
+
 // FindMaxRetryEvents 查找超过最大重试次数的事件
 func (a *OutboxRepositoryAdapter) FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	return a.repo.FindMaxRetryEvents(ctx, limit, tenantID)

@@ -135,6 +135,17 @@ type OutboxRepository interface {
 	// 返回：true 表示已存在，false 表示不存在
 	ExistsByIdempotencyKey(ctx context.Context, idempotencyKey string) (bool, error)
 
+	// FindPublishedByIdempotencyKeys returns the subset of `keys` that are already
+	// marked as Published. Used by publisher.filterPublishedEvents to perform a
+	// single batched idempotency check instead of N individual FindByIdempotencyKey
+	// queries.
+	//
+	// Keys not present in the returned set are safe to publish (either no event
+	// with that key exists, or it's still Pending).
+	//
+	// Implementations must handle empty input gracefully (return empty map, no error).
+	FindPublishedByIdempotencyKeys(ctx context.Context, keys []string) (map[string]struct{}, error)
+
 	// FindMaxRetryEvents 查找超过最大重试次数的事件
 	// ctx: 上下文
 	// limit: 最大返回数量

@@ -424,6 +424,28 @@ func (r *GormOutboxRepository) ExistsByIdempotencyKey(ctx context.Context, idemp
 	return count > 0, nil
 }
 
+// FindPublishedByIdempotencyKeys returns the subset of keys already marked as Published.
+// Uses a single SELECT with WHERE idempotency_key IN (...) and status = 'published'.
+func (r *GormOutboxRepository) FindPublishedByIdempotencyKeys(ctx context.Context, keys []string) (map[string]struct{}, error) {
+	result := make(map[string]struct{})
+	if len(keys) == 0 {
+		return result, nil
+	}
+	var found []string
+	err := r.db.WithContext(ctx).
+		Model(&OutboxEventModel{}).
+		Where("idempotency_key IN ?", keys).
+		Where("status = ?", outbox.EventStatusPublished).
+		Pluck("idempotency_key", &found).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range found {
+		result[k] = struct{}{}
+	}
+	return result, nil
+}
+
 // FindMaxRetryEvents 查找超过最大重试次数的事件
 func (r *GormOutboxRepository) FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var models []*OutboxEventModel

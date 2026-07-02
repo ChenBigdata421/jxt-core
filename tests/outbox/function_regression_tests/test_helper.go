@@ -300,6 +300,26 @@ func (m *MockRepository) ExistsByIdempotencyKey(ctx context.Context, idempotency
 	return exists, nil
 }
 
+// FindPublishedByIdempotencyKeys returns the subset of keys already marked as Published.
+func (m *MockRepository) FindPublishedByIdempotencyKeys(ctx context.Context, keys []string) (map[string]struct{}, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	result := make(map[string]struct{})
+	publishedKeys := make(map[string]bool)
+	for _, event := range m.events {
+		if event.Status == outbox.EventStatusPublished && event.IdempotencyKey != "" {
+			publishedKeys[event.IdempotencyKey] = true
+		}
+	}
+	for _, k := range keys {
+		if publishedKeys[k] {
+			result[k] = struct{}{}
+		}
+	}
+	return result, nil
+}
+
 // MarkAsPublished 标记事件为已发布
 func (m *MockRepository) MarkAsPublished(ctx context.Context, id string) error {
 	m.mu.Lock()
