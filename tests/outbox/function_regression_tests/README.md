@@ -126,7 +126,7 @@ repo.FindByIdempotencyKey(ctx, "key")
 
 **支持的方法：**
 - Save, SaveBatch
-- Update, BatchUpdate
+- Update, MarkBatchAsPublished
 - FindPendingEvents, FindByID, FindByAggregateID
 - FindByIdempotencyKey, ExistsByIdempotencyKey
 - MarkAsPublished, MarkAsFailed

@@ -205,7 +205,6 @@ type failingRepo struct {
 	countingRepo
 	findPublishedErr error
 	markBatchErr     error
-	errorHandlerSeen atomic.Int32
 }
 
 func (r *failingRepo) FindPublishedByIdempotencyKeys(_ context.Context, _ []string) (map[string]struct{}, error) {

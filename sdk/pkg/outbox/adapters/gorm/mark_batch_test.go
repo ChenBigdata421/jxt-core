@@ -3,6 +3,7 @@ package gorm
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,10 +14,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// setupTestDB creates an in-memory sqlite DB with the outbox_events table migrated.
+var testDBCounter atomic.Int64
+
+// setupTestDB creates an isolated in-memory sqlite DB for a single test.
+// Each call gets a unique DSN so tests never share state (cache=shared shares
+// across connections on the SAME dsn; a unique dsn per test keeps pools private).
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Dialector{DriverName: "sqlite", DSN: "file::memory:?cache=shared"}, &gorm.Config{})
+	id := testDBCounter.Add(1)
+	dsn := fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared", id)
+	db, err := gorm.Open(sqlite.Dialector{DriverName: "sqlite", DSN: dsn}, &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&OutboxEventModel{}))
 	return db
@@ -68,21 +75,23 @@ func TestGormOutboxRepository_MarkBatchAsPublished_TransitionsAllToPublished(t *
 	ctx := context.Background()
 	now := time.Now()
 
-	// Seed: 3 pending events (distinct ids + idempotency keys to avoid collision
-	// with rows left by other tests in the shared in-mem DB)
-	for _, id := range []string{"t-e1", "t-e2", "t-e3"} {
+	// Seed: 3 pending events (distinct idempotency keys required by the model's
+	// unique index — empty keys would collide)
+	for _, e := range []struct{ id, key string }{
+		{"e1", "mk1"}, {"e2", "mk2"}, {"e3", "mk3"},
+	} {
 		require.NoError(t, db.Create(&OutboxEventModel{
-			ID: id, Status: string(outbox.EventStatusPending), IdempotencyKey: fmt.Sprintf("mk-%s", id),
+			ID: e.id, Status: string(outbox.EventStatusPending), IdempotencyKey: e.key,
 			CreatedAt: now, UpdatedAt: now,
 		}).Error)
 	}
 
 	err := repo.MarkBatchAsPublished(ctx, []*outbox.OutboxEvent{
-		{ID: "t-e1"}, {ID: "t-e2"}, {ID: "t-e3"},
+		{ID: "e1"}, {ID: "e2"}, {ID: "e3"},
 	})
 	require.NoError(t, err)
 
-	for _, id := range []string{"t-e1", "t-e2", "t-e3"} {
+	for _, id := range []string{"e1", "e2", "e3"} {
 		var model OutboxEventModel
 		require.NoError(t, db.First(&model, "id = ?", id).Error)
 		require.Equal(t, string(outbox.EventStatusPublished), model.Status)
@@ -98,39 +107,38 @@ func TestGormOutboxRepository_MarkBatchAsPublished_IdempotentGuard(t *testing.T)
 	originalPublishedAt := now.Add(-1 * time.Hour)
 
 	// Seed: e1 = Pending; e2 = Failed; e3 = already Published (with old timestamp)
-	// (distinct ids + idempotency keys to avoid collision with rows left by
-	//  TransitionsAllToPublished in the shared in-mem DB)
+	// (distinct idempotency keys required by the model's unique index)
 	require.NoError(t, db.Create(&OutboxEventModel{
-		ID: "ig-e1", Status: string(outbox.EventStatusPending), IdempotencyKey: "ig-e1",
+		ID: "e1", Status: string(outbox.EventStatusPending), IdempotencyKey: "mk1",
 		CreatedAt: now, UpdatedAt: now,
 	}).Error)
 	require.NoError(t, db.Create(&OutboxEventModel{
-		ID: "ig-e2", Status: string(outbox.EventStatusFailed), IdempotencyKey: "ig-e2",
+		ID: "e2", Status: string(outbox.EventStatusFailed), IdempotencyKey: "mk2",
 		CreatedAt: now, UpdatedAt: now,
 	}).Error)
 	require.NoError(t, db.Create(&OutboxEventModel{
-		ID: "ig-e3", Status: string(outbox.EventStatusPublished), PublishedAt: &originalPublishedAt, IdempotencyKey: "ig-e3",
+		ID: "e3", Status: string(outbox.EventStatusPublished), PublishedAt: &originalPublishedAt, IdempotencyKey: "mk3",
 		CreatedAt: now, UpdatedAt: now,
 	}).Error)
 
 	err := repo.MarkBatchAsPublished(ctx, []*outbox.OutboxEvent{
-		{ID: "ig-e1"}, {ID: "ig-e2"}, {ID: "ig-e3"},
+		{ID: "e1"}, {ID: "e2"}, {ID: "e3"},
 	})
 	require.NoError(t, err)
 
 	// e1 should be marked
 	var m1 OutboxEventModel
-	require.NoError(t, db.First(&m1, "id = ?", "ig-e1").Error)
+	require.NoError(t, db.First(&m1, "id = ?", "e1").Error)
 	require.Equal(t, string(outbox.EventStatusPublished), m1.Status)
 
 	// e2 should be UNCHANGED (Failed, not Pending — idempotency guard)
 	var m2 OutboxEventModel
-	require.NoError(t, db.First(&m2, "id = ?", "ig-e2").Error)
+	require.NoError(t, db.First(&m2, "id = ?", "e2").Error)
 	require.Equal(t, string(outbox.EventStatusFailed), m2.Status)
 
 	// e3 should be UNCHANGED (already Published — idempotency guard via WHERE status='pending')
 	var m3 OutboxEventModel
-	require.NoError(t, db.First(&m3, "id = ?", "ig-e3").Error)
+	require.NoError(t, db.First(&m3, "id = ?", "e3").Error)
 	require.Equal(t, originalPublishedAt.Unix(), m3.PublishedAt.Unix(),
 		"already-published event's published_at must not be overwritten")
 }
