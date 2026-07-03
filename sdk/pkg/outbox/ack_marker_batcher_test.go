@@ -272,3 +272,57 @@ func TestBatcher_ConcurrentAdd_RaceClean(t *testing.T) {
 	}
 	require.Equal(t, writers*perWriter, total, "no Add may be lost; every ID must be flushed exactly once")
 }
+
+// === Panic recovery (Fix 1) ===
+
+// TestBatcher_FlushFuncPanic_LoopSurvives：flushFunc panic 必须被 recover 转为 error，
+// 走正常的 fails/onError 路径；loop goroutine 存活，后续 Add+flush 正常工作。
+// threshold=1 → panic-error 立即告警，断言 onError 收到 "flushFunc panic"。
+func TestBatcher_FlushFuncPanic_LoopSurvives(t *testing.T) {
+	var (
+		stateMu   sync.Mutex
+		willPanic = true
+		calls     int32
+		panicVal  = "distinct-driver-bug-94217"
+		rf        recordingFlush
+	)
+	flex := func(_ context.Context, ids []string) error {
+		atomic.AddInt32(&calls, 1)
+		stateMu.Lock()
+		wp := willPanic
+		stateMu.Unlock()
+		if wp {
+			panicpanic(panicVal)
+		}
+		return rf.flush(context.Background(), ids)
+	}
+	onErr := &collectingOnError{}
+	// threshold=0 → 每次失败都告警，且 alert 文案用 %w 包裹 err，能直接断言 panic 文本。
+	b := newAckMarkerBatcher(1, 5*time.Second, 0, flex, onErr.handler) // K=1：每 Add 立即 flush
+	defer b.Close()
+
+	// 1st Add → flushFunc panics → recover 转 error → 走 fails++/onError（threshold=0 立即告警，
+	// 文案含 "flushFunc panic" + 原始 panic 值）。
+	addAndWaitFlushing(t, b, "p1", &calls)
+	waitForMsgs(t, onErr, 1)
+	{
+		msgs := onErr.messages()
+		require.Len(t, msgs, 1, "panic-converted error must alert (threshold=0)")
+		require.Contains(t, msgs[0], "flushFunc panic", "alert must surface the recovered panic")
+		require.Contains(t, msgs[0], panicVal, "alert must carry the original panic value")
+	}
+
+	// 2nd Add → flushFunc 不再 panic → 成功 flush；证明 loop 存活。
+	stateMu.Lock()
+	willPanic = false
+	stateMu.Unlock()
+	addAndWaitFlushing(t, b, "s1", &calls)
+	require.Eventually(t, func() bool { return len(rf.allCalls()) >= 1 },
+		300*time.Millisecond, time.Millisecond, "loop survived: post-panic flush must succeed")
+	calls0 := rf.allCalls()
+	require.Equal(t, []string{"s1"}, calls0[len(calls0)-1], "the post-panic flush recorded s1")
+}
+
+// panicpanic is a tiny indirection so the panic site is a real call (not inline),
+// keeping the recover path realistic.
+func panicpanic(v string) { panic(v) }

@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+// ackMarkFlushTimeout is the per-flush/per-event timeout for marking outbox events
+// as Published (MarkBatchAsPublished / MarkAsPublished). Used in ack_marker_batcher
+// flush() and publisher handleACKResult's per-event fallback.
+const ackMarkFlushTimeout = 5 * time.Second
+
+// Default ACK-batching constants (single source of truth for the defaults that
+// appear both in DefaultPublisherConfig and in newAckMarkerBatcher's clamp).
+const (
+	defaultACKBatchSize             = 50
+	defaultACKBatchFlushInterval    = 200 * time.Millisecond
+	defaultACKBatchFailureThreshold = 5
+)
+
 // PublisherConfig 发布器配置
 type PublisherConfig struct {
 	// MaxRetries 最大重试次数
@@ -82,6 +95,9 @@ func (c *PublisherConfig) Validate() error {
 	if c.ACKBatchSize < 0 {
 		return fmt.Errorf("ACKBatchSize must be >= 0 (0 = disable), got %d", c.ACKBatchSize)
 	}
+	if c.ACKBatchSize > 10000 {
+		return fmt.Errorf("ACKBatchSize too large: %d (max 10000, guarded to stay under SQL IN-list param limits)", c.ACKBatchSize)
+	}
 	if c.ACKBatchFlushInterval < 0 {
 		return fmt.Errorf("ACKBatchFlushInterval must be >= 0, got %v", c.ACKBatchFlushInterval)
 	}
@@ -104,9 +120,9 @@ func DefaultPublisherConfig() *PublisherConfig {
 		EnableMetrics:            true,
 		ConcurrentPublish:        false, // 默认不启用并发发布（保持向后兼容）
 		PublishConcurrency:       10,    // 默认并发数 10
-		ACKBatchSize:             50,
-		ACKBatchFlushInterval:    200 * time.Millisecond,
-		ACKBatchFailureThreshold: 5,
+		ACKBatchSize:             defaultACKBatchSize,
+		ACKBatchFlushInterval:    defaultACKBatchFlushInterval,
+		ACKBatchFailureThreshold: defaultACKBatchFailureThreshold,
 	}
 }
 
@@ -718,6 +734,15 @@ func (p *OutboxPublisher) StartACKListenerWithChannel(ctx context.Context, resul
 			p.config.ACKBatchSize,
 			p.config.ACKBatchFlushInterval,
 			p.config.ACKBatchFailureThreshold,
+			// flushFunc adapter: the batcher works in terms of []string (event IDs),
+			// but OutboxRepository.MarkBatchAsPublished takes []*OutboxEvent. This is
+			// an INTENTIONAL adapter boundary: the GORM MarkBatchAsPublished
+			// implementation reads ONLY e.ID (verified), so a sparse stub carrying
+			// nothing but the ID is safe and lets the batcher stay repo-agnostic.
+			// A full []string-taking repo method would be a breaking interface change
+			// for all OutboxRepository implementors — disproportionate here (K small
+			// allocs per ~200ms flush). If a future MarkBatchAsPublished contract
+			// uses other OutboxEvent fields, this stub MUST be updated to populate them.
 			func(ctx context.Context, ids []string) error {
 				events := make([]*OutboxEvent, len(ids))
 				for i, id := range ids {
@@ -740,7 +765,7 @@ func (p *OutboxPublisher) StartACKListenerWithChannel(ctx context.Context, resul
 
 // StopACKListener 停止 ACK 监听器。
 // 锁内只做 snapshot + 置状态；锁外先取消上下文（监听 goroutine 退出、停止接收新 ACK），
-// 再关闭 batcher（冲刷剩余，等待 loop 退出，可能阻塞 ≤5s）。不持 ackListenerMu 跨 DB 调用（A2）。
+// 再关闭 batcher（冲刷剩余，等待 loop 退出，可能阻塞 ≤ackMarkFlushTimeout）。不持 ackListenerMu 跨 DB 调用（A2）。
 func (p *OutboxPublisher) StopACKListener() {
 	p.ackListenerMu.Lock()
 	if !p.ackListenerStarted {
@@ -758,7 +783,7 @@ func (p *OutboxPublisher) StopACKListener() {
 	if cancel != nil {
 		cancel()
 	}
-	// 再关闭 batcher：冲刷剩余缓冲，等待 batcher loop 退出。可能阻塞 ≤5s，不持锁（A2）。
+	// 再关闭 batcher：冲刷剩余缓冲，等待 batcher loop 退出。可能阻塞 ≤ackMarkFlushTimeout，不持锁（A2）。
 	if batcher != nil {
 		if err := batcher.Close(); err != nil && p.config.ErrorHandler != nil {
 			p.config.ErrorHandler(nil, fmt.Errorf("ackMarkerBatcher close failed: %w", err))
@@ -776,8 +801,16 @@ func (p *OutboxPublisher) ackListenerLoopWithChannel(resultChan <-chan *PublishR
 			p.handleACKResult(result, batcher)
 
 		case <-p.ackListenerCtx.Done():
-			// 监听器被停止
-			return
+			// 监听器被停止。冲刷 resultChan 中已缓冲的 ACK，使其进入 batcher
+			// （由随后的 batcher.Close 冲刷落库），而非被丢弃到下个 tick 重发。
+			for {
+				select {
+				case result := <-resultChan:
+					p.handleACKResult(result, batcher)
+				default:
+					return
+				}
+			}
 		}
 	}
 }
@@ -789,7 +822,7 @@ func (p *OutboxPublisher) handleACKResult(result *PublishResult, batcher *ackMar
 	}
 
 	// 创建超时上下文
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ackMarkFlushTimeout)
 	defer cancel()
 
 	if result.Success {

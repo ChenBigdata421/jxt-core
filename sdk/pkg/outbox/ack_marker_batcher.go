@@ -32,10 +32,10 @@ type ackMarkerBatcher struct {
 func newAckMarkerBatcher(maxSize int, flushEvery time.Duration, threshold int,
 	flushFunc func(ctx context.Context, ids []string) error, onError func(error)) *ackMarkerBatcher {
 	if maxSize < 1 {
-		maxSize = 50
+		maxSize = defaultACKBatchSize
 	}
 	if flushEvery <= 0 {
-		flushEvery = 200 * time.Millisecond
+		flushEvery = defaultACKBatchFlushInterval
 	}
 	b := &ackMarkerBatcher{
 		maxSize:    maxSize,
@@ -116,8 +116,8 @@ func (b *ackMarkerBatcher) flush() {
 	b.ids = nil
 	b.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err := b.flushFunc(ctx, batch)
+	ctx, cancel := context.WithTimeout(context.Background(), ackMarkFlushTimeout)
+	err := b.callFlushFunc(ctx, batch)
 	cancel()
 
 	b.mu.Lock()
@@ -138,4 +138,18 @@ func (b *ackMarkerBatcher) flush() {
 	if alert != nil && b.onError != nil {
 		b.onError(alert)
 	}
+}
+
+// callFlushFunc wraps flushFunc with a panic recover so a panicking flushFunc
+// (gorm driver bug, nil repo, etc.) does not kill the loop goroutine silently.
+// The panic is converted to an error and routed through the normal fails/onError
+// path; the loop survives (the offending batch's IDs are dropped, events remain
+// Pending and get reprocessed next tick — at-least-once, same as a normal error).
+func (b *ackMarkerBatcher) callFlushFunc(ctx context.Context, batch []string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("ackMarkerBatcher flushFunc panic: %v", r)
+		}
+	}()
+	return b.flushFunc(ctx, batch)
 }

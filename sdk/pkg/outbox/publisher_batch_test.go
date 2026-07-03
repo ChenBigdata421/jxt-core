@@ -485,3 +485,27 @@ func TestACKListener_ConcurrentACKAndStop_RaceClean(t *testing.T) {
 	// 本测试核心是 -race 无竞争 + Stop 不死锁。
 	require.GreaterOrEqual(t, len(repo.markedIDs()), 0)
 }
+
+// === Config validation (Fix 2) ===
+
+// TestPublisherConfig_Validate_RejectsHugeACKBatchSize：ACKBatchSize 超过上限必须被拒，
+// 避免 WHERE id IN ? 列表过大撞 MySQL max_allowed_packet / 65535 占位符上限。
+// ACKBatchSize=0（禁用）保持有效。
+func TestPublisherConfig_Validate_RejectsHugeACKBatchSize(t *testing.T) {
+	// 0（禁用）仍然有效
+	cfg0 := DefaultPublisherConfig()
+	cfg0.ACKBatchSize = 0
+	require.NoError(t, cfg0.Validate(), "ACKBatchSize=0 (disabled) must stay valid")
+
+	// 上限本身合法
+	cfgMax := DefaultPublisherConfig()
+	cfgMax.ACKBatchSize = 10000
+	require.NoError(t, cfgMax.Validate(), "ACKBatchSize=10000 is the ceiling and must be valid")
+
+	// 超过上限 → 拒绝
+	cfg := DefaultPublisherConfig()
+	cfg.ACKBatchSize = 100000
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ACKBatchSize too large")
+}
