@@ -3,6 +3,7 @@ package function_regression_tests
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -275,6 +276,54 @@ func TestAsyncACK_ListenerStartStop(t *testing.T) {
 	// 验证事件状态未更新（因为监听器已停止）
 	updatedEvent2, _ := repo.FindByID(ctx, event2.ID)
 	helper.AssertEqual(outbox.EventStatusPending, updatedEvent2.Status, "Event should remain Pending (listener stopped)")
+}
+
+// TestAsyncACK_ShutdownDrain verifies that StopACKListener flushes all in-flight
+// ACKs through the batcher: events published + ACKed before Stop must all be
+// marked Published, not silently dropped into the at-least-once retry window.
+//
+// Uses a small ACKBatchSize and a long flush interval so the flush is triggered
+// only by Stop (Close drains the buffer), not by the ticker or size-K wake.
+func TestAsyncACK_ShutdownDrain(t *testing.T) {
+	helper := NewTestHelper(t)
+
+	repo := NewMockRepository()
+	publisher := NewMockAsyncEventPublisher()
+	topicMapper := NewMockTopicMapper()
+	cfg := GetDefaultPublisherConfig()
+	cfg.ACKBatchSize = 50           // enable batcher
+	cfg.ACKBatchFlushInterval = 5 * time.Second // only Close triggers flush
+
+	outboxPublisher := outbox.NewOutboxPublisher(repo, publisher, topicMapper, cfg)
+
+	ctx := context.Background()
+	outboxPublisher.StartACKListener(ctx)
+
+	// Publish 10 events and ACK them all successfully.
+	const eventCount = 10
+	eventIDs := make([]string, 0, eventCount)
+	for i := 0; i < eventCount; i++ {
+		event := helper.CreateTestEvent(1, "Order", fmt.Sprintf("order-%d", i), "OrderCreated")
+		helper.RequireNoError(repo.Save(ctx, event))
+		helper.AssertNoError(outboxPublisher.PublishEvent(ctx, event))
+		publisher.SendACKSuccess(event.ID, "Order-events", event.AggregateID, "OrderCreated")
+		eventIDs = append(eventIDs, event.ID)
+	}
+
+	// Brief sleep so all ACKs reach the batcher buffer.
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop the listener — this must flush the batcher buffer.
+	outboxPublisher.StopACKListener()
+
+	// All 10 events must be Published. None silently dropped.
+	for _, id := range eventIDs {
+		event, err := repo.FindByID(ctx, id)
+		helper.RequireNoError(err)
+		helper.AssertNotNil(event, "event %s should exist", id)
+		helper.AssertEqual(outbox.EventStatusPublished, event.Status,
+			"event %s should be Published after shutdown drain", id)
+	}
 }
 
 // TestAsyncACK_EnvelopeConversion 测试 Envelope 转换

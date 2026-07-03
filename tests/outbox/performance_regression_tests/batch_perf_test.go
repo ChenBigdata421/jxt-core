@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox/adapters"
 	gormadapter "github.com/ChenBigdata421/jxt-core/sdk/pkg/outbox/adapters/gorm"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -147,6 +148,80 @@ func BenchmarkPublishBatch_Async(b *testing.B) {
 // Correctness at scale: 1000+ idempotency keys handled in one batch.
 // =========================================================================
 
+// =========================================================================
+// Regression guard: N async ACKs produce ~N/K MarkBatchAsPublished calls
+// (not N individual MarkAsPublished calls). This is the async-path equivalent
+// of TestMarkBatchAsPublished_SingleBatchDB — it proves the batching gain
+// (12× commit reduction from run J) isn't silently broken.
+// =========================================================================
+
+func TestAsyncACKBatchMark_BatchProperty(t *testing.T) {
+	repo := &batchCountRepo{events: make(map[string]*outbox.OutboxEvent)}
+	pub := &chanAsyncPublisher{resultChan: make(chan *outbox.PublishResult, 200)}
+	cfg := outbox.DefaultPublisherConfig()
+	cfg.ACKBatchSize = 3
+	cfg.ACKBatchFlushInterval = 5 * time.Second // only size-K flush, no ticker
+
+	publisher := outbox.NewOutboxPublisher(repo, pub, &staticMapper{topic: "test.topic"}, cfg)
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	defer publisher.StopACKListener()
+
+	// Feed ACKs in K-sized rounds with a small sync pause between rounds,
+	// so the batcher loop has time to drain the buffer between fills.
+	// Without the pause, the listener goroutine would drain all ACKs from
+	// the channel before the Go scheduler runs the batcher loop, collapsing
+	// N/K expected flushes into 1 (non-deterministic).
+	const K = 3
+	const rounds = 4
+	for r := 0; r < rounds; r++ {
+		for i := 0; i < K; i++ {
+			pub.sendACK(fmt.Sprintf("e-%d-%d", r, i), true)
+		}
+		require.Eventually(t, func() bool {
+			return repo.markBatchCalls.Load() >= int32(r+1)
+		}, 300*time.Millisecond, 5*time.Millisecond,
+			"round %d: K=%d ACKs must trigger flush #%d", r, K, r+1)
+	}
+
+	require.Equal(t, int32(rounds), repo.markBatchCalls.Load(),
+		"%d rounds of K=%d ACKs must produce exactly %d MarkBatchAsPublished calls",
+		rounds, K, rounds)
+	require.Equal(t, int32(0), repo.markSingleCalls.Load(),
+		"batcher path must never call per-event MarkAsPublished")
+}
+
+// =========================================================================
+// Regression guard: with ACKBatchSize=0 (batcher disabled), N ACKs must
+// produce N MarkAsPublished calls (per-event fallback, not batch).
+// This is the negative-case sibling of TestAsyncACKBatchMark_BatchProperty.
+// =========================================================================
+
+func TestAsyncACKBatchMark_DisabledFallback_BatchProperty(t *testing.T) {
+	repo := &batchCountRepo{events: make(map[string]*outbox.OutboxEvent)}
+	pub := &chanAsyncPublisher{resultChan: make(chan *outbox.PublishResult, 200)}
+	cfg := outbox.DefaultPublisherConfig()
+	cfg.ACKBatchSize = 0 // disable batching
+
+	publisher := outbox.NewOutboxPublisher(repo, pub, &staticMapper{topic: "test.topic"}, cfg)
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	defer publisher.StopACKListener()
+
+	const totalACKs = 20
+	for i := 0; i < totalACKs; i++ {
+		pub.sendACK(fmt.Sprintf("e-%d", i), true)
+	}
+
+	require.Eventually(t, func() bool {
+		return repo.markSingleCalls.Load() >= totalACKs
+	}, 500*time.Millisecond, 5*time.Millisecond,
+		"ACKBatchSize=0 must fall back to per-event MarkAsPublished")
+
+	require.Equal(t, int32(totalACKs), repo.markSingleCalls.Load(),
+		"ACKBatchSize=0: each ACK must call MarkAsPublished once")
+	require.Equal(t, int32(0), repo.markBatchCalls.Load(),
+		"ACKBatchSize=0 must not use MarkBatchAsPublished")
+}
+
 func TestFilterPublishedEvents_LargeKeyset(t *testing.T) {
 	repo := &callCountRepo{events: make(map[string]*outbox.OutboxEvent)}
 	pub := outbox.NewOutboxPublisher(repo, &noopSyncPublisher{},
@@ -180,6 +255,193 @@ func TestFilterPublishedEvents_LargeKeyset(t *testing.T) {
 	require.Equal(t, 250, n, "250 unpublished events should be published; 250 already-published filtered out")
 	require.Equal(t, int32(1), repo.batchIdempotentCalls.Load(),
 		"500 idempotency keys must be resolved in 1 batched query, not N")
+}
+
+// =========================================================================
+// Regression guard: Scheduler poll → PublishPendingEvents → PublishBatch
+// processes N pending events in a single batch (not N individual operations).
+// This is the exact path security-management uses (sync semantics,
+// InProcessEventPublisher, no ACK listener, 1s poll interval).
+// =========================================================================
+
+func TestSyncScheduler_PollBatchProperty(t *testing.T) {
+	db := setupDB(t)
+	repo := gormadapter.NewGormOutboxRepository(db)
+
+	// handlerCallCount tracks how many times the registered handler ran.
+	var handlerCalls atomic.Int32
+	inProcessPub := adapters.NewInProcessEventPublisher()
+	inProcessPub.RegisterHandler("test.topic", func(_ context.Context, _ *outbox.Envelope) error {
+		handlerCalls.Add(1)
+		return nil
+	})
+
+	cfg := outbox.DefaultSchedulerConfig()
+	cfg.PollInterval = 1 * time.Second // min allowed by Validate
+	cfg.BatchSize = 100
+	cfg.EnableRetry = false
+	cfg.EnableCleanup = false
+	cfg.EnableHealthCheck = false
+
+	pubCfg := outbox.DefaultPublisherConfig()
+	pubCfg.PublishTimeout = 5 * time.Second
+	pubCfg.MaxRetries = 1
+
+	scheduler := outbox.NewScheduler(
+		outbox.WithRepository(repo),
+		outbox.WithEventPublisher(inProcessPub),
+		outbox.WithTopicMapper(&staticMapper{topic: "test.topic"}),
+		outbox.WithSchedulerConfig(cfg),
+		outbox.WithPublisherConfig(pubCfg),
+	)
+
+	// Seed N pending events directly (same pattern as security-management's
+	// SaveInTx → INSERT INTO outbox_events).
+	const eventCount = 25
+	eventIDs := make([]string, eventCount)
+	for i := 0; i < eventCount; i++ {
+		id := fmt.Sprintf("sync-e-%d", i)
+		require.NoError(t, db.Create(&gormadapter.OutboxEventModel{
+			ID:             id,
+			Status:         string(outbox.EventStatusPending),
+			IdempotencyKey: id,
+			AggregateType:  "Test",
+			EventType:      "TestEvent",
+			Payload:        []byte(`{"test":true}`),
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+		}).Error)
+		eventIDs[i] = id
+	}
+
+	require.NoError(t, scheduler.Start(context.Background()))
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = scheduler.Stop(stopCtx)
+	}()
+
+	// Wait for the poll cycle.
+	require.Eventually(t, func() bool {
+		published := 0
+		for _, id := range eventIDs {
+			var m gormadapter.OutboxEventModel
+			if err := db.First(&m, "id = ?", id).Error; err != nil {
+				continue
+			}
+			if m.Status == string(outbox.EventStatusPublished) {
+				published++
+			}
+		}
+		return published == eventCount
+	}, 4*time.Second, 200*time.Millisecond,
+		"all %d events must be Published after scheduler poll", eventCount)
+
+	// All events must have been published AND handler called for each.
+	require.Equal(t, int32(eventCount), handlerCalls.Load(),
+		"InProcess handler must be called for each of the %d events", eventCount)
+}
+
+// =========================================================================
+// Async ACK batch-property helpers
+// =========================================================================
+
+// batchCountRepo tracks MarkBatchAsPublished vs MarkAsPublished calls so the
+// async batch-property tests can assert the batcher path (K:1) vs per-event
+// fallback (1:1).
+type batchCountRepo struct {
+	mu              sync.Mutex
+	events          map[string]*outbox.OutboxEvent
+	markSingleCalls atomic.Int32
+	markBatchCalls  atomic.Int32
+}
+
+func (r *batchCountRepo) Save(_ context.Context, e *outbox.OutboxEvent) error {
+	r.mu.Lock(); defer r.mu.Unlock()
+	r.events[e.ID] = e
+	return nil
+}
+func (r *batchCountRepo) SaveBatch(_ context.Context, evts []*outbox.OutboxEvent) error {
+	r.mu.Lock(); defer r.mu.Unlock()
+	for _, e := range evts { r.events[e.ID] = e }
+	return nil
+}
+func (r *batchCountRepo) FindPendingEvents(_ context.Context, _ int, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) FindPendingEventsWithDelay(_ context.Context, _ int, _ int, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) FindEventsForRetry(_ context.Context, _ int, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) FindByAggregateType(_ context.Context, _ string, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) FindByID(_ context.Context, _ string) (*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) FindByAggregateID(_ context.Context, _ string, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) Update(_ context.Context, e *outbox.OutboxEvent) error {
+	r.mu.Lock(); defer r.mu.Unlock()
+	r.events[e.ID] = e
+	return nil
+}
+func (r *batchCountRepo) MarkAsPublished(_ context.Context, _ string) error {
+	r.markSingleCalls.Add(1)
+	return nil
+}
+func (r *batchCountRepo) MarkAsFailed(_ context.Context, _ string, _ error) error { return nil }
+func (r *batchCountRepo) IncrementRetry(_ context.Context, _ string, _ string) error { return nil }
+func (r *batchCountRepo) MarkAsMaxRetry(_ context.Context, _ string, _ string) error { return nil }
+func (r *batchCountRepo) IncrementRetryCount(_ context.Context, _ string) error { return nil }
+func (r *batchCountRepo) Delete(_ context.Context, _ string) error { return nil }
+func (r *batchCountRepo) DeleteBatch(_ context.Context, _ []string) error { return nil }
+func (r *batchCountRepo) DeletePublishedBefore(_ context.Context, _ time.Time, _ int) (int64, error) { return 0, nil }
+func (r *batchCountRepo) DeleteFailedBefore(_ context.Context, _ time.Time, _ int) (int64, error) { return 0, nil }
+func (r *batchCountRepo) Count(_ context.Context, _ outbox.EventStatus, _ int) (int64, error) { return 0, nil }
+func (r *batchCountRepo) CountByStatus(_ context.Context, _ int) (map[outbox.EventStatus]int64, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) FindByIdempotencyKey(_ context.Context, _ string) (*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) ExistsByIdempotencyKey(_ context.Context, _ string) (bool, error) { return false, nil }
+func (r *batchCountRepo) FindMaxRetryEvents(_ context.Context, _ int, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) FindPublishedByIdempotencyKeys(_ context.Context, _ []string) (map[string]struct{}, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) MarkBatchAsPublished(_ context.Context, events []*outbox.OutboxEvent) error {
+	r.markBatchCalls.Add(1)
+	r.mu.Lock(); defer r.mu.Unlock()
+	for _, e := range events {
+		if ev, ok := r.events[e.ID]; ok {
+			ev.Status = outbox.EventStatusPublished
+		}
+	}
+	return nil
+}
+
+// chanAsyncPublisher is a minimal EventPublisher for async batch-property
+// tests. Its PublishEnvelope returns nil (the broker accepted) and results
+// are fed through the exposed channel by the test.
+type chanAsyncPublisher struct {
+	resultChan chan *outbox.PublishResult
+}
+
+func (p *chanAsyncPublisher) Publish(_ context.Context, _ string, _ []byte) error { return nil }
+func (p *chanAsyncPublisher) PublishEnvelope(_ context.Context, _ string, _ *outbox.Envelope) error {
+	return nil
+}
+func (p *chanAsyncPublisher) GetPublishResultChannel() <-chan *outbox.PublishResult {
+	return p.resultChan
+}
+func (p *chanAsyncPublisher) sendACK(eventID string, success bool) {
+	p.resultChan <- &outbox.PublishResult{EventID: eventID, Success: success}
 }
 
 // =========================================================================
