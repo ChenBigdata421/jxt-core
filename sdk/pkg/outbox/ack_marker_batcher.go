@@ -136,7 +136,17 @@ func (b *ackMarkerBatcher) flush() {
 	b.mu.Unlock()
 
 	if alert != nil && b.onError != nil {
-		b.onError(alert)
+		// Async + recover: the loop goroutine must NOT invoke user code (onError →
+		// publisher.ErrorHandler) synchronously. A user ErrorHandler that calls
+		// publisher.StopACKListener() → batcher.Close() would otherwise self-deadlock:
+		// Close blocks on <-b.exited, but the loop is stuck inside onError and can
+		// never reach `defer close(b.exited)`. Recover so a panicking ErrorHandler
+		// can't kill the loop either. Spawn rate is bounded by the failure-ceiling
+		// throttle (alert only at threshold multiples, or every failure when <=0).
+		go func() {
+			defer func() { _ = recover() }()
+			b.onError(alert)
+		}()
 	}
 }
 

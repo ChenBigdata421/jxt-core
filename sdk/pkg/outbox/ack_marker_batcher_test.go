@@ -326,3 +326,36 @@ func TestBatcher_FlushFuncPanic_LoopSurvives(t *testing.T) {
 // panicpanic is a tiny indirection so the panic site is a real call (not inline),
 // keeping the recover path realistic.
 func panicpanic(v string) { panic(v) }
+
+// === Reentrant self-deadlock guard (async+recover onError) ===
+
+// TestBatcher_OnErrorCallingClose_NoDeadlock verifies the async+recover fix:
+// if onError (→ publisher.ErrorHandler) calls batcher.Close() — exactly what
+// StopACKListener does — the loop goroutine must NOT be stuck inside a
+// synchronous onError while Close blocks on <-b.exited. Before the fix
+// (synchronous onError), this self-deadlocked permanently: Close waited for
+// the loop to exit, but the loop was blocked inside onError→Close.
+func TestBatcher_OnErrorCallingClose_NoDeadlock(t *testing.T) {
+	var calls int32
+	failAlways := func(_ context.Context, _ []string) error { atomic.AddInt32(&calls, 1); return errBoom }
+
+	closeDone := make(chan struct{})
+	var b *ackMarkerBatcher
+	onErr := func(error) {
+		// Simulate a user ErrorHandler that calls StopACKListener -> batcher.Close().
+		_ = b.Close()
+		close(closeDone)
+	}
+	b = newAckMarkerBatcher(1, 5*time.Second, 1, failAlways, onErr)
+
+	b.Add("e1") // flush fails -> fails=1, threshold=1 -> alert -> onError
+
+	select {
+	case <-closeDone:
+		// success: with async onError, the loop spawned onErr in a goroutine and
+		// moved on; onErr's Close() drained + waited on <-b.exited, which fired
+		// once the loop exited. No deadlock.
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: onError -> Close blocked on <-b.exited (loop stuck in synchronous onError)")
+	}
+}
