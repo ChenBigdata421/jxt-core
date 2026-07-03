@@ -27,17 +27,20 @@ type SyncSemanticsPublisher interface {
 }
 
 // ACK batcher (async path): when PublisherConfig.ACKBatchSize>0 (default 50), the ACK
-// listener buffers up to ACKBatchSize (or ACKBatchFlushInterval) successful ACKs before
-// flushing one MarkBatchAsPublished. Graceful Stop flushes the remainder; a HARD crash
-// (panic/OOM/kill -9) loses the in-flight buffer (<=ACKBatchSize events) -> they stay
-// Pending -> re-published next tick -> duplicate delivery. Consumer-side handlers MUST
-// be idempotent to absorb this (the at-least-once guarantee's inherent duplicate risk,
-// widened from 1 to <=ACKBatchSize).
+// listener buffers roughly ACKBatchSize (or until ACKBatchFlushInterval) successful ACKs
+// before flushing one MarkBatchAsPublished. The wake signal is a coalesced capacity-1
+// channel, so a sustained ACK burst faster than the flush loop can drain may transiently
+// buffer MORE than ACKBatchSize before one flush — the bound is small and finite, not a
+// hard cap. Graceful Stop flushes the remainder; a HARD crash (panic/OOM/kill -9) loses
+// the in-flight buffer (on the order of ACKBatchSize events) -> they stay Pending ->
+// re-published next tick -> duplicate delivery. Consumer-side handlers MUST be idempotent
+// to absorb this (the at-least-once guarantee's inherent duplicate risk, widened from 1
+// to ~ACKBatchSize).
 //
 // Transient MarkBatchAsPublished failure (brief DB hiccup): the failed batch's IDs are
 // dropped from the in-memory buffer (A7). Those events stay Pending and are re-fetched by
 // the OutboxScheduler poller on its next tick (seconds, not the batcher's 200ms), causing
-// one spurious re-publish + duplicate delivery. This sits inside the <=ACKBatchSize
+// one spurious re-publish + duplicate delivery. This sits inside the ~ACKBatchSize
 // duplicate window above; at-least-once is preserved (consumer-idempotency audit tracked
 // in jxt-core/TODOS.md, F1).
 //
@@ -48,4 +51,4 @@ type SyncSemanticsPublisher interface {
 // re-published once -> duplicate delivery, during NORMAL operation. Mitigated:
 // FindPendingEvents orders by created_at ASC (in-buffer events are recent, tail of the
 // queue), and T(200ms) << PollInterval(10s) keeps the hit rate low. Falls inside the
-// <=ACKBatchSize duplicate window; consumer idempotency (F1) absorbs it.
+// ~ACKBatchSize duplicate window; consumer idempotency (F1) absorbs it.

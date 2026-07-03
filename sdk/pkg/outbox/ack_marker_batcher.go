@@ -10,8 +10,8 @@ import (
 // ackMarkerBatcher 把成功 ACK 的 EventID 攒批，按"满 maxSize / 每 flushEvery / Close"
 // 三种时机触发一次 flushFunc（→ repo.MarkBatchAsPublished），把 N 次单条 UPDATE 合成 1 次批量 UPDATE。
 //
-// 优雅关停（Close）会冲刷剩余缓冲；硬崩溃丢 ≤maxSize 条，靠消费端 handler 幂等兜底
-// （at-least-once 固有风险的放大，非新风险）。
+// 优雅关停（Close）会冲刷剩余缓冲；硬崩溃丢约 maxSize 条（突发 ACK 可瞬时超出，但有限），
+// 靠消费端 handler 幂等兜底（at-least-once 固有风险的放大，非新风险）。
 type ackMarkerBatcher struct {
 	maxSize    int
 	flushEvery time.Duration

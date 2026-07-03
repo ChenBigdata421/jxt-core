@@ -684,7 +684,9 @@ func (p *OutboxPublisher) StartACKListener(ctx context.Context) {
 }
 
 // StartACKListenerWithChannel 启动 ACK 监听器（使用自定义 ACK Channel）
-// 监听指定的 ACK Channel，并更新 Outbox 事件状态
+// 监听指定的 ACK Channel，并把成功 ACK 的事件标记为已发布：默认（ACKBatchSize>0）
+// 经 ackMarkerBatcher 攒批延迟标记（满 ACKBatchSize 或每 ACKBatchFlushInterval 才落库）；
+// ACKBatchSize=0 时逐条立即 MarkAsPublished。
 //
 // 参数：
 //
