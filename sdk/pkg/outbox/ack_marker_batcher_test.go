@@ -134,6 +134,15 @@ func addAndWaitFlushing(t *testing.T, b *ackMarkerBatcher, id string, calls *int
 		300*time.Millisecond, time.Millisecond, "flush for %q should fire", id)
 }
 
+// waitForMsgs waits until at least n alerts have been emitted, bridging the
+// gap between flushFunc completion (calls) and the alert that fires after
+// fails++ later in the same flush.
+func waitForMsgs(t *testing.T, onErr *collectingOnError, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(onErr.messages()) >= n },
+		300*time.Millisecond, time.Millisecond, "expected >= %d alert(s)", n)
+}
+
 // TestBatcher_FailureCeiling_AlertsAtThreshold：threshold=3，连续失败 3 次才告警一次。
 func TestBatcher_FailureCeiling_AlertsAtThreshold(t *testing.T) {
 	var calls int32
@@ -146,6 +155,7 @@ func TestBatcher_FailureCeiling_AlertsAtThreshold(t *testing.T) {
 	addAndWaitFlushing(t, b, "e2", &calls) // fails=2（静默）
 	addAndWaitFlushing(t, b, "e3", &calls) // fails=3 → 告警
 
+	waitForMsgs(t, onErr, 1)
 	msgs := onErr.messages()
 	require.Len(t, msgs, 1, "alert only at fails%%threshold==0 (3), not at 1 or 2")
 	require.Contains(t, msgs[0], "persistent outbox mark failure")
@@ -163,6 +173,7 @@ func TestBatcher_FailureCeiling_NoSpamEveryThresholdMultiple(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		addAndWaitFlushing(t, b, fmt.Sprintf("e%d", i), &calls) // fails=1..5；告警在 2、4
 	}
+	waitForMsgs(t, onErr, 2)
 	msgs := onErr.messages()
 	require.Len(t, msgs, 2, "alert at every threshold multiple (2,4), no per-failure spam")
 }
@@ -192,6 +203,7 @@ func TestBatcher_SuccessResetsCounter(t *testing.T) {
 	addAndWaitFlushing(t, b, "f1", &calls)
 	addAndWaitFlushing(t, b, "f2", &calls)
 	addAndWaitFlushing(t, b, "f3", &calls)
+	waitForMsgs(t, onErr, 1)
 	require.Len(t, onErr.messages(), 1, "alert after 3 consecutive failures")
 
 	// Phase 2：1 次成功 → fails 归零
@@ -206,10 +218,12 @@ func TestBatcher_SuccessResetsCounter(t *testing.T) {
 	stateMu.Unlock()
 	addAndWaitFlushing(t, b, "g1", &calls)
 	addAndWaitFlushing(t, b, "g2", &calls)
+	waitForMsgs(t, onErr, 1)
 	require.Len(t, onErr.messages(), 1, "no new alert after only 2 failures post-reset")
 
 	// 第 3 次失败 → 第二次告警
 	addAndWaitFlushing(t, b, "g3", &calls)
+	waitForMsgs(t, onErr, 2)
 	require.Len(t, onErr.messages(), 2, "second alert after 3rd failure post-reset")
 }
 
@@ -224,6 +238,7 @@ func TestBatcher_ThresholdZero_PerFailure(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		addAndWaitFlushing(t, b, fmt.Sprintf("e%d", i), &calls)
 	}
+	waitForMsgs(t, onErr, int(atomic.LoadInt32(&calls)))
 	require.Equal(t, int(atomic.LoadInt32(&calls)), len(onErr.messages()),
 		"threshold=0 must alert every failure")
 }
