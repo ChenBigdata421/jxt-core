@@ -38,7 +38,10 @@ type PublisherConfig struct {
 	// 用于集成 Prometheus、StatsD 等监控系统
 	MetricsCollector MetricsCollector
 
-	// ErrorHandler 错误处理器（可选）
+	// ErrorHandler 错误处理器（可选）。
+	// event 可能为 nil：单事件路径（PublishEvent）传非 nil event；
+	// batch/ACK 级错误（MarkBatchAsPublished 失败、ACK listener 标记失败、NACK）无法关联单个事件，传 nil。
+	// 实现者不应假设 event 永远非 nil。
 	ErrorHandler func(event *OutboxEvent, err error)
 
 	// ConcurrentPublish 是否启用并发发布（默认 false）
@@ -794,23 +797,54 @@ func (p *OutboxPublisher) StopACKListener() {
 // ackListenerLoopWithChannel ACK 监听器循环（使用自定义 ACK Channel）
 // 监听指定的 ACK Channel，并更新 Outbox 事件状态。batcher 为启动时的 snapshot（A1）。
 func (p *OutboxPublisher) ackListenerLoopWithChannel(resultChan <-chan *PublishResult, batcher *ackMarkerBatcher) {
+	// Snapshot the Done channel once (consistent with A1's batcher snapshot): the field
+	// is stable at goroutine start (assigned before `go`), and context.Done() returns the
+	// same channel each call — but reading the field per-iteration is an unsynchronized
+	// cross-goroutine read that a re-Start during shutdown could race.
+	doneCh := p.ackListenerCtx.Done()
 	for {
 		select {
-		case result := <-resultChan:
+		case result, ok := <-resultChan:
+			if !ok {
+				p.stopACKListenerFromLoop(batcher)
+				return
+			}
 			// 处理 ACK 结果
 			p.handleACKResult(result, batcher)
 
-		case <-p.ackListenerCtx.Done():
+		case <-doneCh:
 			// 监听器被停止。冲刷 resultChan 中已缓冲的 ACK，使其进入 batcher
 			// （由随后的 batcher.Close 冲刷落库），而非被丢弃到下个 tick 重发。
 			for {
 				select {
-				case result := <-resultChan:
+				case result, ok := <-resultChan:
+					if !ok {
+						p.stopACKListenerFromLoop(batcher)
+						return
+					}
 					p.handleACKResult(result, batcher)
 				default:
 					return
 				}
 			}
+		}
+	}
+}
+
+func (p *OutboxPublisher) stopACKListenerFromLoop(batcher *ackMarkerBatcher) {
+	p.ackListenerMu.Lock()
+	if !p.ackListenerStarted {
+		p.ackListenerMu.Unlock()
+		return
+	}
+	p.ackListenerStarted = false
+	p.ackListenerCancel = nil
+	p.ackBatcher = nil
+	p.ackListenerMu.Unlock()
+
+	if batcher != nil {
+		if err := batcher.Close(); err != nil && p.config.ErrorHandler != nil {
+			p.config.ErrorHandler(nil, fmt.Errorf("ackMarkerBatcher close failed: %w", err))
 		}
 	}
 }

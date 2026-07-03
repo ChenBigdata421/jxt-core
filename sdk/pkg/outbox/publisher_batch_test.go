@@ -393,6 +393,22 @@ func (p *chanFakePublisher) ack(id string, success bool) {
 	p.resultChan <- &PublishResult{EventID: id, Success: success}
 }
 
+func TestACKListener_ClosedResultChannel_StopsWithoutSpin(t *testing.T) {
+	repo := &recordingMarkRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
+	pub := newChanFakePublisher(1)
+	cfg := DefaultPublisherConfig()
+	publisher := NewOutboxPublisher(repo, pub, &staticTopicMapper{topic: "t"}, cfg)
+
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	close(pub.resultChan)
+
+	require.Eventually(t, func() bool {
+		publisher.ackListenerMu.Lock()
+		defer publisher.ackListenerMu.Unlock()
+		return !publisher.ackListenerStarted
+	}, 300*time.Millisecond, time.Millisecond, "closed result channel must stop the ACK listener")
+}
+
 // TestACKListener_BatchesMarks：满 K 个成功 ACK → 1 次 MarkBatchAsPublished(K 个 ID)。
 func TestACKListener_BatchesMarks(t *testing.T) {
 	repo := &recordingMarkRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
@@ -508,4 +524,137 @@ func TestPublisherConfig_Validate_RejectsHugeACKBatchSize(t *testing.T) {
 	err := cfg.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ACKBatchSize too large")
+}
+
+// TestPublisherConfig_Validate_ACKBounds covers the ACK-validation bounds NOT
+// exercised by TestPublisherConfig_Validate_RejectsHugeACKBatchSize (which only
+// covers the upper-size ceiling). Each case starts from DefaultPublisherConfig()
+// and corrupts exactly one field. Also pins the clean-default baseline.
+func TestPublisherConfig_Validate_ACKBounds(t *testing.T) {
+	// Baseline: clean defaults validate.
+	require.NoError(t, DefaultPublisherConfig().Validate(),
+		"DefaultPublisherConfig() must pass Validate")
+
+	t.Run("ACKBatchSize_negative_rejected", func(t *testing.T) {
+		cfg := DefaultPublisherConfig()
+		cfg.ACKBatchSize = -1
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "ACKBatchSize must be >= 0")
+	})
+
+	t.Run("ACKBatchFlushInterval_negative_rejected", func(t *testing.T) {
+		cfg := DefaultPublisherConfig()
+		cfg.ACKBatchFlushInterval = -1 * time.Millisecond
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "ACKBatchFlushInterval must be >= 0")
+	})
+
+	t.Run("ACKBatchFlushInterval_too_large_rejected", func(t *testing.T) {
+		cfg := DefaultPublisherConfig()
+		cfg.ACKBatchFlushInterval = 6 * time.Minute
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "ACKBatchFlushInterval is too large")
+	})
+
+	t.Run("ACKBatchFailureThreshold_negative_rejected", func(t *testing.T) {
+		cfg := DefaultPublisherConfig()
+		cfg.ACKBatchFailureThreshold = -1
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "ACKBatchFailureThreshold must be >= 0")
+	})
+}
+
+// errCaptureHandler is an ErrorHandler that records the (event-nil?, err) pairs
+// it receives, so NACK / fallback tests can assert what was reported. Nil-safe:
+// only non-nil errors are recorded. Event identity is captured as the empty
+// string when event is nil (which is the documented contract for ACK/NACK paths).
+type errCaptureHandler struct {
+	mu    sync.Mutex
+	msgs  []string
+	count atomic.Int32
+}
+
+func (h *errCaptureHandler) handle(event *OutboxEvent, err error) {
+	if err == nil {
+		return
+	}
+	h.mu.Lock()
+	h.msgs = append(h.msgs, err.Error())
+	h.mu.Unlock()
+	h.count.Add(1)
+}
+
+func (h *errCaptureHandler) messages() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]string, len(h.msgs))
+	copy(out, h.msgs)
+	return out
+}
+
+// markErrRepo embeds countingRepo and forces MarkAsPublished (the per-event
+// fallback path used when ACKBatchSize=0) to error. MarkBatchAsPublished stays
+// the countingRepo no-op, so this repo isolates the per-event error path.
+type markErrRepo struct {
+	countingRepo
+}
+
+func (r *markErrRepo) MarkAsPublished(_ context.Context, _ string) error { return errBoom }
+
+// TestACKListener_NACK_InvokesErrorHandlerNotMarked：ACK with Success=false
+// must invoke ErrorHandler with a "publish failed for event e1" message and
+// must NOT mark the event (stays Pending for next retry).
+func TestACKListener_NACK_InvokesErrorHandlerNotMarked(t *testing.T) {
+	repo := &recordingMarkRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
+	pub := newChanFakePublisher(8)
+	cfg := DefaultPublisherConfig()
+	h := &errCaptureHandler{}
+	cfg.ErrorHandler = func(_ *OutboxEvent, err error) { h.handle(nil, err) }
+	publisher := NewOutboxPublisher(repo, pub, &staticTopicMapper{topic: "t"}, cfg)
+
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	defer publisher.StopACKListener()
+
+	pub.ack("e1", false) // NACK
+
+	require.Eventually(t, func() bool { return h.count.Load() >= 1 },
+		300*time.Millisecond, 5*time.Millisecond,
+		"NACK must invoke ErrorHandler exactly once")
+	msgs := h.messages()
+	require.Len(t, msgs, 1)
+	require.Contains(t, msgs[0], "publish failed for event e1",
+		"NACK error message must reference the event id")
+	require.Empty(t, repo.markedIDs(), "NACK must not mark the event (stays Pending)")
+	require.Empty(t, repo.markedSingleIDs(), "NACK must not mark via per-event path either")
+}
+
+// TestACKListener_DisabledFallback_MarkError_InvokesErrorHandler：with
+// ACKBatchSize=0 (per-event fallback), a successful ACK whose MarkAsPublished
+// errors must invoke ErrorHandler with a "failed to mark event e1 as published"
+// message — proving the per-event error path is wired to ErrorHandler.
+func TestACKListener_DisabledFallback_MarkError_InvokesErrorHandler(t *testing.T) {
+	repo := &markErrRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
+	pub := newChanFakePublisher(8)
+	cfg := DefaultPublisherConfig()
+	cfg.ACKBatchSize = 0 // disable batching -> per-event MarkAsPublished path
+	h := &errCaptureHandler{}
+	cfg.ErrorHandler = func(_ *OutboxEvent, err error) { h.handle(nil, err) }
+	publisher := NewOutboxPublisher(repo, pub, &staticTopicMapper{topic: "t"}, cfg)
+
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	defer publisher.StopACKListener()
+
+	pub.ack("e1", true) // successful ACK, but MarkAsPublished errors
+
+	require.Eventually(t, func() bool { return h.count.Load() >= 1 },
+		300*time.Millisecond, 5*time.Millisecond,
+		"per-event MarkAsPublished error must invoke ErrorHandler")
+	msgs := h.messages()
+	require.Len(t, msgs, 1)
+	require.Contains(t, msgs[0], "failed to mark event e1 as published",
+		"error message must reference the event id and the mark failure")
 }
