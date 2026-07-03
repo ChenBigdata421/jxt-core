@@ -230,9 +230,9 @@ func TestBatcher_ThresholdZero_PerFailure(t *testing.T) {
 
 // === Concurrency (-race) ===
 
-// TestBatcher_ConcurrentAddFlush_RaceClean：多 goroutine 并发 Add + ticker flush + Close，
+// TestBatcher_ConcurrentAdd_RaceClean：多 goroutine 并发 Add + ticker flush + Close，
 // -race 下无数据竞争/panic，且不丢不重。
-func TestBatcher_ConcurrentAddFlush_RaceClean(t *testing.T) {
+func TestBatcher_ConcurrentAdd_RaceClean(t *testing.T) {
 	rf := &recordingFlush{}
 	b := newAckMarkerBatcher(10, 5*time.Millisecond, 3, rf.flush, func(error) {})
 
