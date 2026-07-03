@@ -25,3 +25,27 @@ type SyncSemanticsPublisher interface {
 	// on an EventPublisher type signals sync semantics to the publisher.
 	IsSyncSemantics()
 }
+
+// ACK batcher (async path): when PublisherConfig.ACKBatchSize>0 (default 50), the ACK
+// listener buffers up to ACKBatchSize (or ACKBatchFlushInterval) successful ACKs before
+// flushing one MarkBatchAsPublished. Graceful Stop flushes the remainder; a HARD crash
+// (panic/OOM/kill -9) loses the in-flight buffer (<=ACKBatchSize events) -> they stay
+// Pending -> re-published next tick -> duplicate delivery. Consumer-side handlers MUST
+// be idempotent to absorb this (the at-least-once guarantee's inherent duplicate risk,
+// widened from 1 to <=ACKBatchSize).
+//
+// Transient MarkBatchAsPublished failure (brief DB hiccup): the failed batch's IDs are
+// dropped from the in-memory buffer (A7). Those events stay Pending and are re-fetched by
+// the OutboxScheduler poller on its next tick (seconds, not the batcher's 200ms), causing
+// one spurious re-publish + duplicate delivery. This sits inside the <=ACKBatchSize
+// duplicate window above; at-least-once is preserved (consumer-idempotency audit tracked
+// in jxt-core/TODOS.md, F1).
+//
+// Steady-state poller race (F-New-1: a 3rd duplicate source, distinct from crash-loss
+// above and transient-flush-failure): an ACKed-but-unmarked event sits in the buffer for
+// <=ACKBatchFlushInterval with DB status still Pending. If the scheduler's
+// FindPendingEvents poller (default ~10s) reaches it in that window, the event is
+// re-published once -> duplicate delivery, during NORMAL operation. Mitigated:
+// FindPendingEvents orders by created_at ASC (in-buffer events are recent, tail of the
+// queue), and T(200ms) << PollInterval(10s) keeps the hit rate low. Falls inside the
+// <=ACKBatchSize duplicate window; consumer idempotency (F1) absorbs it.

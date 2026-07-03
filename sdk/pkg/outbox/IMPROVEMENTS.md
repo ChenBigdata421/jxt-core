@@ -355,12 +355,14 @@ func (p *OutboxPublisher) PublishBatch(ctx context.Context, events []*OutboxEven
 - ✅ **减少数据库往返**：成功路径上以 1 次 `UPDATE` 取代 N 次逐事件 `Update`
 - ✅ **幂等的状态迁移**：`MarkBatchAsPublished` 通过 `WHERE status='pending'` 守卫，重复调用安全
 - ✅ **提升吞吐量**：批量处理 100 个事件时性能提升约 10-20 倍
+- ✅ **异步 ACK 标记批量化（v1.1.59）**：ACK 监听器经 `ackMarkerBatcher` 攒批（默认满 50 条或每 200ms flush 一次 `MarkBatchAsPublished`），把 N 条逐条 mark 合成 ~N/K 次批量 mark；实测（run J，BatchSize=200）commit 次数 95,866→8,026（12×↓）、commit 时间 2522s→236s（10.7×↓）。优雅关停冲刷剩余；硬崩溃丢 ≤K 条缓冲靠消费端 handler 幂等兜底（at-least-once 重复窗口从 1 放大到 ≤K）。配置：`PublisherConfig.ACKBatchSize`（0=禁用回退逐条）/`ACKBatchFlushInterval`/`ACKBatchFailureThreshold`。
 
 #### 相关文件
 - `jxt-core/sdk/pkg/outbox/publisher.go` - 批量发布与同步标记实现
 - `jxt-core/sdk/pkg/outbox/sync_semantics_publisher.go` - `SyncSemanticsPublisher` 标记接口
 - `jxt-core/sdk/pkg/outbox/repository.go` - `MarkBatchAsPublished` 接口
 - `jxt-core/sdk/pkg/outbox/adapters/gorm/repository.go` - GORM 单 UPDATE 实现
+- `jxt-core/sdk/pkg/outbox/ack_marker_batcher.go` - 异步 ACK 攒批类型（v1.1.59）
 
 ---
 
