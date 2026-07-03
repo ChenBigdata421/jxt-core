@@ -85,6 +85,9 @@ func (c *PublisherConfig) Validate() error {
 	if c.ACKBatchFlushInterval < 0 {
 		return fmt.Errorf("ACKBatchFlushInterval must be >= 0, got %v", c.ACKBatchFlushInterval)
 	}
+	if c.ACKBatchFlushInterval > 5*time.Minute {
+		return fmt.Errorf("ACKBatchFlushInterval is too large (max 5 minutes), got %v", c.ACKBatchFlushInterval)
+	}
 	if c.ACKBatchFailureThreshold < 0 {
 		return fmt.Errorf("ACKBatchFailureThreshold must be >= 0 (0 = alert every failure), got %d", c.ACKBatchFailureThreshold)
 	}
@@ -759,14 +762,6 @@ func (p *OutboxPublisher) StopACKListener() {
 			p.config.ErrorHandler(nil, fmt.Errorf("ackMarkerBatcher close failed: %w", err))
 		}
 	}
-}
-
-// ackListenerLoop ACK 监听器循环（使用全局 ACK Channel）
-// 监听 EventBus 的异步发布结果，并更新 Outbox 事件状态
-func (p *OutboxPublisher) ackListenerLoop() {
-	// 获取发布结果通道
-	resultChan := p.eventPublisher.GetPublishResultChannel()
-	p.ackListenerLoopWithChannel(resultChan, p.ackBatcher)
 }
 
 // ackListenerLoopWithChannel ACK 监听器循环（使用自定义 ACK Channel）
