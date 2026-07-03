@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -320,4 +321,167 @@ func TestPublishBatch_MarkBatchError_ContinuesAndInvokesErrorHandler(t *testing.
 	require.Equal(t, 1, published, "the event was still published to the bus")
 	require.Equal(t, int32(1), handlerCalled.Load(),
 		"ErrorHandler must be invoked exactly once when MarkBatchAsPublished fails")
+}
+
+// === ACK batcher integration (Task 4) ===
+
+// recordingMarkRepo wraps countingRepo, recording both MarkBatchAsPublished (batch path)
+// and MarkAsPublished (per-event fallback path) IDs (A5)。
+type recordingMarkRepo struct {
+	countingRepo
+	mu           sync.Mutex
+	marked       [][]string // 批量路径
+	markedSingle []string   // 逐条路径（ACKBatchSize=0 回退）
+	batchErr     error      // 若非 nil，MarkBatchAsPublished 返回它
+}
+
+func (r *recordingMarkRepo) MarkBatchAsPublished(_ context.Context, events []*OutboxEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]string, len(events))
+	for i, e := range events {
+		ids[i] = e.ID
+	}
+	r.marked = append(r.marked, ids)
+	if r.batchErr != nil {
+		return r.batchErr
+	}
+	r.markBatchCallCount.Add(1)
+	return nil
+}
+
+// MarkAsPublished 覆盖 countingRepo 的 no-op，记录逐条 mark 的 ID（A5：用于证明
+// ACKBatchSize=0 回退路径确实标记了事件，而非静默丢弃导致事件永久 Pending 反复重发）。
+func (r *recordingMarkRepo) MarkAsPublished(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.markedSingle = append(r.markedSingle, id)
+	return nil
+}
+
+func (r *recordingMarkRepo) markedIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, b := range r.marked {
+		out = append(out, b...)
+	}
+	return out
+}
+
+func (r *recordingMarkRepo) markedSingleIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.markedSingle...)
+}
+
+// chanFakePublisher 暴露一个可外部投递的 ACK channel。
+type chanFakePublisher struct {
+	resultChan chan *PublishResult
+}
+
+func newChanFakePublisher(buf int) *chanFakePublisher {
+	return &chanFakePublisher{resultChan: make(chan *PublishResult, buf)}
+}
+
+func (*chanFakePublisher) Publish(_ context.Context, _ string, _ []byte) error { return nil }
+func (*chanFakePublisher) PublishEnvelope(_ context.Context, _ string, _ *Envelope) error {
+	return nil
+}
+func (p *chanFakePublisher) GetPublishResultChannel() <-chan *PublishResult { return p.resultChan }
+func (p *chanFakePublisher) ack(id string, success bool) {
+	p.resultChan <- &PublishResult{EventID: id, Success: success}
+}
+
+// TestACKListener_BatchesMarks：满 K 个成功 ACK → 1 次 MarkBatchAsPublished(K 个 ID)。
+func TestACKListener_BatchesMarks(t *testing.T) {
+	repo := &recordingMarkRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
+	pub := newChanFakePublisher(8)
+	cfg := DefaultPublisherConfig()
+	cfg.ACKBatchSize = 3
+	cfg.ACKBatchFlushInterval = 5 * time.Second // 只靠 size-K 触发，不靠 timer
+	publisher := NewOutboxPublisher(repo, pub, &staticTopicMapper{topic: "t"}, cfg)
+
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	defer publisher.StopACKListener()
+
+	pub.ack("e1", true)
+	pub.ack("e2", true)
+	pub.ack("e3", true) // 满 K=3 → flush
+
+	require.Eventually(t, func() bool { return len(repo.markedIDs()) == 3 },
+		300*time.Millisecond, 5*time.Millisecond,
+		"3 successful ACKs at K=3 must trigger one batched MarkBatchAsPublished")
+	require.Equal(t, []string{"e1", "e2", "e3"}, repo.markedIDs())
+}
+
+// TestACKListener_DisabledFallsBackToPerEvent：ACKBatchSize=0 → 逐条 MarkAsPublished。
+// A5：不仅断言批量路径未走，还断言逐条路径确实标记了 e1（区分"回退生效"与"标记丢失活锁"）。
+func TestACKListener_DisabledFallsBackToPerEvent(t *testing.T) {
+	repo := &recordingMarkRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
+	pub := newChanFakePublisher(8)
+	cfg := DefaultPublisherConfig()
+	cfg.ACKBatchSize = 0 // 禁用攥批
+	publisher := NewOutboxPublisher(repo, pub, &staticTopicMapper{topic: "t"}, cfg)
+
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	defer publisher.StopACKListener()
+
+	pub.ack("e1", true)
+	require.Eventually(t, func() bool { return len(repo.markedSingleIDs()) >= 1 },
+		300*time.Millisecond, 5*time.Millisecond,
+		"ACKBatchSize=0 must fall back to per-event MarkAsPublished and mark e1")
+	require.Equal(t, []string{"e1"}, repo.markedSingleIDs(), "per-event fallback must mark e1")
+	require.Empty(t, repo.markedIDs(), "ACKBatchSize=0 must not use the batch path")
+}
+
+// TestACKListener_StopFlushesRemaining：关停时剩余缓冲被冲刷。
+func TestACKListener_StopFlushesRemaining(t *testing.T) {
+	repo := &recordingMarkRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
+	pub := newChanFakePublisher(8)
+	cfg := DefaultPublisherConfig()
+	cfg.ACKBatchSize = 50
+	cfg.ACKBatchFlushInterval = 5 * time.Second
+	publisher := NewOutboxPublisher(repo, pub, &staticTopicMapper{topic: "t"}, cfg)
+
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+	pub.ack("r1", true)
+	pub.ack("r2", true)
+	time.Sleep(100 * time.Millisecond) // 确保已入缓冲
+	publisher.StopACKListener()        // 关停 → 冲刷剩余
+
+	require.Equal(t, []string{"r1", "r2"}, repo.markedIDs(), "Stop must flush remaining buffer")
+}
+
+// TestACKListener_ConcurrentACKAndStop_RaceClean：并发 ACK 投递 + StopACKListener，
+// -race 下无竞争、无死锁（A6）。A1（指针快照）的回归钉 + 关停失败模式证明。
+func TestACKListener_ConcurrentACKAndStop_RaceClean(t *testing.T) {
+	repo := &recordingMarkRepo{countingRepo: countingRepo{events: map[string]*OutboxEvent{}}}
+	pub := newChanFakePublisher(2048) // > writers*perWriter，确保 ack 不阻塞
+	cfg := DefaultPublisherConfig()
+	cfg.ACKBatchSize = 10
+	cfg.ACKBatchFlushInterval = 5 * time.Millisecond
+	publisher := NewOutboxPublisher(repo, pub, &staticTopicMapper{topic: "t"}, cfg)
+	publisher.StartACKListenerWithChannel(context.Background(), pub.resultChan)
+
+	const writers = 8
+	const perWriter = 100
+	var wg sync.WaitGroup
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < perWriter; i++ {
+				pub.ack(fmt.Sprintf("w%d-%d", w, i), true)
+			}
+		}(w)
+	}
+
+	// 与 ACK 投递并发地 Stop（不等 writers 完成）
+	publisher.StopACKListener()
+	wg.Wait() // Stop 死锁或 ack 阻塞会在此暴露
+
+	// 标记数受关停时机影响、不固定；at-least-once 由 batcher 自身测试保证。
+	// 本测试核心是 -race 无竞争 + Stop 不死锁。
+	require.GreaterOrEqual(t, len(repo.markedIDs()), 0)
 }

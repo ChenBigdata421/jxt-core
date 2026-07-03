@@ -34,6 +34,18 @@ type PublisherConfig struct {
 	// PublishConcurrency 并发发布的并发数（默认 10）
 	// 只有当 ConcurrentPublish = true 时生效
 	PublishConcurrency int
+
+	// ACKBatchSize 攒批成功 ACK 标记的最大条数；满则立即 flush 一次 MarkBatchAsPublished。
+	// 0 = 禁用攥批（回退逐条 MarkAsPublished）。默认 50。
+	ACKBatchSize int
+
+	// ACKBatchFlushInterval 攒批 flush 间隔（ACKBatchSize>0 时生效）。
+	// 0 或未设 = 使用默认 200ms（newAckMarkerBatcher 对 <=0 钳为 200ms，故 0 不是"永不定时 flush"，F-New-2）。
+	ACKBatchFlushInterval time.Duration
+
+	// ACKBatchFailureThreshold 连续 flush 失败的告警阈值；达阈值（及倍数）经 ErrorHandler 告警。
+	// 0 = 每次失败都告警。默认 5。
+	ACKBatchFailureThreshold int
 }
 
 // Validate 验证配置
@@ -66,18 +78,32 @@ func (c *PublisherConfig) Validate() error {
 		return fmt.Errorf("PublishTimeout is too large (max 5 minutes), got %v", c.PublishTimeout)
 	}
 
+	// 验证 ACK 攒批配置（A4）
+	if c.ACKBatchSize < 0 {
+		return fmt.Errorf("ACKBatchSize must be >= 0 (0 = disable), got %d", c.ACKBatchSize)
+	}
+	if c.ACKBatchFlushInterval < 0 {
+		return fmt.Errorf("ACKBatchFlushInterval must be >= 0, got %v", c.ACKBatchFlushInterval)
+	}
+	if c.ACKBatchFailureThreshold < 0 {
+		return fmt.Errorf("ACKBatchFailureThreshold must be >= 0 (0 = alert every failure), got %d", c.ACKBatchFailureThreshold)
+	}
+
 	return nil
 }
 
 // DefaultPublisherConfig 默认发布器配置
 func DefaultPublisherConfig() *PublisherConfig {
 	return &PublisherConfig{
-		MaxRetries:         3,
-		RetryDelay:         time.Second,
-		PublishTimeout:     30 * time.Second,
-		EnableMetrics:      true,
-		ConcurrentPublish:  false, // 默认不启用并发发布（保持向后兼容）
-		PublishConcurrency: 10,    // 默认并发数 10
+		MaxRetries:               3,
+		RetryDelay:               time.Second,
+		PublishTimeout:           30 * time.Second,
+		EnableMetrics:            true,
+		ConcurrentPublish:        false, // 默认不启用并发发布（保持向后兼容）
+		PublishConcurrency:       10,    // 默认并发数 10
+		ACKBatchSize:             50,
+		ACKBatchFlushInterval:    200 * time.Millisecond,
+		ACKBatchFailureThreshold: 5,
 	}
 }
 
@@ -110,6 +136,10 @@ type OutboxPublisher struct {
 
 	// ackListenerStarted ACK 监听器是否已启动
 	ackListenerStarted bool
+
+	// ackBatcher 异步 ACK 攒批器。仅用于 Stop 时找到并 Close 它；
+	// 监听 goroutine 不直接读它（A1：用启动时的 snapshot），避免与 Stop 的生命周期写竞争。
+	ackBatcher *ackMarkerBatcher
 
 	// ackListenerMu ACK 监听器互斥锁
 	ackListenerMu sync.Mutex
@@ -674,25 +704,61 @@ func (p *OutboxPublisher) StartACKListenerWithChannel(ctx context.Context, resul
 	p.ackListenerCtx, p.ackListenerCancel = context.WithCancel(ctx)
 	p.ackListenerStarted = true
 
+	// 创建 batcher（如启用）。snapshot 到 batcher 供监听 goroutine 使用（A1）：
+	// 监听 goroutine 只读这个 snapshot，不再读 p.ackBatcher，从而与 StopACKListener
+	// 的生命周期写无竞争。p.ackBatcher 仅用于 Stop 时找到并 Close 它。
+	var batcher *ackMarkerBatcher
+	if p.config.ACKBatchSize > 0 {
+		batcher = newAckMarkerBatcher(
+			p.config.ACKBatchSize,
+			p.config.ACKBatchFlushInterval,
+			p.config.ACKBatchFailureThreshold,
+			func(ctx context.Context, ids []string) error {
+				events := make([]*OutboxEvent, len(ids))
+				for i, id := range ids {
+					events[i] = &OutboxEvent{ID: id}
+				}
+				return p.repo.MarkBatchAsPublished(ctx, events)
+			},
+			func(err error) {
+				if p.config.ErrorHandler != nil {
+					p.config.ErrorHandler(nil, err)
+				}
+			},
+		)
+		p.ackBatcher = batcher
+	}
+
 	// 启动 ACK 监听器 goroutine（使用自定义 Channel）
-	go p.ackListenerLoopWithChannel(resultChan)
+	go p.ackListenerLoopWithChannel(resultChan, batcher)
 }
 
-// StopACKListener 停止 ACK 监听器
+// StopACKListener 停止 ACK 监听器。
+// 锁内只做 snapshot + 置状态；锁外先取消上下文（监听 goroutine 退出、停止接收新 ACK），
+// 再关闭 batcher（冲刷剩余，等待 loop 退出，可能阻塞 ≤5s）。不持 ackListenerMu 跨 DB 调用（A2）。
 func (p *OutboxPublisher) StopACKListener() {
 	p.ackListenerMu.Lock()
-	defer p.ackListenerMu.Unlock()
-
 	if !p.ackListenerStarted {
+		p.ackListenerMu.Unlock()
 		return
 	}
-
-	// 取消监听器上下文
-	if p.ackListenerCancel != nil {
-		p.ackListenerCancel()
-	}
-
 	p.ackListenerStarted = false
+	cancel := p.ackListenerCancel
+	batcher := p.ackBatcher // 锁内 snapshot（A2）
+	p.ackBatcher = nil
+	p.ackListenerCancel = nil
+	p.ackListenerMu.Unlock()
+
+	// 锁外：先取消上下文 → 监听 goroutine 退出，停止接收新 ACK
+	if cancel != nil {
+		cancel()
+	}
+	// 再关闭 batcher：冲刷剩余缓冲，等待 batcher loop 退出。可能阻塞 ≤5s，不持锁（A2）。
+	if batcher != nil {
+		if err := batcher.Close(); err != nil && p.config.ErrorHandler != nil {
+			p.config.ErrorHandler(nil, fmt.Errorf("ackMarkerBatcher close failed: %w", err))
+		}
+	}
 }
 
 // ackListenerLoop ACK 监听器循环（使用全局 ACK Channel）
@@ -700,17 +766,17 @@ func (p *OutboxPublisher) StopACKListener() {
 func (p *OutboxPublisher) ackListenerLoop() {
 	// 获取发布结果通道
 	resultChan := p.eventPublisher.GetPublishResultChannel()
-	p.ackListenerLoopWithChannel(resultChan)
+	p.ackListenerLoopWithChannel(resultChan, p.ackBatcher)
 }
 
 // ackListenerLoopWithChannel ACK 监听器循环（使用自定义 ACK Channel）
-// 监听指定的 ACK Channel，并更新 Outbox 事件状态
-func (p *OutboxPublisher) ackListenerLoopWithChannel(resultChan <-chan *PublishResult) {
+// 监听指定的 ACK Channel，并更新 Outbox 事件状态。batcher 为启动时的 snapshot（A1）。
+func (p *OutboxPublisher) ackListenerLoopWithChannel(resultChan <-chan *PublishResult, batcher *ackMarkerBatcher) {
 	for {
 		select {
 		case result := <-resultChan:
 			// 处理 ACK 结果
-			p.handleACKResult(result)
+			p.handleACKResult(result, batcher)
 
 		case <-p.ackListenerCtx.Done():
 			// 监听器被停止
@@ -719,8 +785,8 @@ func (p *OutboxPublisher) ackListenerLoopWithChannel(resultChan <-chan *PublishR
 	}
 }
 
-// handleACKResult 处理 ACK 结果
-func (p *OutboxPublisher) handleACKResult(result *PublishResult) {
+// handleACKResult 处理 ACK 结果。batcher 为启动时的 snapshot（A1），不读 p.ackBatcher。
+func (p *OutboxPublisher) handleACKResult(result *PublishResult, batcher *ackMarkerBatcher) {
 	if result == nil {
 		return
 	}
@@ -730,8 +796,10 @@ func (p *OutboxPublisher) handleACKResult(result *PublishResult) {
 	defer cancel()
 
 	if result.Success {
-		// ACK 成功，标记为已发布
-		if err := p.repo.MarkAsPublished(ctx, result.EventID); err != nil {
+		// ACK 成功，标记为已发布（攥批或逐条）
+		if batcher != nil {
+			batcher.Add(result.EventID)
+		} else if err := p.repo.MarkAsPublished(ctx, result.EventID); err != nil {
 			// 记录错误（不影响后续处理）
 			if p.config.ErrorHandler != nil {
 				p.config.ErrorHandler(nil, fmt.Errorf("failed to mark event %s as published: %w", result.EventID, err))
