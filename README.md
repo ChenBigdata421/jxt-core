@@ -514,6 +514,7 @@ dbConfig, ok := p.GetServiceDatabaseConfig(tenantID, "security-management")
 
 ## 版本历史
 
+- v1.1.59 - Outbox 异步 ACK 批量化（ackMarkerBatcher）：成功 ACK 攒满 50 条或每 200ms flush 一次 MarkBatchAsPublished，解开生产端 commit-bound；配套加固——flushFunc panic recover、防 onError 自死锁（异步+recover）、监听器 Done-ch 快照防竞争、连续失败计数节流、关停冲刷剩余 + 回归测试
 - v1.1.58 - Outbox v2.0.0：SyncSemanticsPublisher 同步/异步标记分流；FindPublishedByIdempotencyKeys 批量幂等检查；BatchUpdate 更名为 MarkBatchAsPublished（单条 UPDATE 状态迁移，幂等 WHERE status='pending'）；filterPublishedEvents 批量化（破坏性接口变更）
 - v1.1.57 - EventBus 新增 TopicPartitionInfo 可选接口（分区查询）；修复 create_or_update 未扩已有 topic 分区
 - v1.1.56 - EventBus Kafka 消费分区流水线优化（partitionPipeline，feature flag 默认关闭）：advanceFrontier 连续前缀提交 + 异步 DLQ + Strategy A poison stall + 同聚合顺序保证；P-1 正确性门全绿，P-2 灰度前置待定

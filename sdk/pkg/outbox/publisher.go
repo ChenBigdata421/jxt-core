@@ -348,9 +348,12 @@ func (p *OutboxPublisher) PublishEvent(ctx context.Context, event *OutboxEvent) 
 //	error: 发布失败时返回错误
 //
 // 性能优化：
-//  1. 批量幂等性检查（一次查询）
-//  2. 批量发布到 EventBus
-//  3. 批量更新数据库状态（一次更新）
+//  1. 批量幂等性检查（filterPublishedEvents：一次查询，过滤已 Published 的幂等键）
+//  2. 批量发布到 EventBus（根据配置选择串行或并发）
+//  3. 仅同步语义发布器（实现 SyncSemanticsPublisher，如 InProcess）：成功后立即
+//     单条 UPDATE 标记为 Published（MarkBatchAsPublished）；异步语义发布器
+//     （Kafka/NATS）跳过同步标记，由 ACK 监听器在 broker ACK 后延迟标记
+//  4. 批量更新失败事件状态
 func (p *OutboxPublisher) PublishBatch(ctx context.Context, events []*OutboxEvent) (int, error) {
 	if len(events) == 0 {
 		return 0, nil
