@@ -9,6 +9,7 @@ import (
 )
 
 func ginContextWithClaims(claims jwt.MapClaims) *gin.Context {
+	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Set(jwt.JwtPayloadKey, claims)
 	return c
