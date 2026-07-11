@@ -82,9 +82,12 @@ func GetRoleId(c *gin.Context) int {
 	return roleId
 }
 
+// Deprecated: GetOrgId reads the wrong key ("orgid", no underscore); issuers write
+// "org_id" and all 5 services' live authz readers read "org_id". 0 callers as of
+// 2026-07-11. Use your service's own org_id reader instead. Will be removed in v1.3.
 // GetOrgId 获取组织ID
 func GetOrgId(c *gin.Context) int {
-	orgId, err := ExtractClaims(c).Int("orgid")
+	orgId, err := ExtractClaims(c).Int("orgid") // ← reads wrong key ("orgid"); issuers write "org_id"
 	if err != nil {
 		fmt.Println(pkg.GetCurrentTimeStr() + " [WARING] " + c.Request.Method + " " + c.Request.URL.Path + " GetOrgId 缺少 orgid error: " + err.Error())
 		return 0
