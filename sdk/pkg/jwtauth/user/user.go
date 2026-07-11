@@ -62,6 +62,12 @@ func GetUserName(c *gin.Context) string {
 	return ExtractClaims(c).String("nice")
 }
 
+// GetPoliceName 获取操作员显示名（Phase 2：security-management PayloadFunc 写入的 "policename"
+// claim，= NickName）。区别于 GetUserName（"nice"= 登录账号，用于审计日志）。
+func GetPoliceName(c *gin.Context) string {
+	return ExtractClaims(c).String("policename")
+}
+
 func GetRoleName(c *gin.Context) string {
 	return ExtractClaims(c).String("rolekey")
 }
