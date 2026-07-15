@@ -95,7 +95,7 @@
 
 重连重构触及真实状态机（共享消费 goroutine + `subscriptions` map + 消费组 + producer），叙述式描述不足以防竞态/死锁。实施前必须把状态、加锁、回退三件事写死。
 
-**状态机（全程持 `consumerMu`）：**
+**状态机（`reconnectMu` 串行化；`k.mu` 仅短暂持有状态变更，详见下方加锁协议）：**
 
 ```
   健康检查连续失败 ≥ FailureThreshold
@@ -113,20 +113,22 @@
   ③ 清空 subscriptions + activeTopicHandlers   ◀── 在 consumerMu 下清空 (C1)
   ④ restoreSubscriptions (重新 Subscribe,不再 already-subscribed)
   ⑤ startPreSubscriptionConsumer    (重启消费 goroutine) (C4)
-  ⑥ 释放 consumerMu
+  ⑥ 释放 reconnectMu
             │
             ├─ 任一步失败 ▶ 退避重试(指数); 达上限放弃,保留状态等下次健康检查
             ▼
        恢复正常消费/发布
 ```
 
-**加锁协议（修订：原"全程持 `consumerMu`"会死锁，已按 outside voice P0 取证改正）：**
-- 重连临界区由 **`k.mu`** 串行化（不是 `consumerMu`）。`k.mu` 同时阻塞 `Close`（1890）与 `Subscribe`（1589），天然串行化"重连 vs 关闭/订阅"。
-- 新增**内部 lock-free 变体** `stopPreSubscriptionConsumerInternal` / `startPreSubscriptionConsumerInternal` / `subscribeInternal`——假设调用方已持 `k.mu`，**不再取 `consumerMu`**（重连路径在 `k.mu` 下独占消费状态）。
-- `consumerStarted` 由步骤 ⑤（`startInternal`）权威设置；步骤 ④ 用 `subscribeInternal`，**不**触发消费 goroutine 启动——消除"Subscribe 副作用与步骤⑤抢启动"的顺序歧义（outside voice P0-2）。
-- 锁序唯一化：重连只持 `k.mu`；`Close` 持 `k.mu→consumerMu`；**不存在 `consumerMu→k.mu` 反向路径** → 无 AB-BA；内部变体不重入 → 无自死锁（原方案的两种死锁均消除）。
-- `consumerDone` 在持 `k.mu` 时存入局部变量再 receive，消除 stop/并发-start close-race（C4）。
-- `Publish` 经 generation/RWMutex 门禁（M3）：重连期间向旧 producer 的发送被阻断而非 panic。
+**加锁协议（第二轮修订；ce-doc-review feasibility P1 取证）：**
+round-1 的"全程持 `k.mu`"仍会死锁——`reinitializeConnection` 自身在 `kafka.go:2035` `k.mu.Lock()`（非重入自死锁），且步骤⑤ `startPreSubscriptionConsumer` 的 3s warmup `Sleep`（`kafka.go:1387`）会冻结全部 ~25 个 `k.mu` 站点。第二轮改正：
+- **专用 `reconnectMu` 串行化重连**：`reconnect()` 入口 `reconnectMu.Lock()`（明确 reconnect 自身锁边界，feasibility F-4），串行化 reconnect vs reconnect；`Close` 协调时先抢 `reconnectMu` 再 `k.mu`，挡住并发关闭。`k.mu` 不跨阻塞操作。
+- **`k.mu` 仅短暂持有状态变更**：①stop / ③清 `subscriptions` / ④restore / ⑤置 `consumerStarted` 各自"取 `k.mu` → 改 → 释"，**不跨** ② 网络重建、**不跨** ⑤ warmup。
+- **新增 `reinitializeConnectionInternal()`**（feasibility F-1）：做阻塞重建（close 旧 client、dial 新 client、`buildSaramaConfig`、new producer/consumer/admin/group）但**不再 `k.mu.Lock()`**（公版 `reinitializeConnection` @2035 的 Lock 是死锁源，重连走 Internal 版）。
+- **3s warmup 移出临界区**（feasibility F-2）：`startPreSubscriptionConsumerInternal` 只置 `consumerStarted=true` + 起 goroutine；warmup `Sleep` 在 consumer goroutine 内或释锁后做，**不在持 `k.mu` 时 Sleep**。
+- 步骤④ 用 `subscribeInternal`（不取 `consumerMu`、不起消费 goroutine）；`consumerStarted` 由⑤ `startInternal` 权威置位（消除 round-1 P0-2 顺序歧义）。
+- 锁序分层：`reconnectMu`（重连专用）/ `k.mu`（状态）/ `consumerMu`（消费 goroutine）；不存在反向获取 → 无 AB-BA；内部变体不重入 → 无自死锁（round-0 的 consumerMu 自死锁 + AB-BA、round-1 的 k.mu 自死锁 + warmup 冻结，均消除）。
+- `consumerDone` 持锁时存局部变量再 receive（C4）；`Publish` 经 generation/RWMutex 门禁（M3）。
 
 **kill-switch（可回退性，对应评审 1A）：**
 - 新增 env `JXT_KAFKA_AUTO_RECONNECT=off`（默认 on）：关闭健康检查触发的自动重连，退化为"健康检查失败到阈值即放弃，由编排器（k8s）重启 pod"。
@@ -192,8 +194,8 @@
 #### M3. ACK handler goroutine 无生命周期
 - **位置**：`kafka.go:442-443`（初始化 spawn）、`kafka.go:2095-2097`（重连 spawn）、handler `kafka.go:457-519`/`521+`。
 - **造成 commit**：`1474135`（引入）、`8970ae9`（固化）。
-- **破坏机制**（outside voice P1 扩展，范围比想象大）：无 `sync.WaitGroup`/stop chan——① 重连 handoff 期 `Publish` 可能 load 到正在被 `Close` 的旧 producer → 向已关闭 `Input()` 发 → panic；② `Close()` 不 drain `publishResultChan`（缓冲 10000），Outbox 消费方在关闭时丢失尾部 ACK；③ `reinitializeConnection` spawn 新 pair 前不停旧 pair，旧 pair range 旧 producer chan 直到 `producer.Close()` 关 chan 才退出——存在新旧 pair 并存窗口，ACK 可能乱序写 `publishResultChan`/tenant chan。
-- **最佳实践方案**：goroutine 所有权 + 优雅关闭。加 `sync.WaitGroup`（或 stop chan）；`Close`/`reinitializeConnection` 先 signal stop、关 producer、`wg.Wait()`；`Publish` 经 generation/RWMutex 门禁，不能向正在关闭的 producer 发；`Close()` drain `publishResultChan`（或通知 Outbox 消费方关闭）；`reinitializeConnection` spawn 新 pair 前先停旧 pair 并 `wg.Wait()`。（与 Critical 重连重构同改。）
+- **破坏机制**（outside voice P1 扩展，范围比想象大）：无 `sync.WaitGroup`/stop chan——① 重连 handoff 期 `Publish` 可能 load 到正在被 `Close` 的旧 producer → 向已关闭 `Input()` 发 → panic；② `Close()` 不 drain `publishResultChan`（缓冲 10000），Outbox 消费方在关闭时丢失尾部 ACK；③ `reinitializeConnection` spawn 新 pair 前不停旧 pair，旧 pair range 旧 producer chan 直到 `producer.Close()` 关 chan 才退出——存在新旧 pair 并存窗口，ACK 可能乱序写 `publishResultChan`/tenant chan；④ `UnregisterTenant` `close(ch)`（`kafka.go:3562`）与 `sendResultToChannel`（3472）的 Load→select 间 TOCTOU → 向已关 channel 发 → panic 崩 ACK handler（原 §7 判为 out-of-scope 延后；ce-doc-review A-1 改判：panic 发生在 M3 重写的同一 ACK handler goroutine，不可延后，并入本项）。
+- **最佳实践方案**：goroutine 所有权 + 优雅关闭。加 `sync.WaitGroup`（或 stop chan）；`Close`/`reinitializeConnection` 先 signal stop、关 producer、`wg.Wait()`；`Publish` 经 generation/RWMutex 门禁，不能向正在关闭的 producer 发；`Close()` drain `publishResultChan`（或通知 Outbox 消费方关闭）；`reinitializeConnection` spawn 新 pair 前先停旧 pair 并 `wg.Wait()`；**修 `UnregisterTenant` close(ch) 竞态**：close 在持锁下与 `delete` 原子化、或用 `sync.Once`/recover 防 send-on-closed（A-1，并入 Phase 1）。（与 Critical 重连重构同改。）
 - **验收**：`go test -race` 下重连期间无 panic；`Close` 后 ACK goroutine 全部退出。
 - **风险**：中。生命周期 + 竞态。
 
@@ -214,7 +216,7 @@
 | L1 | 死代码 `kafkaConsumerHandler`/`processMessage`（迁移遗留、语义分叉、无 Envelope/DLQ） | `kafka.go:786-889` | 删除（零调用） |
 | L2 | 死代码 `ensureKafkaTopic`（同类 bug、零调用） | `kafka.go:3164-3186` | 删除 |
 | L3 | 死代码 `getCompressionCodec()` | `kafka.go:731-744` | 删除或改为压缩配置解析复用（配合 H1） |
-| L4 | rebalance 默认 `range` → 应 `sticky`（eager，分区更稳；cooperative-sticky 仍禁）；**首次部署触发一次性全量 rebalance，部署提示避开高峰** | `kafka.go:760-771` | 默认改 `BalanceStrategySticky` |
+| L4 | rebalance 默认 `range` → 应 `sticky`（eager，分区更稳；cooperative-sticky 仍禁）；**滚动部署期新老 pod 同 GroupID 策略不一致→rebalance 风暴**（feasibility F-3），须**协调发布**：先 sticky opt-in（各服务 pin 配置）→ 后翻库默认，或同 group 全量重启（非滚动） | `kafka.go:760-771` | 默认改 `BalanceStrategySticky`（**非"直接改"，须协调发布**） |
 | L5 | `closed` 检查 TOCTOU 窗口（`5b80639` 提前 Unlock 略放大） | `kafka.go:1592` | `startPreSubscriptionConsumer` 前再 `closed.Load()` 复查，或修复当初为避死锁而分离的持锁范围 |
 
 ---
@@ -223,12 +225,13 @@
 
 | 阶段 | 内容 | 风险 | 灰度 |
 |---|---|---|---|
-| **Phase 1（P0）** | 重连子系统重构：`buildSaramaConfig` 抽取 + 重连重建消费组 + `restoreSubscriptions` 清空重建 + stop/restart 消费 goroutine + ACK 生命周期 + 状态机/锁协议/kill-switch + 重连冷却（C1-C6 + M3） | 中（生命周期） | kill-switch `JXT_KAFKA_AUTO_RECONNECT=off` 可一键回退；建议先在 dev 反复断连验证 |
-| **Phase 2（P0/P1）** | 恢复 producer 压缩（H1）+ topic 建表守卫谨慎修（H2）+ RF 字段（M4） | H2 中-高 | 压缩默认开；topic 修复单独 scoped |
+| **Phase 0（核实）** | 上线前核实生产前提：① RedPanda `auto_create_topics_enabled`（决定 H2 是 latent 还是 present-tense 数据丢失）；② 生产日志有无 reconnect 实际触发（健康检查 2min×阈值3≈6min；决定 Critical 紧迫性）；③ 消费服务是否真调 `ConfigureTopic`（决定 M4/H2 是否硬化零调用路径） | 低 | grep 配置 + 查日志；auto-create=OFF 处把 H2 重定为事故 |
+| **Phase 1（P0）** | 重连子系统重构：`buildSaramaConfig` 抽取（**含 H1 压缩配置字段，C-3 前移**）+ 重连重建消费组 + `restoreSubscriptions` 清空重建 + stop/restart 消费 goroutine + ACK 生命周期（含 tenant close 修复 A-1）+ 状态机/锁协议/kill-switch + 重连冷却（C1-C6 + M3 + H1 字段） | 中（生命周期） | kill-switch `JXT_KAFKA_AUTO_RECONNECT=off` 可一键回退；建议先在 dev 反复断连验证 |
+| **Phase 2（P0/P1）** | producer 压缩默认值落地（H1，配置字段已在 Phase 1 前移）+ topic 建表守卫谨慎修（H2）+ RF 字段（M4） | H2 中-高 | 压缩默认开；topic 修复单独 scoped |
 | **Phase 3（P1）** | 删除内联重试（M1）+ 流水线双路径文档/门禁（M2） | 低 | M2 的硬门禁随 pipeline 灰度 |
-| **Phase 4（P2）** | 死代码清理（L1-L3）+ sticky 默认（L4）+ closed TOCTOU（L5） | 低 | 直接改 |
+| **Phase 4（P2）** | 死代码清理（L1-L3）+ closed TOCTOU（L5）+ sticky 默认（L4） | 低-中 | L1/L3/L5 直接改；**L4 sticky 须协调发布**（feasibility F-3：滚动期同 GroupID 新老策略不一致→rebalance 风暴；先 opt-in 后翻默认，或同 group 全量重启） |
 
-**Phase 依赖说明（outside voice P2）**：C3 的 `buildSaramaConfig`（Phase 1）与 H1 的压缩配置字段（Phase 2）不独立——`buildSaramaConfig` 是单一配置来源，应从第一天就含压缩。推荐把 H1 的"恢复 Compression 配置字段"前移随 C3 一起做（`buildSaramaConfig` 一次到位），避免 Phase 2 回头改它。
+**Phase 依赖说明（outside voice P2）**：C3 的 `buildSaramaConfig`（Phase 1）与 H1 的压缩配置字段（Phase 2）不独立——`buildSaramaConfig` 是单一配置来源，应从第一天就含压缩。推荐把 H1 的"恢复 Compression 配置字段"前移随 C3 一起做（`buildSaramaConfig` 一次到位），避免 Phase 2 回头改它。（ce-doc-review C-3 已采纳：H1 压缩字段前移到 Phase 1。）
 
 ---
 
@@ -242,7 +245,7 @@
 
 ### 5.2 各回归点测试
 
-- **重连（C1-C5，Phase 1）**：编排级单测断言状态机顺序/清空/重建/配置 parity + kill-switch（env=off 不触发 reconnect）；e2e 断言断连重连后新消息可消费、goroutine 不泄漏、`Close()` 不阻塞；`go test -race`。
+- **重连（C1-C6 + M3，Phase 1）**：编排级单测断言状态机顺序/清空/重建/配置 parity + kill-switch（env=off 不触发 reconnect）；e2e 断言断连重连后新消息可消费、goroutine 不泄漏、`Close()` 不阻塞；`go test -race`。
 - **压缩（H1）**：单测断言 `Producer.Compression` 按配置；e2e（integration）确认 RedPanda 收到压缩批次。
 - **topic 守卫（H2）**：mock 三情形——缺失 topic（走创建）、`ErrLeaderNotAvailable`（不建+重试）、`ErrTopicAlreadyExists`（容忍不报错）。
 - **重试删除（M1）**：Envelope 失败仅一次执行、留待重投；分区阻塞不翻倍。
@@ -260,6 +263,8 @@
 | C4 消费 goroutine 不 restart | e2e：重连前后 goroutine 数不泄漏；`Close()` 不阻塞 | e2e | 是 |
 | C5 状态机/锁/kill-switch | mockbroker：状态机顺序 + env=off 不触发 reconnect；`go test -race` 无死锁 | 单测 | 否（mockbroker） |
 | C6 重连无冷却 | 单测：reconnect 进入即复位 failureCount + 冷却间隔内不重复 reconnect | 单测 | 否 |
+| M3 ACK handler 无生命周期 | e2e：重连期间无 panic；Close 后 ACK goroutine 全部退出；重连 handoff 无新旧 pair 并存 | e2e | 是（testcontainers） |
+| M3-tenant UnregisterTenant close 竞态 | 单测：in-flight ACK 期 unregister tenant 不 panic（close 在锁下原子化 / sync.Once / recover） | 单测 | 否 |
 | H1 压缩移除 | 单测：config ≠ None 按配置；e2e：broker 收到压缩批次 | 单测+e2e | e2e 是 |
 | H2 topic 漏判 | mock 三情形（缺失/瞬时/already-exists） | 单测 | 否 |
 | M1 重试反向优化 | Envelope 失败仅一次执行、留待重投 | 单测 | 否 |
@@ -285,7 +290,7 @@
 - **幂等 + `MaxInFlight<=0` → `MaxOpenRequests=100`**：潜在 footgun，但默认配置安全、且启动期大声报错，非"先好后破"。属预存缺口（可选在 Phase 2 顺带加防御性 clamp）。
 - **`processMessageWithKeyedPool` 名字漂移**：纯命名（实际用 actor pool），活路径正确。
 - **`globalKeyedPool`**：`.go` 源码已彻底清除（仅 `.md` 残留）。
-- **`UnregisterTenant` close(ch) 竞态（outside voice，独立后续）**：`kafka.go:3562` `close(ch)` 与 `sendResultToChannel`（3472）的 Load→select 间存在 TOCTOU，可能向已关 channel 发 → panic 崩 ACK handler。属 multi-tenant ACK 路径预存 bug（非本 spec"优化回归"主线），**单独立项处理**。
+- **`UnregisterTenant` close(ch) 竞态**：原判 out-of-scope（"非优化回归主线"），ce-doc-review A-1 改判——panic 发生在 M3 重写的同一 ACK handler goroutine，不可延后，**已并入 Phase 1 / M3**（见 §3 M3 ④）。
 
 ---
 
@@ -308,7 +313,7 @@
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | Eng Review | `/plan-eng-review` | 架构/代码/测试/性能 | 1 | CLEAR | Step 0 scope 接受 as-is；Arch 4 条（1A/2A/3A/4A 全采纳）；Code Quality 0；Tests 3 条（5A/6A/7A 全采纳）；Performance 0 |
-| Outside Voice | Claude subagent（独立二次评审） | 抓评审盲点 | 1 | folded | 1×P0（C5 锁协议死锁，已改正）+ 1×P0（consumerStarted 顺序歧义，并入 C5）+ 4×P1（C6 重连冷却 / M3 扩展 Close drain+pair 重叠 / M2(d) 关停语义分叉 / tenant close 竞态→独立立项）+ 3×P2（M4 传播 DescribeTopics 错误 / H2 默认策略分支 / Phase C3↔H1 依赖），全部并入 |
+| Outside Voice | Claude subagent（独立二次评审） | 抓评审盲点 | 1 | folded | 1×P0（C5 锁协议死锁，已改正）+ 1×P0（consumerStarted 顺序歧义，并入 C5）+ 4×P1（C6 重连冷却 / M3 扩展 Close drain+pair 重叠 / M2(d) 关停语义分叉 / tenant close 竞态→独立立项）+ 3×P2（M4 传播 DescribeTopics 错误 / H2 默认策略分支 / Phase C3↔H1 依赖），全部并入（tenant close 竞态经 ce-doc-review A-1 改判，并入 Phase 1/M3） |
 
 - **VERDICT**：ENG CLEARED —— 所有评审 findings（含 outside voice）已采纳并入 spec；outside voice 抓出的 C5 死锁（P0，自死锁 + AB-BA）已按 `k.mu` 串行化 + 内部 lock-free 变体重写锁协议。
 - **交叉模型一致性**：outside voice 独立确认了 spec 的若干诊断准确（legacy 严格 offset 有序、H1 压缩诊断、C1 never-Delete），并补出了评审漏掉的死锁与 7 项扩展——全部处理，无悬而未决的分歧。
