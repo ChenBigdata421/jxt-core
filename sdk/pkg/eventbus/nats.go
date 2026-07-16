@@ -3432,17 +3432,20 @@ func (n *natsEventBus) UnregisterTenant(tenantID int) error {
 	}
 
 	n.tenantChannelsMu.Lock()
-	defer n.tenantChannelsMu.Unlock()
 
 	// 检查租户是否已注册
 	ch, exists := n.tenantPublishResultChans[tenantID]
 	if !exists {
+		n.tenantChannelsMu.Unlock()
 		return fmt.Errorf("tenant %d not registered", tenantID)
 	}
 
-	// 关闭并删除租户 Channel
-	close(ch)
-	delete(n.tenantPublishResultChans, tenantID)
+	// D1: detach FIRST, then close. Combined with Task 1's RLock-held send,
+	// the write Lock waits out any in-flight sender, so close(ch) is safe.
+	// NO recover — D1 makes send-on-closed structurally impossible.
+	delete(n.tenantPublishResultChans, tenantID) // detach
+	close(ch)                                    // safe: no sender holds the RLock now
+	n.tenantChannelsMu.Unlock()
 
 	n.logger.Info("Tenant ACK channel unregistered",
 		zap.Int("tenantID", tenantID))
