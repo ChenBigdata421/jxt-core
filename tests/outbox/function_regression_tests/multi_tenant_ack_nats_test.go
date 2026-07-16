@@ -78,7 +78,13 @@ func TestMultiTenantACKChannel_NATS(t *testing.T) {
 	// 为每个租户配置 Topic
 	topicNames := make(map[int]string)
 	for _, tenantID := range tenants {
-		topicName := fmt.Sprintf("tenant-%d-events", tenantID)
+		// Publish subject MUST fall under the stream's subject filter (subjectPrefix
+		// = "<clientID>.>") so JetStream persists the message and ACKs come back.
+		// The bare "tenant-<id>-events" subject is NOT covered → no persistence → no
+		// ACK → 120s timeout. (Compounded by a pre-existing createdStreams cache
+		// keyed by stream name that only ensures the first topic; the clientID.>
+		// wildcard covers the remaining tenants once the subjects match.)
+		topicName := fmt.Sprintf("%s.tenant-%d-events", clientID, tenantID)
 		topicNames[tenantID] = topicName
 		t.Logf("✅ Will use topic: %s for tenant: %d", topicName, tenantID)
 	}

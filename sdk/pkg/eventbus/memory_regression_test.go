@@ -94,13 +94,13 @@ func TestMemoryEventBus_HandlerPanic(t *testing.T) {
 	// 等待处理
 	time.Sleep(200 * time.Millisecond)
 
-	// ⭐ 注意：迁移到 Hollywood Actor Pool 后，所有 handlers 共享同一个 routingKey，
-	// 在同一个 Actor 中顺序执行。当第一个 handler panic 时，Actor 重启，
-	// 但消息已经丢失（at-most-once 语义），所以后续 handlers 不会被调用。
-	// 这与 Kafka EventBus 的行为一致。
+	// ⭐ 每个 handler 作为独立的 AggregateMessage 提交到 Hollywood Actor Pool
+	// (见 memory.go publishWithActorLoop: 对每个 handler 单独 ProcessMessage)。
+	// panicHandler panic 时被 Actor Pool recover 隔离 —— at-most-once 语义：
+	// panicHandler 不会被重试 (panicCount=1)。normalHandler 是独立消息，照常执行
+	// (handler 隔离：一个 handler panic 不影响其他 handler 的独立消息)，normalCount=1。
 	assert.Equal(t, int32(1), panicCount.Load())
-	// ⭐ 修改预期：normalHandler 不会被调用（因为 panicHandler panic 导致消息丢失）
-	assert.Equal(t, int32(0), normalCount.Load())
+	assert.Equal(t, int32(1), normalCount.Load())
 }
 
 // TestMemoryEventBus_HandlerError 测试 handler 返回错误
