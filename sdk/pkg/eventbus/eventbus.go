@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -22,6 +23,16 @@ type eventBusManager struct {
 	reconnectCallback     func(ctx context.Context) error
 	mu                    sync.RWMutex
 	closed                bool
+
+	// PR2-core (Task 2, D5 — memory-backend only, spec §3.3): stable terminal error on
+	// concurrent/repeated Close. closeOnce guarantees teardown runs exactly once;
+	// closeDone is closed when teardown completes so every waiting repeat-Close caller
+	// converges on the same terminalErr. Adapted for the plain-bool `closed` (guarded
+	// by m.mu, not atomic.Bool): Close flips closed to true under m.mu.Lock() inside
+	// closeOnce.Do as the FIRST teardown step (freeze admission before touching channels).
+	closeOnce   sync.Once
+	closeDone   chan struct{}
+	terminalErr error
 
 	// 健康检查控制
 	healthCheckCancel context.CancelFunc
@@ -45,7 +56,7 @@ type eventBusManager struct {
 
 	// 多租户 ACK 通道支持
 	tenantPublishResultChans map[int]chan *PublishResult // key: tenantID, value: ACK channel
-	tenantChannelsMu         sync.RWMutex                 // 保护 tenantPublishResultChans 的读写锁
+	tenantChannelsMu         sync.RWMutex                // 保护 tenantPublishResultChans 的读写锁
 
 	// 指标收集器（用于 Prometheus 等监控系统）
 	metricsCollector MetricsCollector
@@ -74,6 +85,12 @@ func NewEventBus(config *EventBusConfig) (EventBus, error) {
 			Details: make(map[string]interface{}),
 		},
 		topicConfigs: make(map[string]TopicOptions),
+
+		// PR2-core (Task 2, D5): closeDone closed at end of Close() teardown to release
+		// concurrent/repeat callers. Only the memory backend returns this manager as the
+		// runtime type (kafka/nats return their own concrete structs), so this only
+		// matters for memory — but initializing it unconditionally is harmless.
+		closeDone: make(chan struct{}),
 	}
 
 	// 初始化指标收集器
@@ -446,63 +463,94 @@ func (m *eventBusManager) RegisterBusinessHealthCheck(checker BusinessHealthChec
 	m.businessHealthChecker = checker
 }
 
-// Close 关闭连接
+// Close 关闭连接。
+//
+// PR2-core (Task 2, D5 — memory-backend only, spec §3.3): concurrent/repeated Close
+// converges on the SAME cached terminal error. The first caller runs teardown inside
+// closeOnce.Do; every other caller blocks on <-closeDone and reads the identical
+// terminalErr.
+//
+// Ordering invariants (load-bearing, mirror of nats/kafka):
+//   - Freeze FIRST: m.closed = true is the first statement under m.mu.Lock() so in-flight
+//     senders snapshot the frozen state (Task 2) and RegisterTenant/UnregisterTenant
+//     closed-gates reject. Plain bool → MUST be set under the lock (no atomic here).
+//   - defer close(m.closeDone) is registered BEFORE defer m.mu.Unlock(). Defers run LIFO,
+//     so closeDone fires LAST — after terminalErr is assigned and mu released. Every
+//     <-closeDone waiter observes the fully-written terminalErr without holding mu.
+//   - D3: tenant channels closed AFTER admission is frozen, synchronously (no drain
+//     goroutine). Lock order: mu held, then tenantChannelsMu — NEVER the reverse.
 func (m *eventBusManager) Close() error {
-	m.mu.Lock()
+	m.closeOnce.Do(func() {
+		// Freeze admission FIRST. Plain bool under m.mu — set while holding the lock.
+		// defer ordering: closeDone registered before mu.Unlock → runs LAST (LIFO),
+		// after terminalErr is set and mu released. Waiters observe the full write.
+		m.mu.Lock()
+		m.closed = true
+		defer close(m.closeDone)
+		defer m.mu.Unlock()
 
-	if m.closed {
-		m.mu.Unlock()
-		return nil
-	}
+		// 获取需要关闭的组件引用（持有锁）
+		healthChecker := m.healthChecker
+		healthCheckSubscriber := m.healthCheckSubscriber
+		publisher := m.publisher
+		subscriber := m.subscriber
 
-	// 先标记为已关闭，防止新的操作
-	m.closed = true
+		// 持锁执行 component teardown — these are in-process memory components (no I/O),
+		// so holding m.mu across Stop()/Close() is acceptable and matches the nats/kafka
+		// shape (which hold their own mu across teardown).
+		var errs []error
 
-	// 获取需要关闭的组件引用
-	healthChecker := m.healthChecker
-	healthCheckSubscriber := m.healthCheckSubscriber
-	publisher := m.publisher
-	subscriber := m.subscriber
-
-	m.mu.Unlock()
-
-	var errors []error
-
-	// 1. 先停止健康检查（避免在EventBus关闭后继续发送消息）
-	if healthChecker != nil {
-		logger.Debug("Stopping health check publisher before closing EventBus")
-		if err := healthChecker.Stop(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to stop health checker: %w", err))
+		// 1. 先停止健康检查（避免在EventBus关闭后继续发送消息）
+		if healthChecker != nil {
+			logger.Debug("Stopping health check publisher before closing EventBus")
+			if err := healthChecker.Stop(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop health checker: %w", err))
+			}
 		}
-	}
 
-	if healthCheckSubscriber != nil {
-		logger.Debug("Stopping health check subscriber before closing EventBus")
-		if err := healthCheckSubscriber.Stop(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to stop health check subscriber: %w", err))
+		if healthCheckSubscriber != nil {
+			logger.Debug("Stopping health check subscriber before closing EventBus")
+			if err := healthCheckSubscriber.Stop(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop health check subscriber: %w", err))
+			}
 		}
-	}
 
-	// 2. 关闭发布器
-	if publisher != nil {
-		if err := publisher.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close publisher: %w", err))
+		// 2. 关闭发布器
+		if publisher != nil {
+			if err := publisher.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close publisher: %w", err))
+			}
 		}
-	}
 
-	// 3. 关闭订阅器
-	if subscriber != nil {
-		if err := subscriber.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close subscriber: %w", err))
+		// 3. 关闭订阅器
+		if subscriber != nil {
+			if err := subscriber.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close subscriber: %w", err))
+			}
 		}
-	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("errors during close: %v", errors)
-	}
+		// D3: close tenant channels AFTER admission is frozen (m.closed=true above) and
+		// BEFORE releasing mu. No sender is live (sendResultToChannel snapshots closed
+		// under RLock — it sees true and returns AdmissionRejectedFrozen before touching
+		// a channel). Synchronous, NO drain goroutine. Lock order: mu held, then
+		// tenantChannelsMu — NEVER the reverse.
+		m.tenantChannelsMu.Lock()
+		for id, ch := range m.tenantPublishResultChans {
+			delete(m.tenantPublishResultChans, id) // detach first
+			close(ch)                              // safe: admission frozen, no live sender
+		}
+		m.tenantChannelsMu.Unlock()
 
-	logger.Info("EventBus closed successfully")
-	return nil
+		// terminalErr assigned BEFORE closeDone fires (defer ordering guarantees it).
+		m.terminalErr = errors.Join(errs...)
+		if m.terminalErr != nil {
+			logger.Error("Errors during EventBus close", "errors", errs)
+		} else {
+			logger.Info("EventBus closed successfully")
+		}
+	})
+	<-m.closeDone        // concurrent/repeat callers block here until teardown completed
+	return m.terminalErr // identical value for every caller — satisfies §3.3 byte-equality
 }
 
 // RegisterReconnectCallback 注册重连回调
@@ -1361,6 +1409,16 @@ func (m *eventBusManager) GetPublishResultChannel() <-chan *PublishResult {
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
 func (m *eventBusManager) RegisterTenant(tenantID int, bufferSize int) error {
+	// PR2-core (Task 2, D5): reject after Close(). Plain-bool closed is guarded by
+	// m.mu — snapshot it under RLock. Prevents the late-registration leak (a channel
+	// installed after Close already closed the existing ones).
+	m.mu.RLock()
+	closed := m.closed
+	m.mu.RUnlock()
+	if closed {
+		return fmt.Errorf("eventbus closed")
+	}
+
 	if tenantID <= 0 {
 		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
@@ -1394,22 +1452,34 @@ func (m *eventBusManager) RegisterTenant(tenantID int, bufferSize int) error {
 
 // UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
 func (m *eventBusManager) UnregisterTenant(tenantID int) error {
+	// PR2-core (Task 2, D5): reject after Close() — takes precedence over the
+	// not-registered check. Plain-bool closed guarded by m.mu; snapshot under RLock.
+	m.mu.RLock()
+	closed := m.closed
+	m.mu.RUnlock()
+	if closed {
+		return fmt.Errorf("eventbus closed")
+	}
+
 	if tenantID <= 0 {
 		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
 
 	m.tenantChannelsMu.Lock()
-	defer m.tenantChannelsMu.Unlock()
 
 	// 检查租户是否已注册
 	ch, exists := m.tenantPublishResultChans[tenantID]
 	if !exists {
+		m.tenantChannelsMu.Unlock()
 		return fmt.Errorf("tenant %d not registered", tenantID)
 	}
 
-	// 关闭并删除租户 Channel
-	close(ch)
-	delete(m.tenantPublishResultChans, tenantID)
+	// D1: detach FIRST, then close. Combined with sendResultToChannel's RLock-held send,
+	// the write Lock waits out any in-flight sender, so close(ch) is safe.
+	// NO recover — D1 makes send-on-closed structurally impossible.
+	delete(m.tenantPublishResultChans, tenantID) // detach
+	close(ch)                                    // safe: no sender holds the RLock now
+	m.tenantChannelsMu.Unlock()
 
 	logger.Info("Memory EventBus: Tenant ACK channel unregistered",
 		"tenantID", tenantID)
@@ -1450,45 +1520,65 @@ func (m *eventBusManager) GetRegisteredTenants() []int {
 	return tenants
 }
 
-// sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
-func (m *eventBusManager) sendResultToChannel(result *PublishResult) {
+// sendResultToChannel admits a broker ACK result.
+//
+// PR2-core (Task 2, D5 — memory-backend only): byte-parallel with nats/kafka drivers.
+// Holds tenantChannelsMu.RLock() ACROSS the non-blocking send so UnregisterTenant's
+// write Lock cannot close the channel while a send is in flight — eliminates
+// send-on-closed structurally, NO recover. Never falls back to the unmonitored global
+// channel for a tenant result (spec §2.2).
+//
+// Adaptation vs nats/kafka: eventBusManager.closed is a plain bool guarded by m.mu
+// (NOT an atomic.Bool). We snapshot it under m.mu.RLock() ONCE at entry and treat that
+// snapshot as the admission gate for the whole call — the only consistent way to read
+// a plain-bool closed without introducing a race. (Close flips closed to true under
+// m.mu.Lock(), so a snapshot taken under RLock observes a stable value.)
+func (m *eventBusManager) sendResultToChannel(result *PublishResult) AdmissionOutcome {
+	// Snapshot closed under the same lock Close uses to flip it. Plain bool → must not
+	// read it without the lock (would race with Close's write).
+	m.mu.RLock()
+	closed := m.closed
+	m.mu.RUnlock()
+	if closed {
+		return AdmissionRejectedFrozen
+	}
+
 	// 优先发送到租户专属通道
 	if result.TenantID != 0 {
 		m.tenantChannelsMu.RLock()
 		tenantChan, exists := m.tenantPublishResultChans[result.TenantID]
-		m.tenantChannelsMu.RUnlock()
-
-		if exists {
-			select {
-			case tenantChan <- result:
-				// 成功发送到租户通道
-				return
-			default:
-				// 租户通道满，记录警告并回退到全局通道
-				logger.Warn("Tenant ACK channel full, falling back to global channel",
-					"tenantID", result.TenantID,
-					"eventID", result.EventID,
-					"topic", result.Topic)
-			}
-		} else {
-			// 租户未注册，记录警告并回退到全局通道
-			logger.Warn("Tenant not registered, falling back to global channel",
+		if !exists {
+			m.tenantChannelsMu.RUnlock()
+			return AdmissionRejectedUnregistered // do NOT fall back to global
+		}
+		// Lock held ACROSS the send (D1): UnregisterTenant's write Lock waits out this
+		// critical section, so it cannot close(ch) while a send is pending.
+		select {
+		case tenantChan <- result:
+			m.tenantChannelsMu.RUnlock()
+			return AdmissionAccepted
+		default:
+			m.tenantChannelsMu.RUnlock()
+			logger.Warn("Tenant ACK channel full, result not delivered",
 				"tenantID", result.TenantID,
-				"eventID", result.EventID)
+				"eventID", result.EventID,
+				"topic", result.Topic)
+			return AdmissionRejectedFull
 		}
 	}
 
-	// 发送到全局通道
+	// TenantID == 0: legitimately global. Accepted only if it actually goes in.
 	if m.publishResultChan != nil {
 		select {
 		case m.publishResultChan <- result:
-			// 成功发送到全局通道
+			return AdmissionAccepted
 		default:
-			// 全局通道满，记录错误
-			logger.Error("Global ACK channel full, ACK result dropped",
+			logger.Error("Global ACK channel full, ACK result not delivered",
 				"eventID", result.EventID,
 				"topic", result.Topic,
 				"tenantID", result.TenantID)
+			return AdmissionRejectedFull
 		}
 	}
+	return AdmissionRejectedUnregistered
 }

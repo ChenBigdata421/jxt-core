@@ -48,6 +48,29 @@ func newTestKafkaEventBus(t *testing.T) *kafkaEventBus {
 	}
 }
 
+// newTestMemoryEventBus constructs an *eventBusManager sufficient for registry-
+// lifecycle tests (PR2 plan, decision D5 — memory-backend only; byte-parallel with
+// newTestNATSEventBus/newTestKafkaEventBus). Builds the manager struct DIRECTLY:
+// no publisher/subscriber/health-checker wiring (all nil), so Close() runs only the
+// tenant-channel teardown + terminalErr path — exactly the registry contract under test.
+//
+// D5 note: eventBusManager is the runtime type ONLY for the memory backend
+// (NewEventBus returns *natsEventBus/*kafkaEventBus for nats/kafka). This is memory-
+// backend correctness coverage, NOT NATS/Kafka prod coverage — does not count toward
+// spec §3.9. The material adaptation: eventBusManager.closed is a plain bool guarded
+// by m.mu (NOT atomic.Bool), so this helper verifies the snapshot-under-RLock gate.
+func newTestMemoryEventBus(t *testing.T) *eventBusManager {
+	t.Helper()
+	return &eventBusManager{
+		publishResultChan:        make(chan *PublishResult, 16),
+		tenantPublishResultChans: make(map[int]chan *PublishResult),
+		// closeDone MUST be initialized for Close() to work (Task 2 mirror): Close()
+		// blocks every caller on <-closeDone and closes it inside closeOnce.Do.
+		// closeOnce/terminalErr/closed stay at their correct zero values (closed=false).
+		closeDone: make(chan struct{}),
+	}
+}
+
 // pubResult builds a minimal *PublishResult for admission tests. Only the fields
 // the registry routing logic depends on (TenantID, EventID) are set.
 func pubResult(tenantID int, eventID string) *PublishResult {

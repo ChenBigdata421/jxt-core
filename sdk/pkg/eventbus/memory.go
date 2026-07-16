@@ -95,6 +95,10 @@ func NewMemoryEventBus() EventBus {
 		topicConfigs: make(map[string]TopicOptions),
 		// ⭐ 修复：初始化 metricsCollector（NewMemoryEventBus 不接受配置，使用 NoOp）
 		metricsCollector: &NoOpMetricsCollector{},
+		// PR2-core (Task 2, D5): closeDone MUST be initialized for Close() to work
+		// (Close blocks every caller on <-closeDone and closes it inside closeOnce.Do).
+		// closeOnce/terminalErr/closed stay at their correct zero values.
+		closeDone: make(chan struct{}),
 	}
 }
 

@@ -3,7 +3,6 @@ package adapters
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	jxtjson "github.com/ChenBigdata421/jxt-core/sdk/pkg/json"
@@ -55,6 +54,14 @@ type EventBusAdapter struct {
 
 	// mu 互斥锁
 	mu sync.Mutex
+
+	// PR2-core (Task 4, ce-doc-review #2): loopsWg joins ALL conversion goroutines
+	// (the global resultConversionLoop spawned in start() AND every per-tenant
+	// tenantResultConversionLoop spawned in GetTenantPublishResultChannel). Close()
+	// signals exit via close(stopChan), then loopsWg.Wait() — a deterministic join
+	// that replaces the old time.Sleep(100ms). Add(1) BEFORE each `go`; defer Done()
+	// as the first statement inside each loop (never Add after the go — races Done).
+	loopsWg sync.WaitGroup
 }
 
 // NewEventBusAdapter 创建 EventBus 适配器
@@ -145,7 +152,9 @@ func (a *EventBusAdapter) GetTenantPublishResultChannel(tenantID int) <-chan *ou
 	// 创建 Outbox 结果通道
 	outboxResultChan := make(chan *outbox.PublishResult, 1000)
 
-	// 启动转换 goroutine
+	// PR2-core (Task 4): Add(1) BEFORE the go so Close().Wait() never misses a Done.
+	// (Never Add after the go — that races with Done.)
+	a.loopsWg.Add(1)
 	go a.tenantResultConversionLoop(eventBusResultChan, outboxResultChan)
 
 	return outboxResultChan
@@ -159,7 +168,15 @@ func (a *EventBusAdapter) GetRegisteredTenants() []int {
 
 // tenantResultConversionLoop 租户 ACK 结果转换循环
 // 从 EventBus 的租户专属 PublishResultChannel 读取结果，转换后发送到 Outbox 的 PublishResultChannel
+//
+// PR2-core (Task 4):
+//   - defer loopsWg.Done() is the FIRST statement so Close().Wait() converges even on the
+//     early-return paths (paired with the Add(1) before the `go` in GetTenantPublishResultChannel).
+//   - The inner select has NO `default:` discard (ce-doc-review #2 / spec §2.2): on a full
+//     outbox channel, block until either the send succeeds or stopChan fires. Silent drops
+//     break the outbox ACK contract (a lost ACK → the outbox row is never marked published).
 func (a *EventBusAdapter) tenantResultConversionLoop(eventBusResultChan <-chan *eventbus.PublishResult, outboxResultChan chan<- *outbox.PublishResult) {
+	defer a.loopsWg.Done() // PR2-core (Task 4): paired with Add(1) before the `go`
 	defer close(outboxResultChan)
 
 	for {
@@ -173,16 +190,14 @@ func (a *EventBusAdapter) tenantResultConversionLoop(eventBusResultChan <-chan *
 			// 转换 EventBus PublishResult 为 Outbox PublishResult
 			outboxResult := a.toOutboxPublishResult(eventBusResult)
 
-			// 发送到 Outbox 结果通道
+			// 发送到 Outbox 结果通道 — NO default: discard. On full, block until the
+			// listener drains OR stopChan fires (lossless per spec §2.2).
 			select {
 			case outboxResultChan <- outboxResult:
 				// 成功发送
 			case <-a.stopChan:
 				// 收到停止信号
 				return
-			default:
-				// 通道满，丢弃结果（避免阻塞）
-				// 注意：这种情况很少发生，因为缓冲区足够大
 			}
 
 		case <-a.stopChan:
@@ -192,27 +207,42 @@ func (a *EventBusAdapter) tenantResultConversionLoop(eventBusResultChan <-chan *
 	}
 }
 
-// Close 关闭适配器，释放资源
-// 应该在应用关闭时调用
+// Close 关闭适配器，释放资源。应该在应用关闭时调用。
+//
+// PR2-core (Task 4, Step 4 — D9 ownership split):
+// Close returns its OWN teardown error honestly and does NOT close the injected bus
+// ("don't close what you don't own"). The bus is injected via NewEventBusAdapter; the
+// orchestrator (e.g. the outbox consumer) owns the bus lifecycle — it calls bus.Close()
+// and surfaces the terminal error for the non-zero exit (spec §3.3). This adapter's
+// terminal error lives on the bus and is surfaced by the bus owner, NOT here.
+//
+// Deterministic join (replaces the old time.Sleep(100ms), ce-doc-review #2): close(stopChan)
+// signals ALL conversion loops (global + per-tenant) to exit via their <-stopChan cases,
+// then loopsWg.Wait() joins them. A single Sleep could never deterministically join the
+// per-tenant loops spawned by GetTenantPublishResultChannel.
+//
+// Today the join+close can't fail, so the return is nil — but the signature stays honest
+// (never swallow a future join/close error to nil).
 func (a *EventBusAdapter) Close() error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if !a.started {
+		a.mu.Unlock()
 		return nil
 	}
+	a.started = false
+	close(a.stopChan) // signal ALL conversion loops to exit (before releasing mu)
+	a.mu.Unlock()
 
-	// 发送停止信号
-	close(a.stopChan)
+	// Deterministic join of ALL conversion loops (global + per-tenant) — no time.Sleep.
+	// Each loop's <-a.stopChan case returns, firing its defer loopsWg.Done().
+	a.loopsWg.Wait()
 
-	// 等待 goroutine 退出
-	time.Sleep(100 * time.Millisecond)
-
-	// 关闭 Outbox 结果通道
+	// Close the Outbox result channel AFTER the loops have exited (no writer remains).
 	close(a.outboxResultChan)
 
-	a.started = false
-
+	// D9: do NOT call a.eventBus.Close() — the bus is injected; the orchestrator owns it.
+	// This adapter's terminal error is nil today (join+close can't fail); the bus's
+	// terminal error is surfaced by whoever owns and closes the bus.
 	return nil
 }
 
@@ -227,13 +257,22 @@ func (a *EventBusAdapter) start() {
 
 	a.started = true
 
+	// PR2-core (Task 4): Add(1) BEFORE the go so Close().Wait() never misses a Done.
+	a.loopsWg.Add(1)
 	// 启动 ACK 结果转换 goroutine
 	go a.resultConversionLoop()
 }
 
 // resultConversionLoop ACK 结果转换循环
 // 从 EventBus 的 PublishResultChannel 读取结果，转换后发送到 Outbox 的 PublishResultChannel
+//
+// PR2-core (Task 4):
+//   - defer loopsWg.Done() is the FIRST statement (paired with Add(1) in start()).
+//   - NO `default:` discard in the inner select (spec §2.2 lossless): on full, block
+//     until the listener drains OR stopChan fires.
 func (a *EventBusAdapter) resultConversionLoop() {
+	defer a.loopsWg.Done() // PR2-core (Task 4): paired with Add(1) in start()
+
 	// 获取 EventBus 的发布结果通道
 	eventBusResultChan := a.eventBus.GetPublishResultChannel()
 
@@ -248,16 +287,14 @@ func (a *EventBusAdapter) resultConversionLoop() {
 			// 转换 EventBus PublishResult 为 Outbox PublishResult
 			outboxResult := a.toOutboxPublishResult(eventBusResult)
 
-			// 发送到 Outbox 结果通道
+			// 发送到 Outbox 结果通道 — NO default: discard. On full, block until the
+			// listener drains OR stopChan fires (lossless per spec §2.2).
 			select {
 			case a.outboxResultChan <- outboxResult:
 				// 成功发送
 			case <-a.stopChan:
 				// 收到停止信号
 				return
-			default:
-				// 通道满，丢弃结果（避免阻塞）
-				// 注意：这种情况很少发生，因为缓冲区足够大
 			}
 
 		case <-a.stopChan:
