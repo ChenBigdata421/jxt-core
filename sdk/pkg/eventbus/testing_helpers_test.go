@@ -22,6 +22,10 @@ func newTestNATSEventBus(t *testing.T) *natsEventBus {
 		logger:                   zap.NewNop(),
 		publishResultChan:        make(chan *PublishResult, 16),
 		tenantPublishResultChans: make(map[int]chan *PublishResult),
+		// closeDone MUST be initialized for Close() to work (Task 3): Close()
+		// blocks every caller on <-closeDone and closes it inside closeOnce.Do.
+		// closeOnce/terminalErr/closed stay at their correct zero values.
+		closeDone: make(chan struct{}),
 	}
 }
 

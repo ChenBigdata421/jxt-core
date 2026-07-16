@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -32,6 +33,14 @@ type natsEventBus struct {
 	// ✅ 低频路径：保留 mu（用于 Subscribe、Close 等低频操作）
 	mu     sync.Mutex  // 🔥 改为 Mutex（不再需要读写锁）
 	closed atomic.Bool // 🔥 P0修复：改为 atomic.Bool，热路径无锁读取
+
+	// PR2-core (Task 3, spec §3.3): stable terminal error on concurrent/repeated Close.
+	// closeOnce guarantees teardown runs exactly once; closeDone is closed when teardown
+	// completes so every waiting repeat-Close caller converges on the same terminalErr.
+	// terminalErr is written once inside closeOnce.Do and read only after <-closeDone.
+	closeOnce   sync.Once
+	closeDone   chan struct{}
+	terminalErr error
 
 	reconnectCallbacks []func(ctx context.Context) error
 
@@ -207,6 +216,9 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		ackChan:        make(chan *ackTask, 100000), // ACK 任务通道（大缓冲区）
 		ackWorkerStop:  make(chan struct{}),
 		ackWorkerCount: runtime.NumCPU() * 2, // 🔥 P1验证：默认 CPU核心数 * 2（已验证合理）
+		// PR2-core (Task 3): closeDone closed at end of Close() teardown to release
+		// concurrent/repeat callers. closeOnce/terminalErr use correct zero values.
+		closeDone: make(chan struct{}),
 	}
 
 	// 🔥 P0修复：使用 atomic.Value 存储连接对象
@@ -1331,89 +1343,119 @@ func (n *natsEventBus) healthCheck(ctx context.Context) error {
 	return nil
 }
 
-// Close 关闭连接
+// Close 关闭连接。
+//
+// PR2-core (Task 3, spec §3.3): concurrent/repeated Close must converge on the
+// SAME cached terminal error. The first caller runs teardown inside closeOnce.Do;
+// every other caller blocks on <-closeDone and reads the identical terminalErr.
+//
+// Ordering invariants (load-bearing):
+//   - Freeze FIRST: n.closed.Store(true) is the first statement so in-flight senders
+//     take the Frozen path (Task 1) and RegisterTenant/UnregisterTenant closed-gates reject.
+//   - defer close(n.closeDone) is registered BEFORE defer n.mu.Unlock(). Defers run
+//     LIFO, so closeDone fires LAST — after terminalErr is assigned and mu released.
+//     Every <-closeDone waiter observes the fully-written terminalErr without holding mu.
+//
+// Accepted trade-off (spec §3.3): a repeat-Close can block up to the 30s
+// PublishAsyncComplete budget. Shutdown is not latency-sensitive; a stable terminal
+// error is the contract.
 func (n *natsEventBus) Close() error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.closeOnce.Do(func() {
+		// Freeze admission FIRST so in-flight senders take the Frozen path (Task 1)
+		// and RegisterTenant's closed-gate (#3) rejects new tenants.
+		n.closed.Store(true)
+		// defer order: closeDone registered before mu.Unlock → runs LAST (LIFO),
+		// after terminalErr is set and mu released. Waiters observe the full write.
+		defer close(n.closeDone)
+		n.mu.Lock()
+		defer n.mu.Unlock()
 
-	// 🔥 P0修复：无锁检查关闭状态
-	if n.closed.Load() {
-		return nil
-	}
+		var errs []error
 
-	var errs []error
-
-	// 关闭所有订阅
-	for topic, sub := range n.subscriptions {
-		if err := sub.Unsubscribe(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to unsubscribe from topic %s: %w", topic, err))
+		// 关闭所有订阅
+		for topic, sub := range n.subscriptions {
+			if err := sub.Unsubscribe(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to unsubscribe from topic %s: %w", topic, err))
+			}
 		}
-	}
 
-	// 停止积压检测器
-	if n.backlogDetector != nil {
-		if err := n.backlogDetector.Stop(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop backlog detector: %w", err))
+		// 停止积压检测器
+		if n.backlogDetector != nil {
+			if err := n.backlogDetector.Stop(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop backlog detector: %w", err))
+			}
 		}
-	}
 
-	// ⭐ 停止 Hollywood Actor Pool
-	if n.actorPool != nil {
-		n.actorPool.Stop()
-		n.logger.Debug("Stopped Hollywood Actor Pool")
-	}
+		// ⭐ 停止 Hollywood Actor Pool
+		if n.actorPool != nil {
+			n.actorPool.Stop()
+			n.logger.Debug("Stopped Hollywood Actor Pool")
+		}
 
-	// 🔥 P0修复：清空统一Consumer管理的映射（使用 sync.Map）
-	// sync.Map 没有 Clear 方法，需要逐个删除或重新创建
-	n.topicHandlers.Range(func(key, value interface{}) bool {
-		n.topicHandlers.Delete(key)
-		return true
+		// 🔥 P0修复：清空统一Consumer管理的映射（使用 sync.Map）
+		// sync.Map 没有 Clear 方法，需要逐个删除或重新创建
+		n.topicHandlers.Range(func(key, value interface{}) bool {
+			n.topicHandlers.Delete(key)
+			return true
+		})
+
+		n.subscribedTopicsMu.Lock()
+		n.subscribedTopics = make([]string, 0)
+		n.subscribedTopicsMu.Unlock()
+
+		// 清空订阅映射
+		n.subscriptions = make(map[string]*nats.Subscription)
+
+		// ✅ 方案2：停止 ACK worker 池
+		if n.ackWorkerStop != nil {
+			n.logger.Info("Stopping ACK worker pool...")
+			close(n.ackWorkerStop) // 发送停止信号
+			n.ackWorkerWg.Wait()   // 等待所有 worker 退出
+			n.logger.Info("ACK worker pool stopped")
+		}
+
+		// 🔥 P0修复：等待所有异步发布完成（优雅关闭）
+		js, jsErr := n.getJetStreamContext()
+		if jsErr == nil {
+			n.logger.Info("Waiting for async publishes to complete...")
+			select {
+			case <-js.PublishAsyncComplete():
+				n.logger.Info("All async publishes completed")
+			case <-time.After(30 * time.Second):
+				n.logger.Warn("Timeout waiting for async publishes to complete")
+			}
+		}
+
+		// 🔥 P0修复：关闭NATS连接
+		conn, connErr := n.getConn()
+		if connErr == nil {
+			conn.Close()
+		}
+
+		n.healthStatus.Store(false)
+
+		// D3: close tenant channels AFTER the ACK-worker join (no processACKTask
+		// sender is alive now), synchronously, NO drain goroutine. A still-ranging
+		// consumer drains the buffer via range; otherwise the buffer is abandoned
+		// (at-least-once outbox sweep self-heals — spec §3.2 shutdown carve-out).
+		// Lock order: mu held, then tenantChannelsMu — NEVER the reverse.
+		n.tenantChannelsMu.Lock()
+		for id, ch := range n.tenantPublishResultChans {
+			delete(n.tenantPublishResultChans, id) // detach first
+			close(ch)                              // safe: senders gate on closed.Load() (frozen) + RLock
+		}
+		n.tenantChannelsMu.Unlock()
+
+		// terminalErr assigned BEFORE closeDone fires (defer ordering guarantees it).
+		n.terminalErr = errors.Join(errs...)
+		if n.terminalErr != nil {
+			n.logger.Warn("Some errors occurred during NATS EventBus close", zap.Errors("errors", errs))
+		} else {
+			n.logger.Info("NATS EventBus closed successfully")
+		}
 	})
-
-	n.subscribedTopicsMu.Lock()
-	n.subscribedTopics = make([]string, 0)
-	n.subscribedTopicsMu.Unlock()
-
-	// 清空订阅映射
-	n.subscriptions = make(map[string]*nats.Subscription)
-
-	// ✅ 方案2：停止 ACK worker 池
-	if n.ackWorkerStop != nil {
-		n.logger.Info("Stopping ACK worker pool...")
-		close(n.ackWorkerStop) // 发送停止信号
-		n.ackWorkerWg.Wait()   // 等待所有 worker 退出
-		n.logger.Info("ACK worker pool stopped")
-	}
-
-	// 🔥 P0修复：等待所有异步发布完成（优雅关闭）
-	js, jsErr := n.getJetStreamContext()
-	if jsErr == nil {
-		n.logger.Info("Waiting for async publishes to complete...")
-		select {
-		case <-js.PublishAsyncComplete():
-			n.logger.Info("All async publishes completed")
-		case <-time.After(30 * time.Second):
-			n.logger.Warn("Timeout waiting for async publishes to complete")
-		}
-	}
-
-	// 🔥 P0修复：关闭NATS连接
-	conn, connErr := n.getConn()
-	if connErr == nil {
-		conn.Close()
-	}
-
-	// 🔥 P0修复：使用 atomic.Bool 设置关闭状态
-	n.closed.Store(true)
-	n.healthStatus.Store(false)
-
-	if len(errs) > 0 {
-		n.logger.Warn("Some errors occurred during NATS EventBus close", zap.Errors("errors", errs))
-		return fmt.Errorf("errors during close: %v", errs)
-	}
-
-	n.logger.Info("NATS EventBus closed successfully")
-	return nil
+	<-n.closeDone        // concurrent/repeat callers block here until teardown completed
+	return n.terminalErr // identical value for every caller — satisfies §3.3 byte-equality
 }
 
 // RegisterReconnectCallback 注册重连回调
@@ -3394,6 +3436,14 @@ func (n *natsEventBus) sendResultToChannel(result *PublishResult) AdmissionOutco
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
 func (n *natsEventBus) RegisterTenant(tenantID int, bufferSize int) error {
+	// PR2-core (Task 3, ce-doc-review #3): reject after Close(). Because Close
+	// flips `closed` BEFORE the tenant-channel close loop, a RegisterTenant racing
+	// teardown either fails fast here or is serialized — it cannot install a fresh
+	// channel that nobody closes (the late-registration leak).
+	if n.closed.Load() {
+		return fmt.Errorf("eventbus closed")
+	}
+
 	if tenantID == 0 {
 		return fmt.Errorf("tenantID cannot be zero")
 	}
@@ -3427,6 +3477,12 @@ func (n *natsEventBus) RegisterTenant(tenantID int, bufferSize int) error {
 
 // UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
 func (n *natsEventBus) UnregisterTenant(tenantID int) error {
+	// PR2-core (Task 3, ce-doc-review #3): reject after Close() (takes precedence
+	// over the not-registered check — once Close started, the registry is frozen).
+	if n.closed.Load() {
+		return fmt.Errorf("eventbus closed")
+	}
+
 	if tenantID == 0 {
 		return fmt.Errorf("tenantID cannot be zero")
 	}
