@@ -29,6 +29,25 @@ func newTestNATSEventBus(t *testing.T) *natsEventBus {
 	}
 }
 
+// newTestKafkaEventBus constructs a *kafkaEventBus sufficient for registry-lifecycle
+// tests (PR2 plan, decision D4 — byte-parallel with newTestNATSEventBus). Builds the
+// driver struct DIRECTLY: no real sarama broker, no dial. asyncProducer/consumer/
+// client/admin (atomic.Value) are left at zero value (nil); tests MUST NOT touch the
+// broker connection. The registry layer must NEVER touch the broker connection; if
+// that invariant breaks, tests here will surface it.
+func newTestKafkaEventBus(t *testing.T) *kafkaEventBus {
+	t.Helper()
+	return &kafkaEventBus{
+		logger:                   zap.NewNop(),
+		publishResultChan:        make(chan *PublishResult, 16),
+		tenantPublishResultChans: make(map[int]chan *PublishResult),
+		// closeDone MUST be initialized for Close() to work (Task 3): Close()
+		// blocks every caller on <-closeDone and closes it inside closeOnce.Do.
+		// closeOnce/terminalErr/closed stay at their correct zero values.
+		closeDone: make(chan struct{}),
+	}
+}
+
 // pubResult builds a minimal *PublishResult for admission tests. Only the fields
 // the registry routing logic depends on (TenantID, EventID) are set.
 func pubResult(tenantID int, eventID string) *PublishResult {

@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -56,6 +57,21 @@ type kafkaEventBus struct {
 	// ✅ 低频路径：保留 mu（用于 Subscribe、Close 等低频操作）
 	mu     sync.Mutex
 	closed atomic.Bool // 🔥 P0修复：改为 atomic.Bool，热路径无锁读取
+
+	// PR2-core (Task 3, spec §3.3): stable terminal error on concurrent/repeated Close.
+	// closeOnce guarantees teardown runs exactly once; closeDone is closed when teardown
+	// completes so every waiting repeat-Close caller converges on the same terminalErr.
+	// terminalErr is written once inside closeOnce.Do and read only after <-closeDone.
+	closeOnce   sync.Once
+	closeDone   chan struct{}
+	terminalErr error
+
+	// PR2-core (Task 4): Kafka's ACK senders are two free goroutines
+	// (handleAsyncProducerSuccess / handleAsyncProducerErrors) spawned at init AND at
+	// reconnect, with no join. producerResultWg lets Close() join them deterministically
+	// before closing tenant channels (D3). Each handler defer-Done()s on exit (either
+	// after producer.Close() ends its range, or the early nil-producer return).
+	producerResultWg sync.WaitGroup
 
 	// 🔥 高频路径：改为 atomic.Value（发布时无锁读取）
 	asyncProducer atomic.Value // stores sarama.AsyncProducer
@@ -398,6 +414,10 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 
 		// 🚀 异步发布结果通道（缓冲区大小：10000）
 		publishResultChan: make(chan *PublishResult, 10000),
+
+		// PR2-core (Task 3): closeDone closed at end of Close() teardown to release
+		// concurrent/repeat callers. closeOnce/terminalErr use correct zero values.
+		closeDone: make(chan struct{}),
 	}
 
 	// 🔥 P0修复：初始化 atomic 字段
@@ -439,6 +459,9 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	}
 
 	// 优化1：启动AsyncProducer的成功和错误处理goroutine
+	// PR2-core (Task 4): Add(2) BEFORE the go calls so Close().Wait() never misses a
+	// Done (never Add after the go — that races with Done). Each handler defer-Done()s.
+	bus.producerResultWg.Add(2)
 	go bus.handleAsyncProducerSuccess()
 	go bus.handleAsyncProducerErrors()
 
@@ -456,6 +479,11 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 
 // 优化1：处理AsyncProducer成功消息
 func (k *kafkaEventBus) handleAsyncProducerSuccess() {
+	// PR2-core (Task 4): Done when this goroutine exits — either after producer.Close()
+	// ends the range over Successes(), or the early nil-producer return below. Paired
+	// with the Add(2) at the init/reconnect spawn sites so Close().Wait() converges.
+	defer k.producerResultWg.Done()
+
 	// ✅ 无锁读取 asyncProducer
 	producerAny := k.asyncProducer.Load()
 	if producerAny == nil {
@@ -503,7 +531,11 @@ func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 			}
 
 			// ✅ 发送到租户专属通道或全局通道
-			k.sendResultToChannel(result)
+			// PR2-core (Task 1+4): registry is the only layer that may non-blockingly
+			// reject. Frozen => registry shutting down; stop producing ACK results.
+			if k.sendResultToChannel(result) == AdmissionRejectedFrozen {
+				return
+			}
 		}
 
 		// 如果配置了回调，执行回调
@@ -520,6 +552,11 @@ func (k *kafkaEventBus) handleAsyncProducerSuccess() {
 
 // 优化1：处理AsyncProducer错误
 func (k *kafkaEventBus) handleAsyncProducerErrors() {
+	// PR2-core (Task 4): Done when this goroutine exits — either after producer.Close()
+	// ends the range over Errors(), or the early nil-producer return below. Paired
+	// with the Add(2) at the init/reconnect spawn sites so Close().Wait() converges.
+	defer k.producerResultWg.Done()
+
 	// ✅ 无锁读取 asyncProducer
 	producer, err := k.getAsyncProducer()
 	if err != nil {
@@ -569,7 +606,11 @@ func (k *kafkaEventBus) handleAsyncProducerErrors() {
 			}
 
 			// ✅ 发送到租户专属通道或全局通道
-			k.sendResultToChannel(result)
+			// PR2-core (Task 1+4): registry is the only layer that may non-blockingly
+			// reject. Frozen => registry shutting down; stop producing ACK results.
+			if k.sendResultToChannel(result) == AdmissionRejectedFrozen {
+				return
+			}
 		}
 
 		// 提取消息内容
@@ -1885,81 +1926,119 @@ func (k *kafkaEventBus) GetEventBusMetrics() EventBusHealthMetrics {
 	}
 }
 
-// Close 关闭连接
+// Close 关闭连接。
+//
+// PR2-core (Task 3, spec §3.3): concurrent/repeated Close must converge on the
+// SAME cached terminal error. The first caller runs teardown inside closeOnce.Do;
+// every other caller blocks on <-closeDone and reads the identical terminalErr.
+//
+// Ordering invariants (load-bearing):
+//   - Freeze FIRST: k.closed.Store(true) is the first statement so in-flight senders
+//     take the Frozen path (Task 1) and RegisterTenant/UnregisterTenant closed-gates reject.
+//     (Pre-fix this ran stopPreSubscriptionConsumer/actorPool.Stop BEFORE the closed-check,
+//     risking double-teardown on a racing second Close.)
+//   - defer close(k.closeDone) is registered BEFORE defer k.mu.Unlock(). Defers run
+//     LIFO, so closeDone fires LAST — after terminalErr is assigned and mu released.
+//     Every <-closeDone waiter observes the fully-written terminalErr without holding mu.
+//
+// PR2-core (Task 4): after producer.Close() (which closes Successes()/Errors() → the
+// two ACK-sender goroutines exit and defer Done()), producerResultWg.Wait() joins them
+// BEFORE the D3 tenant-channel close. Lock order: mu held, then tenantChannelsMu.
 func (k *kafkaEventBus) Close() error {
-	k.mu.Lock()
+	k.closeOnce.Do(func() {
+		// Freeze admission FIRST so in-flight senders take the Frozen path (Task 1)
+		// and RegisterTenant/UnregisterTenant closed-gates reject.
+		k.closed.Store(true)
+		// defer order: closeDone registered before mu.Unlock → runs LAST (LIFO),
+		// after terminalErr is set and mu released. Waiters observe the full write.
+		defer close(k.closeDone)
+		k.mu.Lock()
+		defer k.mu.Unlock()
 
-	// 停止预订阅消费者组
-	k.stopPreSubscriptionConsumer()
+		var errs []error
 
-	// ⭐ 关闭全局 Hollywood Actor Pool
-	if k.globalActorPool != nil {
-		k.globalActorPool.Stop()
-	}
+		// 停止预订阅消费者组
+		k.stopPreSubscriptionConsumer()
 
-	defer k.mu.Unlock()
-
-	// 🔥 P0修复：使用 atomic.Bool 读取关闭状态
-	if k.closed.Load() {
-		return nil
-	}
-
-	var errors []error
-
-	// 关闭顺序很重要：
-	// 1. 先关闭从 client 创建的组件（unifiedConsumerGroup, admin, consumer, asyncProducer）
-	// 2. 最后关闭 client（因为其他组件依赖它）
-	// 注意：unifiedConsumerGroup.Close() 不会关闭底层的 client
-
-	// 关闭统一消费者组
-	if consumerGroup, err := k.getUnifiedConsumerGroup(); err == nil {
-		if err := consumerGroup.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close unified consumer group: %w", err))
+		// ⭐ 关闭全局 Hollywood Actor Pool
+		if k.globalActorPool != nil {
+			k.globalActorPool.Stop()
 		}
-	}
 
-	// 关闭消费者
-	if consumer, err := k.getConsumer(); err == nil {
-		if err := consumer.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close kafka consumer: %w", err))
-		}
-	}
+		// 关闭顺序很重要：
+		// 1. 先关闭从 client 创建的组件（unifiedConsumerGroup, admin, consumer, asyncProducer）
+		// 2. 最后关闭 client（因为其他组件依赖它）
+		// 注意：unifiedConsumerGroup.Close() 不会关闭底层的 client
 
-	// 优化1：关闭AsyncProducer
-	if producer, err := k.getAsyncProducer(); err == nil {
-		if err := producer.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close kafka async producer: %w", err))
-		}
-	}
-
-	// 关闭管理客户端（在关闭 client 之前）
-	if admin, err := k.getAdmin(); err == nil {
-		if err := admin.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close kafka admin: %w", err))
-		}
-	}
-
-	// 最后关闭客户端（所有其他组件都依赖它）
-	// 注意：某些版本的 sarama 可能在 ConsumerGroup.Close() 时已经关闭了 client
-	// 因此我们需要检查 client 是否已经关闭
-	if client, err := k.getClient(); err == nil {
-		if err := client.Close(); err != nil {
-			// 忽略 "client already closed" 错误
-			if err.Error() != "kafka: tried to use a client that was closed" {
-				errors = append(errors, fmt.Errorf("failed to close kafka client: %w", err))
+		// 关闭统一消费者组
+		if consumerGroup, err := k.getUnifiedConsumerGroup(); err == nil {
+			if err := consumerGroup.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close unified consumer group: %w", err))
 			}
 		}
-	}
 
-	// 🔥 P0修复：使用 atomic.Bool 设置关闭状态
-	k.closed.Store(true)
-	k.logger.Info("Kafka eventbus closed successfully")
+		// 关闭消费者
+		if consumer, err := k.getConsumer(); err == nil {
+			if err := consumer.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close kafka consumer: %w", err))
+			}
+		}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("errors during kafka eventbus close: %v", errors)
-	}
+		// 优化1：关闭AsyncProducer — also closes Successes()/Errors(), which ends the
+		// two ACK-sender goroutines' range loops and fires their defer Done().
+		if producer, err := k.getAsyncProducer(); err == nil {
+			if err := producer.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close kafka async producer: %w", err))
+			}
+		}
 
-	return nil
+		// PR2-core (Task 4): join the ACK senders before touching tenant channels.
+		// Both handlers exit once producer.Close() closed Successes()/Errors(); their
+		// defer Done() has fired, so Wait() returns promptly. (Init and every reconnect
+		// each Add(2)/Done(2) a balanced pair — see reinitializeConnection.)
+		k.producerResultWg.Wait()
+
+		// 关闭管理客户端（在关闭 client 之前）
+		if admin, err := k.getAdmin(); err == nil {
+			if err := admin.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close kafka admin: %w", err))
+			}
+		}
+
+		// 最后关闭客户端（所有其他组件都依赖它）
+		// 注意：某些版本的 sarama 可能在 ConsumerGroup.Close() 时已经关闭了 client
+		// 因此我们需要检查 client 是否已经关闭
+		if client, err := k.getClient(); err == nil {
+			if err := client.Close(); err != nil {
+				// 忽略 "client already closed" 错误
+				if err.Error() != "kafka: tried to use a client that was closed" {
+					errs = append(errs, fmt.Errorf("failed to close kafka client: %w", err))
+				}
+			}
+		}
+
+		// D3: close tenant channels AFTER the ACK-sender join (no sender is alive now),
+		// synchronously, NO drain goroutine. A still-ranging consumer drains the buffer
+		// via range; otherwise the buffer is abandoned (at-least-once outbox sweep
+		// self-heals — spec §3.2 shutdown carve-out). Lock order: mu held, then
+		// tenantChannelsMu — NEVER the reverse.
+		k.tenantChannelsMu.Lock()
+		for id, ch := range k.tenantPublishResultChans {
+			delete(k.tenantPublishResultChans, id) // detach first
+			close(ch)                              // safe: senders gate on closed.Load() (frozen) + RLock
+		}
+		k.tenantChannelsMu.Unlock()
+
+		// terminalErr assigned BEFORE closeDone fires (defer ordering guarantees it).
+		k.terminalErr = errors.Join(errs...)
+		if k.terminalErr != nil {
+			k.logger.Warn("Some errors occurred during Kafka EventBus close", zap.Errors("errors", errs))
+		} else {
+			k.logger.Info("Kafka eventbus closed successfully")
+		}
+	})
+	<-k.closeDone        // concurrent/repeat callers block here until teardown completed
+	return k.terminalErr // identical value for every caller — satisfies §3.3 byte-equality
 }
 
 // RegisterReconnectCallback 注册重连回调
@@ -2035,7 +2114,17 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
+	// PR2-core (Task 4, ce-doc-review #1): gate on closed under the SAME lock Close
+	// uses for teardown. A reconnect racing Close must NOT spawn a sender pair that
+	// nobody joins (Close may have already frozen the registry and run its own join).
+	if k.closed.Load() {
+		return fmt.Errorf("eventbus closed; aborting reinitialize")
+	}
+
 	// ✅ 关闭现有连接
+	// PR2-core (Task 4): the OLD producer.Close() here closes the OLD Successes()/
+	// Errors() channels → the OLD sender pair's range loops end → their defer Done()
+	// fires, retiring that pair BEFORE the new Add(2)+spawn below. WaitGroup stays balanced.
 	if producer, err := k.getAsyncProducer(); err == nil && producer != nil {
 		producer.Close()
 	}
@@ -2093,6 +2182,11 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 	k.admin.Store(admin)
 
 	// 优化1：重新启动AsyncProducer处理goroutine
+	// PR2-core (Task 4): Add(2) BEFORE the go calls (never after — races with Done).
+	// The old pair was retired by the old producer.Close() above; this Add(2) accounts
+	// the new pair bound to the new producer. Gated on closed above so a Close racing
+	// reconnect cannot leak an unjoined pair.
+	k.producerResultWg.Add(2)
 	go k.handleAsyncProducerSuccess()
 	go k.handleAsyncProducerErrors()
 
@@ -3468,50 +3562,49 @@ func (k *kafkaEventBus) GetTopicConfigStrategy() TopicConfigStrategy {
 // 多租户 ACK 支持
 // ==========================================================================
 
-// sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
-func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) {
-	// 优先发送到租户专属通道
+// sendResultToChannel admits a broker ACK result (D1: lock-across-send). Holds
+// tenantChannelsMu.RLock() ACROSS the non-blocking send so UnregisterTenant's write Lock
+// cannot close the channel while a send is in flight — eliminates send-on-closed
+// structurally, NO recover. Never falls back to the unmonitored global channel (spec §2.2).
+func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) AdmissionOutcome {
+	if k.closed.Load() {
+		return AdmissionRejectedFrozen
+	}
 	if result.TenantID != 0 {
 		k.tenantChannelsMu.RLock()
 		tenantChan, exists := k.tenantPublishResultChans[result.TenantID]
-		k.tenantChannelsMu.RUnlock()
-
-		if exists {
-			select {
-			case tenantChan <- result:
-				// 成功发送到租户通道
-				return
-			default:
-				// 租户通道满，记录警告
-				k.logger.Warn("Tenant ACK channel full, falling back to global channel",
-					zap.Int("tenantID", result.TenantID),
-					zap.String("eventID", result.EventID),
-					zap.String("topic", result.Topic))
-			}
-		} else {
-			// 租户未注册，记录警告
-			k.logger.Warn("Tenant not registered, falling back to global channel",
-				zap.Int("tenantID", result.TenantID),
-				zap.String("eventID", result.EventID))
+		if !exists {
+			k.tenantChannelsMu.RUnlock()
+			return AdmissionRejectedUnregistered // do NOT fall back to global
+		}
+		select {
+		case tenantChan <- result:
+			k.tenantChannelsMu.RUnlock()
+			return AdmissionAccepted
+		default:
+			k.tenantChannelsMu.RUnlock()
+			return AdmissionRejectedFull
 		}
 	}
-
-	// 降级：发送到全局通道（向后兼容）
+	// TenantID == 0: legitimately global. Accepted only if it actually goes in.
 	select {
 	case k.publishResultChan <- result:
-		// 成功发送到全局通道
+		return AdmissionAccepted
 	default:
-		// 全局通道也满，记录错误
-		k.logger.Error("Both tenant and global ACK channels full, dropping result",
-			zap.Int("tenantID", result.TenantID),
-			zap.String("eventID", result.EventID),
-			zap.String("topic", result.Topic),
-			zap.Bool("success", result.Success))
+		return AdmissionRejectedFull
 	}
 }
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
 func (k *kafkaEventBus) RegisterTenant(tenantID int, bufferSize int) error {
+	// PR2-core (Task 3, ce-doc-review #3): reject after Close(). Because Close
+	// flips `closed` BEFORE the tenant-channel close loop, a RegisterTenant racing
+	// teardown either fails fast here or is serialized — it cannot install a fresh
+	// channel that nobody closes (the late-registration leak).
+	if k.closed.Load() {
+		return fmt.Errorf("eventbus closed")
+	}
+
 	if tenantID <= 0 {
 		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
@@ -3545,22 +3638,31 @@ func (k *kafkaEventBus) RegisterTenant(tenantID int, bufferSize int) error {
 
 // UnregisterTenant 注销租户（关闭并清理租户的 ACK Channel）
 func (k *kafkaEventBus) UnregisterTenant(tenantID int) error {
+	// PR2-core (Task 3, ce-doc-review #3): reject after Close() (takes precedence
+	// over the not-registered check — once Close started, the registry is frozen).
+	if k.closed.Load() {
+		return fmt.Errorf("eventbus closed")
+	}
+
 	if tenantID <= 0 {
 		return fmt.Errorf("tenantID must be positive, got %d", tenantID)
 	}
 
 	k.tenantChannelsMu.Lock()
-	defer k.tenantChannelsMu.Unlock()
 
 	// 检查租户是否已注册
 	ch, exists := k.tenantPublishResultChans[tenantID]
 	if !exists {
+		k.tenantChannelsMu.Unlock()
 		return fmt.Errorf("tenant %d not registered", tenantID)
 	}
 
-	// 关闭并删除租户 Channel
-	close(ch)
-	delete(k.tenantPublishResultChans, tenantID)
+	// D1: detach FIRST, then close. Combined with Task 1's RLock-held send,
+	// the write Lock waits out any in-flight sender, so close(ch) is safe.
+	// NO recover — D1 makes send-on-closed structurally impossible.
+	delete(k.tenantPublishResultChans, tenantID) // detach
+	close(ch)                                    // safe: no sender holds the RLock now
+	k.tenantChannelsMu.Unlock()
 
 	k.logger.Info("Tenant ACK channel unregistered",
 		zap.Int("tenantID", tenantID))
