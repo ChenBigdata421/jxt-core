@@ -117,13 +117,16 @@ func (c *PublisherConfig) Validate() error {
 // DefaultPublisherConfig 默认发布器配置
 func DefaultPublisherConfig() *PublisherConfig {
 	return &PublisherConfig{
-		MaxRetries:               3,
-		RetryDelay:               time.Second,
-		PublishTimeout:           30 * time.Second,
-		EnableMetrics:            true,
-		ConcurrentPublish:        false, // 默认不启用并发发布（保持向后兼容）
-		PublishConcurrency:       10,    // 默认并发数 10
-		ACKBatchSize:             defaultACKBatchSize,
+		MaxRetries:         3,
+		RetryDelay:         time.Second,
+		PublishTimeout:     30 * time.Second,
+		EnableMetrics:      true,
+		ConcurrentPublish:  false, // 默认不启用并发发布（保持向后兼容）
+		PublishConcurrency: 10,    // 默认并发数 10
+		// nil-config default: batching OFF (fail-safe). Callers that want batching must
+		// set ACKBatchSize explicitly. defaultACKBatchSize (50) remains the batcher's
+		// internal floor for ACKBatchSize<1, NOT the library default.
+		ACKBatchSize:             0,
 		ACKBatchFlushInterval:    defaultACKBatchFlushInterval,
 		ACKBatchFailureThreshold: defaultACKBatchFailureThreshold,
 	}
