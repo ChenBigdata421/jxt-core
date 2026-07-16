@@ -470,34 +470,49 @@ func (m *eventBusManager) RegisterBusinessHealthCheck(checker BusinessHealthChec
 // closeOnce.Do; every other caller blocks on <-closeDone and reads the identical
 // terminalErr.
 //
-// Ordering invariants (load-bearing, mirror of nats/kafka):
+// Ordering invariants (load-bearing):
 //   - Freeze FIRST: m.closed = true is the first statement under m.mu.Lock() so in-flight
 //     senders snapshot the frozen state (Task 2) and RegisterTenant/UnregisterTenant
 //     closed-gates reject. Plain bool → MUST be set under the lock (no atomic here).
-//   - defer close(m.closeDone) is registered BEFORE defer m.mu.Unlock(). Defers run LIFO,
-//     so closeDone fires LAST — after terminalErr is assigned and mu released. Every
-//     <-closeDone waiter observes the fully-written terminalErr without holding mu.
-//   - D3: tenant channels closed AFTER admission is frozen, synchronously (no drain
-//     goroutine). Lock order: mu held, then tenantChannelsMu — NEVER the reverse.
+//   - D8 DEVIATION from nats/kafka shape (CORRECT here, see note below): m.mu is RELEASED
+//     before any component teardown. nats/kafka hold their own mu across teardown because
+//     their components do NOT re-enter that mu. The memory eventBusManager's
+//     healthCheckLoop calls eventBus.Publish → m.mu.RLock(), and HealthChecker.Stop joins
+//     healthCheckLoop; likewise sendResultToChannel takes m.mu.RLock() to snapshot `closed`.
+//     Holding m.mu.Lock() across healthChecker.Stop() therefore deadlocks (Close waits for
+//     the loop to exit; the loop waits for RLock). So memory must release mu before joining
+//     any goroutine that can re-enter m.mu.
+//   - defer close(m.closeDone) is registered AFTER the explicit m.mu.Unlock() and is the
+//     ONLY defer in the closure. Defers run LIFO, so closeDone fires LAST — after
+//     terminalErr is assigned. Every <-closeDone waiter observes the fully-written
+//     terminalErr. Do NOT add defer m.mu.Unlock() back.
+//   - D3: tenant channels are detached (snapshot + replace map) under tenantChannelsMu
+//     while mu is still held, then closed OUTSIDE any lock. Admission is frozen
+//     (closed=true set before Unlock), so sendResultToChannel sees closed==true under RLock
+//     and returns AdmissionRejectedFrozen without touching a channel — closing here is safe.
 func (m *eventBusManager) Close() error {
 	m.closeOnce.Do(func() {
-		// Freeze admission FIRST. Plain bool under m.mu — set while holding the lock.
-		// defer ordering: closeDone registered before mu.Unlock → runs LAST (LIFO),
-		// after terminalErr is set and mu released. Waiters observe the full write.
+		// 1. Freeze admission + snapshot component refs + detach tenant chans, all under the locks.
 		m.mu.Lock()
 		m.closed = true
-		defer close(m.closeDone)
-		defer m.mu.Unlock()
-
-		// 获取需要关闭的组件引用（持有锁）
 		healthChecker := m.healthChecker
 		healthCheckSubscriber := m.healthCheckSubscriber
 		publisher := m.publisher
 		subscriber := m.subscriber
+		m.tenantChannelsMu.Lock()
+		tenantChans := m.tenantPublishResultChans
+		m.tenantPublishResultChans = make(map[int]chan *PublishResult) // detach under lock
+		m.tenantChannelsMu.Unlock()
+		m.mu.Unlock() // <<< RELEASE before any teardown that may re-enter m.mu (D8 deviate)
 
-		// 持锁执行 component teardown — these are in-process memory components (no I/O),
-		// so holding m.mu across Stop()/Close() is acceptable and matches the nats/kafka
-		// shape (which hold their own mu across teardown).
+		// closeDone fires LAST (LIFO, only defer) — after terminalErr is assigned below.
+		defer close(m.closeDone)
+
+		// 2. Teardown OUTSIDE m.mu. healthChecker.Stop joins healthCheckLoop, which Publishes
+		//    (m.mu.RLock); healthCheckSubscriber.Stop joins its Subscribe goroutine (also
+		//    m.mu.RLock). Doing either under m.mu.Lock() deadlocks. (nats/kafka Close hold
+		//    their own mu across teardown, but their components do NOT re-enter that mu —
+		//    memory's do, so memory must deviate from byte-parity here. See D8 note above.)
 		var errs []error
 
 		// 1. 先停止健康检查（避免在EventBus关闭后继续发送消息）
@@ -529,17 +544,12 @@ func (m *eventBusManager) Close() error {
 			}
 		}
 
-		// D3: close tenant channels AFTER admission is frozen (m.closed=true above) and
-		// BEFORE releasing mu. No sender is live (sendResultToChannel snapshots closed
-		// under RLock — it sees true and returns AdmissionRejectedFrozen before touching
-		// a channel). Synchronous, NO drain goroutine. Lock order: mu held, then
-		// tenantChannelsMu — NEVER the reverse.
-		m.tenantChannelsMu.Lock()
-		for id, ch := range m.tenantPublishResultChans {
-			delete(m.tenantPublishResultChans, id) // detach first
-			close(ch)                              // safe: admission frozen, no live sender
+		// 3. Close detached tenant chans. Admission is frozen (closed=true set before Unlock);
+		//    sendResultToChannel sees closed under RLock and returns AdmissionRejectedFrozen
+		//    without touching a channel, so closing here is safe. No live sender remains.
+		for _, ch := range tenantChans {
+			close(ch)
 		}
-		m.tenantChannelsMu.Unlock()
 
 		// terminalErr assigned BEFORE closeDone fires (defer ordering guarantees it).
 		m.terminalErr = errors.Join(errs...)
