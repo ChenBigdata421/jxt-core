@@ -191,7 +191,65 @@ type PublisherMetrics struct {
 	LastError error
 }
 
+// NewOutboxPublisherChecked builds an OutboxPublisher and returns a validation
+// error instead of panicking. It is the checked (no-panic) variant of
+// NewOutboxPublisher.
+//
+// New code should prefer this constructor: it lets callers (e.g. service DI
+// wiring) handle config errors gracefully and perform reverse-order rollback
+// of already-constructed components on multi-construct failure.
+//
+// 参数：
+//
+//	repo: 仓储
+//	eventPublisher: 事件发布器（接口）
+//	topicMapper: Topic 映射器
+//	config: 配置（可选，nil 表示使用默认配置）
+//
+// 返回：
+//
+//	*OutboxPublisher: 发布器实例
+//	error: 配置验证失败时返回包装后的错误（不 panic）
+func NewOutboxPublisherChecked(
+	repo OutboxRepository,
+	eventPublisher EventPublisher,
+	topicMapper TopicMapper,
+	config *PublisherConfig,
+) (*OutboxPublisher, error) {
+	if config == nil {
+		config = DefaultPublisherConfig()
+	}
+
+	// 验证配置（返回错误而非 panic）
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid publisher config: %w", err)
+	}
+
+	publisher := &OutboxPublisher{
+		repo:           repo,
+		eventPublisher: eventPublisher,
+		topicMapper:    topicMapper,
+		config:         config,
+	}
+
+	if config.EnableMetrics {
+		publisher.metrics = &PublisherMetrics{}
+	}
+
+	// 设置外部指标收集器
+	if config.MetricsCollector != nil {
+		publisher.metricsCollector = config.MetricsCollector
+	} else {
+		publisher.metricsCollector = &NoOpMetricsCollector{}
+	}
+
+	return publisher, nil
+}
+
 // NewOutboxPublisher 创建 Outbox 发布器
+//
+// 这是保留向后兼容的 panic 变体：配置验证失败时仍会 panic。
+// 新代码应优先使用 NewOutboxPublisherChecked（返回 error）。
 //
 // 参数：
 //
@@ -213,34 +271,11 @@ func NewOutboxPublisher(
 	topicMapper TopicMapper,
 	config *PublisherConfig,
 ) *OutboxPublisher {
-	if config == nil {
-		config = DefaultPublisherConfig()
-	}
-
-	// 验证配置
-	if err := config.Validate(); err != nil {
+	p, err := NewOutboxPublisherChecked(repo, eventPublisher, topicMapper, config)
+	if err != nil {
 		panic(fmt.Sprintf("invalid publisher config: %v", err))
 	}
-
-	publisher := &OutboxPublisher{
-		repo:           repo,
-		eventPublisher: eventPublisher,
-		topicMapper:    topicMapper,
-		config:         config,
-	}
-
-	if config.EnableMetrics {
-		publisher.metrics = &PublisherMetrics{}
-	}
-
-	// 设置外部指标收集器
-	if config.MetricsCollector != nil {
-		publisher.metricsCollector = config.MetricsCollector
-	} else {
-		publisher.metricsCollector = &NoOpMetricsCollector{}
-	}
-
-	return publisher
+	return p
 }
 
 // PublishEvent 发布单个事件
