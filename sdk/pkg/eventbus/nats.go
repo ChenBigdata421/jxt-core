@@ -1278,7 +1278,6 @@ func (n *natsEventBus) handleMessageWithWrapper(ctx context.Context, topic strin
 	}
 }
 
-
 // healthCheck 内部健康检查（不对外暴露）
 func (n *natsEventBus) healthCheck(ctx context.Context) error {
 	// 🔥 P0修复：无锁检查关闭状态
@@ -3296,7 +3295,9 @@ func (n *natsEventBus) processACKTask(task *ackTask) {
 		}
 
 		// ✅ 发送到租户专属通道或全局通道
-		n.sendResultToChannel(result)
+		if n.sendResultToChannel(result) == AdmissionRejectedFrozen {
+			return // registry is closing; stop producing ack results
+		}
 
 	case err := <-task.future.Err():
 		// ❌ 发布失败
@@ -3321,7 +3322,9 @@ func (n *natsEventBus) processACKTask(task *ackTask) {
 		}
 
 		// ✅ 发送到租户专属通道或全局通道
-		n.sendResultToChannel(result)
+		if n.sendResultToChannel(result) == AdmissionRejectedFrozen {
+			return // registry is closing; stop producing ack results
+		}
 
 	case <-time.After(timeout):
 		// ⏰ 超时：NATS JetStream ACK 响应超时
@@ -3346,7 +3349,9 @@ func (n *natsEventBus) processACKTask(task *ackTask) {
 		}
 
 		// ✅ 发送到租户专属通道或全局通道
-		n.sendResultToChannel(result)
+		if n.sendResultToChannel(result) == AdmissionRejectedFrozen {
+			return // registry is closing; stop producing ack results
+		}
 	}
 }
 
@@ -3354,45 +3359,36 @@ func (n *natsEventBus) processACKTask(task *ackTask) {
 // 多租户 ACK 支持
 // ==========================================================================
 
-// sendResultToChannel 发送 ACK 结果到租户专属通道或全局通道
-func (n *natsEventBus) sendResultToChannel(result *PublishResult) {
-	// 优先发送到租户专属通道
+// sendResultToChannel admits a broker ACK result (D1: lock-across-send). Holds
+// tenantChannelsMu.RLock() ACROSS the non-blocking send so UnregisterTenant's write Lock
+// cannot close the channel while a send is in flight — eliminates send-on-closed
+// structurally, NO recover. Never falls back to the unmonitored global channel (spec §2.2).
+func (n *natsEventBus) sendResultToChannel(result *PublishResult) AdmissionOutcome {
+	if n.closed.Load() {
+		return AdmissionRejectedFrozen
+	}
 	if result.TenantID != 0 {
 		n.tenantChannelsMu.RLock()
 		tenantChan, exists := n.tenantPublishResultChans[result.TenantID]
-		n.tenantChannelsMu.RUnlock()
-
-		if exists {
-			select {
-			case tenantChan <- result:
-				// 成功发送到租户通道
-				return
-			default:
-				// 租户通道满，记录警告
-				n.logger.Warn("Tenant ACK channel full, falling back to global channel",
-					zap.Int("tenantID", result.TenantID),
-					zap.String("eventID", result.EventID),
-					zap.String("topic", result.Topic))
-			}
-		} else {
-			// 租户未注册，记录警告
-			n.logger.Warn("Tenant not registered, falling back to global channel",
-				zap.Int("tenantID", result.TenantID),
-				zap.String("eventID", result.EventID))
+		if !exists {
+			n.tenantChannelsMu.RUnlock()
+			return AdmissionRejectedUnregistered // do NOT fall back to global
+		}
+		select {
+		case tenantChan <- result:
+			n.tenantChannelsMu.RUnlock()
+			return AdmissionAccepted
+		default:
+			n.tenantChannelsMu.RUnlock()
+			return AdmissionRejectedFull
 		}
 	}
-
-	// 降级：发送到全局通道（向后兼容）
+	// TenantID == 0: legitimately global. Accepted only if it actually goes in.
 	select {
 	case n.publishResultChan <- result:
-		// 成功发送到全局通道
+		return AdmissionAccepted
 	default:
-		// 全局通道也满，记录错误
-		n.logger.Error("Both tenant and global ACK channels full, dropping result",
-			zap.Int("tenantID", result.TenantID),
-			zap.String("eventID", result.EventID),
-			zap.String("topic", result.Topic),
-			zap.Bool("success", result.Success))
+		return AdmissionRejectedFull
 	}
 }
 
