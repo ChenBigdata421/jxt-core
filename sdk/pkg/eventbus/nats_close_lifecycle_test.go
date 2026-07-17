@@ -94,3 +94,34 @@ func TestSendResult_FrozenAfterClose(t *testing.T) {
 		t.Fatalf("expected AdmissionRejectedFrozen after Close, got %v", out)
 	}
 }
+
+// Concurrent RegisterTenant vs Close must not leak an orphan tenant channel (one a
+// RegisterTenant installs AFTER Close's clear loop, so nobody closes it). Byte-parallel
+// with TestKafkaRegisterTenant_ConcurrentClose_NoOrphan and TestMemoryRegisterTenant_
+// ConcurrentClose_NoOrphan. NATS uses the same fix as Kafka (re-check closed.Load()
+// under tenantChannelsMu). Stress: hammer many concurrent registers + one Close, then
+// assert every channel still in the map is CLOSED. Run under `-race -count=N`.
+func TestNATSRegisterTenant_ConcurrentClose_NoOrphan(t *testing.T) {
+	bus := newTestNATSEventBus(t)
+	var wg sync.WaitGroup
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func(gid int) {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				_ = bus.RegisterTenant(gid*100000+i, 16)
+			}
+		}(g)
+	}
+	wg.Add(1)
+	go func() { defer wg.Done(); _ = bus.Close() }()
+	wg.Wait()
+
+	for id, ch := range bus.tenantPublishResultChans {
+		select {
+		case <-ch:
+		default:
+			t.Errorf("tenant %d: ACK channel still open after Close (TOCTOU orphan leak)", id)
+		}
+	}
+}

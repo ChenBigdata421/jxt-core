@@ -79,5 +79,5 @@ jobs:
       - name: go test -race (eventbus broker-free subset)
         run: |
           go test -race -timeout 5m -run \
-            'TestKafka(SendResult|UnregisterTenant|Close|RegisterTenant|Reinitialize)|TestMemory(SendResult|UnregisterTenant|Close|Registry)|TestClose_(StableTerminalError|IdempotentSecondCall)|TestRegisterTenant_RejectedAfterClose|TestUnregisterTenant_(NoSendOnClosedPanic|RejectedAfterClose)|TestSendResult_(NoFallbackNoDropWhenFull|FrozenAfterClose)' \
+            'TestKafka(SendResult|UnregisterTenant|Close|RegisterTenant|Reinitialize)|TestMemory(SendResult|UnregisterTenant|Close|Registry)|TestClose_(StableTerminalError|IdempotentSecondCall)|TestRegisterTenant_RejectedAfterClose|TestUnregisterTenant_(NoSendOnClosedPanic|RejectedAfterClose)|TestSendResult_(NoFallbackNoDropWhenFull|FrozenAfterClose)|TestNATSRegisterTenant' \
             ./sdk/pkg/eventbus
