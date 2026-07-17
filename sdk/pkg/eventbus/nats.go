@@ -102,15 +102,12 @@ type natsEventBus struct {
 	topicConfigOnMismatch TopicConfigMismatchAction // 配置不一致时的行为
 	topicConfigStrategyMu sync.RWMutex              // 🔥 P1优化：保护 topicConfigStrategy 和 topicConfigOnMismatch
 
-	// 🔥 P0修复：改为 sync.Map（发布时无锁读取）
-	createdStreams sync.Map // key: string (streamName), value: bool — stream 已创建/校验
-
 	// ensuredTopics records per-topic JetStream ensure (ensureTopicInJetStream) so
 	// each unique topic is registered into its stream exactly once. MUST be keyed by
 	// topic, NOT by stream name: getStreamNameForTopic returns the SAME configured
-	// stream name for every topic, and ensureStreamExists (init) pre-populates
-	// createdStreams[streamName]=true — so a stream-name key would skip ensure for
-	// ALL topics. Keying by topic makes each first-publish run ensure (→ addTopicToStream).
+	// stream name for every topic, so a stream-name key would conflate all topics
+	// (only the first would be ensured). Keying by topic makes each first-publish run
+	// ensure (→ addTopicToStream). (Replaces the former createdStreams stream-name cache.)
 	ensuredTopics sync.Map // key: string (topic), value: bool — topic 已 ensure 进流
 
 	// 🔥 P1优化：单飞抑制（防止并发创建 Stream 风暴）
@@ -217,9 +214,7 @@ func NewNATSEventBus(config *NATSConfig) (EventBus, error) {
 		subscriptionHandlers: make(map[string]*handlerWrapper), // ⭐ 修改类型
 		// 🚀 初始化异步发布结果通道（缓冲区大小：100000）
 		publishResultChan: make(chan *PublishResult, 100000),
-		// 🔥 P0修复：createdStreams 改为 sync.Map，不需要初始化
-		// createdStreams: sync.Map 零值可用
-		// 🔥 P1优化：streamCreateGroup 零值可用，不需要初始化
+		// ensuredTopics / streamCreateGroup: sync.Map / singleflight.Group 零值可用，不需要初始化
 		// ✅ 方案2：初始化 ACK 处理器
 		ackChan:        make(chan *ackTask, 100000), // ACK 任务通道（大缓冲区）
 		ackWorkerStop:  make(chan struct{}),
@@ -366,9 +361,6 @@ func (n *natsEventBus) ensureStreamExists() error {
 		// Stream已存在
 		n.logger.Info("JetStream stream already exists", zap.String("stream", streamName))
 
-		// 🔥 P0修复：使用 sync.Map 存储
-		n.createdStreams.Store(streamName, true)
-
 		return nil
 	}
 
@@ -394,9 +386,6 @@ func (n *natsEventBus) ensureStreamExists() error {
 		zap.String("stream", streamName),
 		zap.Strings("subjects", streamConfig.Subjects),
 		zap.String("storage", streamConfig.Storage.String()))
-
-	// 🔥 P0修复：使用 sync.Map 存储
-	n.createdStreams.Store(streamName, true)
 
 	return nil
 }
@@ -459,7 +448,6 @@ func (n *natsEventBus) ensureTopicStreamExists(js nats.JetStreamContext, streamN
 			zap.String("stream", streamName),
 			zap.String("topic", topic),
 			zap.String("storage", streamInfo.Config.Storage.String()))
-		n.createdStreams.Store(streamName, true)
 		return nil
 	}
 
@@ -486,7 +474,6 @@ func (n *natsEventBus) ensureTopicStreamExists(js nats.JetStreamContext, streamN
 		zap.String("topic", topic),
 		zap.String("storage", storageType.String()))
 
-	n.createdStreams.Store(streamName, true)
 	return nil
 }
 
@@ -707,10 +694,9 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 		shouldCheckStream := n.topicConfigStrategy != StrategySkip
 
 		// 无锁检查 per-topic 缓存。必须按 topic 做 key（不能用 stream 名）：
-		// getStreamNameForTopic 对配置了流名的多个 topic 返回同一个 stream 名，且
-		// ensureStreamExists(init) 已预置 createdStreams[streamName]=true，若按 stream
-		// 名缓存则会跳过所有 topic 的 ensure。按 topic 缓存则每个 topic 首次发布都
-		// 会触发 ensureTopicInJetStream → addTopicToStream。
+		// getStreamNameForTopic 对配置了流名的多个 topic 返回同一个 stream 名，
+		// 若按 stream 名缓存则会把所有 topic 混为一谈（只 ensure 第一个）。按 topic
+		// 缓存则每个 topic 首次发布都会触发 ensureTopicInJetStream → addTopicToStream。
 		_, topicEnsured := n.ensuredTopics.Load(topic)
 
 		// 只有在需要检查且该 topic 尚未 ensure 时，才调用 ensureTopicInJetStream
@@ -2943,13 +2929,6 @@ func (n *natsEventBus) ConfigureTopic(ctx context.Context, topic string, options
 			zap.Error(err),
 			zap.Duration("duration", duration))
 		return fmt.Errorf("failed to configure topic %s: %w", topic, err)
-	}
-
-	// 🔥 P0修复：Stream预创建优化：成功创建/配置Stream后，添加到本地缓存
-	if options.IsPersistent(n.config.JetStream.Enabled) && jsAvailable && err == nil {
-		streamName := n.getStreamNameForTopic(topic)
-		// 使用 sync.Map 存储
-		n.createdStreams.Store(streamName, true)
 	}
 
 	n.logger.Info("Topic configured successfully",
