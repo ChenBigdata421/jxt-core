@@ -35,7 +35,12 @@ type InProcessEventPublisher struct {
 	mu         sync.RWMutex
 	resultChan chan *outbox.PublishResult
 	bufferSize int
-	closeOnce  sync.Once
+	// sendMu serializes sendResult against Close so the channel is never closed
+	// concurrently with a send (a data race the race detector flags even though a
+	// recover() would mask the send-on-closed panic). `closed` makes Close idempotent
+	// (replaces the former closeOnce).
+	sendMu sync.Mutex
+	closed bool
 }
 
 // 确保 InProcessEventPublisher 实现 outbox.EventPublisher 接口（编译时检查）
@@ -122,19 +127,27 @@ func (p *InProcessEventPublisher) GetPublishResultChannel() <-chan *outbox.Publi
 // PublishEnvelope runs all registered handlers synchronously and returns when done.
 func (*InProcessEventPublisher) IsSyncSemantics() {}
 
-// Close 关闭发布器。可安全多次调用（sync.Once）。
+// Close 关闭发布器。可安全多次调用（sendMu + closed 保证幂等）。在 sendMu 下关闭
+// resultChan，与 sendResult 互斥，从结构上消除 close-vs-send 数据竞争。
 func (p *InProcessEventPublisher) Close() error {
-	p.closeOnce.Do(func() {
-		close(p.resultChan)
-	})
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
+	if p.closed {
+		return nil
+	}
+	p.closed = true
+	close(p.resultChan)
 	return nil
 }
 
-// sendResult 非阻塞发送 ACK result。recover() 防止 Close() 后 send on closed channel panic。
+// sendResult 非阻塞发送 ACK result。在 sendMu 下检查 closed 后再发送，与 Close 互斥，
+// 结构上避免 send-on-closed（不再依赖 recover() 创可贴）。
 func (p *InProcessEventPublisher) sendResult(result *outbox.PublishResult) {
-	defer func() {
-		recover() // send on closed channel — safe to ignore during shutdown
-	}()
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
+	if p.closed {
+		return
+	}
 	select {
 	case p.resultChan <- result:
 	default:

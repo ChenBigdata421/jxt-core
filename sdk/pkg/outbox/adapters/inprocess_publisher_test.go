@@ -336,7 +336,7 @@ func TestInProcessEventPublisher_CloseDuringPublish(t *testing.T) {
 	publisher.Close()
 
 	wg.Wait()
-	// 不应 panic — 如果到达这里说明 sendResult 的 recover() 正常工作
+	// 不应 panic — Close 与 sendResult 在 sendMu 下互斥，结构上不会 send-on-closed。
 }
 
 func TestInProcessEventPublisher_NilEnvelope(t *testing.T) {
