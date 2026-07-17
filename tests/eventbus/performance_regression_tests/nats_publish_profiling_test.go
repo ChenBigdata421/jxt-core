@@ -7,12 +7,20 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // TestNATSPublishEnvelopeProfiler 详细分析 PublishEnvelope 的性能瓶颈
 func TestNATSPublishEnvelopeProfiler(t *testing.T) {
+	// 初始化 logger（nil-guarded，与其他 performance 测试一致）
+	if logger.DefaultLogger == nil {
+		zapLogger, _ := zap.NewDevelopment()
+		logger.Logger = zapLogger
+		logger.DefaultLogger = zapLogger.Sugar()
+	}
 	// 创建 NATS EventBus
 	config := &eventbus.EventBusConfig{
 		Type: "nats",
@@ -258,23 +266,44 @@ func TestNATSPublishEnvelopeProfiler(t *testing.T) {
 
 // TestKafkaPublishEnvelopeProfiler Kafka 对比测试
 func TestKafkaPublishEnvelopeProfiler(t *testing.T) {
+	// 初始化 logger（nil-guarded，与其他 performance 测试一致；NewKafkaEventBus 会调用 logger.Info）
+	if logger.DefaultLogger == nil {
+		zapLogger, _ := zap.NewDevelopment()
+		logger.Logger = zapLogger
+		logger.DefaultLogger = zapLogger.Sugar()
+	}
 	// 创建 Kafka EventBus
 	config := &eventbus.EventBusConfig{
 		Type: "kafka",
 		Kafka: eventbus.KafkaConfig{
-			Brokers:  []string{"localhost:29092"},
+			Brokers:  []string{"localhost:29094"},
 			ClientID: "kafka-profiler-test",
 			Producer: eventbus.ProducerConfig{
-				RequiredAcks:   1,
-				FlushFrequency: 500 * time.Millisecond,
-				FlushMessages:  100,
-				RetryMax:       3,
-				// 注意：压缩配置已从 Producer 级别移到 Topic 级别，通过 TopicBuilder 配置
-				Timeout: 10 * time.Second,
+				RequiredAcks:    1,
+				MaxMessageBytes: 1048576, // sarama 要求 > 0
+				FlushFrequency:  500 * time.Millisecond,
+				FlushMessages:   100,
+				FlushBytes:      1048576,
+				RetryMax:        3,
+				BatchSize:       16384,
+				BufferSize:      8388608,
+				Timeout:         10 * time.Second,
 			},
 			Consumer: eventbus.ConsumerConfig{
-				GroupID:         "kafka-profiler-group",
-				AutoOffsetReset: "earliest",
+				GroupID:            "kafka-profiler-group",
+				SessionTimeout:     10 * time.Second, // sarama 要求 Group.Session.Timeout >= 2ms
+				HeartbeatInterval:  3 * time.Second,
+				MaxProcessingTime:  5 * time.Second,
+				AutoOffsetReset:    "earliest",
+				EnableAutoCommit:   true,
+				AutoCommitInterval: 1 * time.Second,
+				FetchMaxWait:       100 * time.Millisecond,
+				MaxPollRecords:     500,
+			},
+			Net: eventbus.NetConfig{
+				DialTimeout:  10 * time.Second,
+				ReadTimeout:  10 * time.Second,
+				WriteTimeout: 10 * time.Second,
 			},
 		},
 	}
