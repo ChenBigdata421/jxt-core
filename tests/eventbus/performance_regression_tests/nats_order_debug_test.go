@@ -11,6 +11,7 @@ import (
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -72,6 +73,16 @@ func TestNATSOrderDebug(t *testing.T) {
 	eb, err := eventbus.NewNATSEventBus(natsConfig)
 	require.NoError(t, err, "Failed to create NATS EventBus")
 	defer eb.Close()
+	// Clean up the JetStream stream so it doesn't accumulate on the shared broker
+	// (leftover streams cause "subjects overlap" failures on subsequent runs).
+	defer func() {
+		if nc, err := nats.Connect(natsConfig.URLs[0]); err == nil {
+			defer nc.Close()
+			if js, err := nc.JetStream(); err == nil {
+				_ = js.DeleteStream(streamName)
+			}
+		}
+	}()
 
 	// 等待连接建立
 	time.Sleep(2 * time.Second)

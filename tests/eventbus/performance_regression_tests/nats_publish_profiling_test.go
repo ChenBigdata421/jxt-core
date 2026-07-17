@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +39,16 @@ func TestNATSPublishEnvelopeProfiler(t *testing.T) {
 	bus, err := eventbus.NewEventBus(config)
 	require.NoError(t, err)
 	defer bus.Close()
+	// Clean up the JetStream stream so it doesn't accumulate on the shared broker
+	// (leftover streams cause "subjects overlap" failures on subsequent runs).
+	defer func() {
+		if nc, err := nats.Connect(config.NATS.URLs[0]); err == nil {
+			defer nc.Close()
+			if js, err := nc.JetStream(); err == nil {
+				_ = js.DeleteStream("PROFILER_STREAM")
+			}
+		}
+	}()
 
 	ctx := context.Background()
 	topic := "profiler.test"

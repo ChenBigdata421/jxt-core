@@ -9,6 +9,7 @@ import (
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
+	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 )
 
@@ -119,6 +120,16 @@ func runHighScenarioTest(t *testing.T, runNumber int, messageCount int, topicCou
 		return result
 	}
 	defer bus.Close()
+	// Clean up the JetStream stream so it doesn't accumulate on the shared broker
+	// (leftover streams cause "subjects overlap" failures on subsequent runs).
+	defer func() {
+		if nc, err := nats.Connect(cfg.URLs[0]); err == nil {
+			defer nc.Close()
+			if js, err := nc.JetStream(); err == nil {
+				_ = js.DeleteStream("TEST_HIGH_INVESTIGATION")
+			}
+		}
+	}()
 
 	// 记录初始资源
 	runtime.GC()
