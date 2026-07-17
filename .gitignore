@@ -19,7 +19,6 @@
 /.idea
 
 /plugins/logger/zap/testdata/*
-go.sum
 
 # 测试覆盖率文件
 *.out
