@@ -1,6 +1,7 @@
 package eventbus
 
 import (
+	"strings"
 	"sync"
 	"testing"
 )
@@ -142,5 +143,25 @@ func TestKafkaUnregisterTenant_RejectedAfterClose(t *testing.T) {
 	}
 	if err := bus.UnregisterTenant(1); err == nil {
 		t.Fatal("expected UnregisterTenant to fail after Close, got nil")
+	}
+}
+
+// PR2-core (Task 4, ce-doc-review #1): reinitializeConnection must abort when the bus
+// is closed — a reconnect racing Close must NOT spawn a sender pair that nobody joins
+// (Close may have already frozen the registry and run its own producerResultWg join).
+// On this broker-free helper the closed-gate fires BEFORE any sarama call, so this is a
+// clean RED->GREEN signal: pre-fix (no gate) the call proceeded into sarama New* and
+// returned a sarama error; post-fix it bails with "eventbus closed; aborting reinitialize".
+func TestKafkaReinitialize_RejectedAfterClose(t *testing.T) {
+	bus := newTestKafkaEventBus(t)
+	if err := bus.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	err := bus.reinitializeConnection()
+	if err == nil {
+		t.Fatal("expected reinitializeConnection to fail after Close, got nil")
+	}
+	if !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("expected reinitializeConnection to bail at the closed-gate (error mentioning 'closed'), got: %v", err)
 	}
 }
