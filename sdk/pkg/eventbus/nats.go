@@ -3415,6 +3415,14 @@ func (n *natsEventBus) sendResultToChannel(result *PublishResult) AdmissionOutco
 			return AdmissionAccepted
 		default:
 			n.tenantChannelsMu.RUnlock()
+			// Log parity with the memory backend (eventbus.go): a full tenant ACK channel
+			// means the tenant's ACK listener is stalled and this broker ACK is dropped —
+			// the outbox row stays Pending and gets re-published. Surface it so a silent
+			// re-publish loop / growing outbox is observable, not a mystery.
+			n.logger.Warn("Tenant ACK channel full, result not delivered",
+				zap.Int("tenantID", result.TenantID),
+				zap.String("eventID", result.EventID),
+				zap.String("topic", result.Topic))
 			return AdmissionRejectedFull
 		}
 	}
@@ -3423,6 +3431,9 @@ func (n *natsEventBus) sendResultToChannel(result *PublishResult) AdmissionOutco
 	case n.publishResultChan <- result:
 		return AdmissionAccepted
 	default:
+		n.logger.Error("Global ACK channel full, ACK result not delivered",
+			zap.String("eventID", result.EventID),
+			zap.String("topic", result.Topic))
 		return AdmissionRejectedFull
 	}
 }

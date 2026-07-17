@@ -3583,6 +3583,14 @@ func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) AdmissionOutc
 			return AdmissionAccepted
 		default:
 			k.tenantChannelsMu.RUnlock()
+			// Log parity with the memory backend (eventbus.go): a full tenant ACK channel
+			// means the tenant's ACK listener is stalled and this broker ACK is dropped —
+			// the outbox row stays Pending and gets re-published. Surface it so a silent
+			// re-publish loop / growing outbox is observable, not a mystery.
+			k.logger.Warn("Tenant ACK channel full, result not delivered",
+				zap.Int("tenantID", result.TenantID),
+				zap.String("eventID", result.EventID),
+				zap.String("topic", result.Topic))
 			return AdmissionRejectedFull
 		}
 	}
@@ -3591,6 +3599,9 @@ func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) AdmissionOutc
 	case k.publishResultChan <- result:
 		return AdmissionAccepted
 	default:
+		k.logger.Error("Global ACK channel full, ACK result not delivered",
+			zap.String("eventID", result.EventID),
+			zap.String("topic", result.Topic))
 		return AdmissionRejectedFull
 	}
 }

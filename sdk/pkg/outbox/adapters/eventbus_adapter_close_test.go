@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -130,5 +131,40 @@ func TestAdapterClose_NoDefaultDiscard(t *testing.T) {
 	// together pin the lossless contract.
 	if elapsed > 50*time.Millisecond {
 		t.Fatalf("Close took %v (>50ms); block-on-stopChan path appears broken", elapsed)
+	}
+}
+
+// TestAdapterClose_GetTenantPublishResultChannelRace is the regression test for the
+// 7b35fb7 fix. Pre-fix, GetTenantPublishResultChannel called loopsWg.Add(1) WITHOUT
+// holding a.mu or checking started; a concurrent Close's loopsWg.Wait() could observe
+// that Add in the window where the counter momentarily hit 0 -> panic
+// "sync: WaitGroup misuse: Add called concurrently with Wait". The fix gates Add under
+// a.mu + started so it either completes-before Close flips started=false (Wait sees it)
+// or observes started=false and returns nil. Broker-free; run under `-race -count=N`.
+func TestAdapterClose_GetTenantPublishResultChannelRace(t *testing.T) {
+	const iterations = 100
+	for i := 0; i < iterations; i++ {
+		mock := NewMockEventBus()
+		a := NewEventBusAdapter(mock)
+
+		// 8 concurrent GetTenantPublishResultChannel callers racing one Close.
+		var getWG sync.WaitGroup
+		for j := 0; j < 8; j++ {
+			getWG.Add(1)
+			go func(id int) {
+				defer getWG.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("panic in GetTenantPublishResultChannel: %v", r)
+					}
+				}()
+				_ = a.GetTenantPublishResultChannel(id)
+			}(j + 1)
+		}
+
+		if err := a.Close(); err != nil {
+			t.Fatalf("Close returned error: %v", err)
+		}
+		getWG.Wait()
 	}
 }
