@@ -17,7 +17,7 @@ func TestNATSPublishEnvelopeProfiler(t *testing.T) {
 	config := &eventbus.EventBusConfig{
 		Type: "nats",
 		NATS: eventbus.NATSConfig{
-			URLs:     []string{"nats://localhost:4222"},
+			URLs:     []string{"nats://localhost:4223"},
 			ClientID: "profiler-test",
 			JetStream: eventbus.JetStreamConfig{
 				Enabled: true,
