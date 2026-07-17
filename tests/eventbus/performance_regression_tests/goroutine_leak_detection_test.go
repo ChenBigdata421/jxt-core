@@ -10,6 +10,7 @@ import (
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -47,6 +48,17 @@ func TestNATSGoroutineLeakDetection(t *testing.T) {
 	bus, err := eventbus.NewNATSEventBus(config)
 	require.NoError(t, err)
 	require.NotNil(t, bus)
+	// Clean up the JetStream stream so it doesn't accumulate on the shared broker
+	// (leftover streams cause "subjects overlap" failures on subsequent runs).
+	streamName := fmt.Sprintf("LEAK_TEST_%d", timestamp)
+	defer func() {
+		if nc, err := nats.Connect(config.URLs[0]); err == nil {
+			defer nc.Close()
+			if js, err := nc.JetStream(); err == nil {
+				_ = js.DeleteStream(streamName)
+			}
+		}
+	}()
 
 	afterCreateGoroutines := runtime.NumGoroutine()
 	t.Logf("After create goroutine count: %d (delta: %d)", afterCreateGoroutines, afterCreateGoroutines-initialGoroutines)
