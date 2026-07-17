@@ -508,7 +508,7 @@ config := &outbox.PublisherConfig{
     },
 
     // —— 异步 ACK 标记攒批（仅异步 publisher 的 ACK listener 路径生效；v1.1.59+）——
-    ACKBatchSize:             50,                       // 0 = 禁用攥批（回退逐条 MarkAsPublished）；默认 50；max 10000
+    ACKBatchSize:             50,                       // 0 = 禁用攥批（回退逐条 MarkAsPublished）；DefaultPublisherConfig 默认 0（关闭/fail-safe）；此处显式设 50 启用；max 10000
     ACKBatchFlushInterval:    200 * time.Millisecond,   // 攒批 flush 间隔；默认 200ms；max 5min
     ACKBatchFailureThreshold: 5,                        // 连续 flush 失败的告警阈值（达阈值及倍数经 ErrorHandler 告警）；0 = 每次失败都告警；默认 5
 }
@@ -521,7 +521,7 @@ scheduler := outbox.NewScheduler(
 )
 ```
 
-> `DefaultPublisherConfig()` 已含上述默认值（ACK 攒批默认开启）。仅当需要调优或禁用时才覆盖。`ACKBatchSize=0` 可禁用攥批、回退 v2.0.0 的逐条 `MarkAsPublished` 行为。⚠️ 攒批开启时，硬崩溃会丢失内存缓冲（约 ≤`ACKBatchSize` 条）→ **消费端 handler 必须幂等**。
+> `DefaultPublisherConfig()` 默认 `ACKBatchSize=0`（攥批**关闭**，fail-safe：硬崩溃不丢内存缓冲，逐条 `MarkAsPublished`）。需要攒批时显式设置 `ACKBatchSize`（如 50）；`ACKBatchSize=0` 回退 v2.0.0 的逐条 `MarkAsPublished` 行为。⚠️ 攒批开启时，硬崩溃会丢失内存缓冲（约 ≤`ACKBatchSize` 条）→ **消费端 handler 必须幂等**。
 
 ## 📈 监控指标
 

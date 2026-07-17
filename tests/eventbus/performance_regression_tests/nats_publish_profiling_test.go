@@ -15,6 +15,9 @@ import (
 
 // TestNATSPublishEnvelopeProfiler 详细分析 PublishEnvelope 的性能瓶颈
 func TestNATSPublishEnvelopeProfiler(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping broker-dependent NATS profiler test in short mode")
+	}
 	// 初始化 logger（nil-guarded，与其他 performance 测试一致）
 	if logger.DefaultLogger == nil {
 		zapLogger, _ := zap.NewDevelopment()
@@ -266,6 +269,9 @@ func TestNATSPublishEnvelopeProfiler(t *testing.T) {
 
 // TestKafkaPublishEnvelopeProfiler Kafka 对比测试
 func TestKafkaPublishEnvelopeProfiler(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping broker-dependent Kafka profiler test in short mode")
+	}
 	// 初始化 logger（nil-guarded，与其他 performance 测试一致；NewKafkaEventBus 会调用 logger.Info）
 	if logger.DefaultLogger == nil {
 		zapLogger, _ := zap.NewDevelopment()

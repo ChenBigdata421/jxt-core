@@ -143,7 +143,7 @@ func (a *EventBusAdapter) UnregisterTenant(tenantID int) error {
 // 注意：此方法返回的是 EventBus 的租户通道，需要调用者自行转换类型
 // 推荐使用 CreateTenantResultChannel() 方法，它会自动创建转换通道
 func (a *EventBusAdapter) GetTenantPublishResultChannel(tenantID int) <-chan *outbox.PublishResult {
-	// 获取 EventBus 的租户专属通道
+	// 获取 EventBus 的租户专属通道（外部调用，不持 a.mu）
 	eventBusResultChan := a.eventBus.GetTenantPublishResultChannel(tenantID)
 	if eventBusResultChan == nil {
 		return nil
@@ -152,9 +152,18 @@ func (a *EventBusAdapter) GetTenantPublishResultChannel(tenantID int) <-chan *ou
 	// 创建 Outbox 结果通道
 	outboxResultChan := make(chan *outbox.PublishResult, 1000)
 
-	// PR2-core (Task 4): Add(1) BEFORE the go so Close().Wait() never misses a Done.
-	// (Never Add after the go — that races with Done.)
+	// Gate the spawn under a.mu + a.started (mirrors start()): Add(1) MUST happen under
+	// the same lock Close uses to flip a.started=false. Otherwise a positive-delta Add
+	// landing while Close's loopsWg.Wait() is in-flight (counter momentarily 0) panics
+	// with "sync: WaitGroup misuse: Add called concurrently with Wait". Once Close has
+	// begun (started==false) we return nil instead of spawning a loop Wait() can't see.
+	a.mu.Lock()
+	if !a.started {
+		a.mu.Unlock()
+		return nil
+	}
 	a.loopsWg.Add(1)
+	a.mu.Unlock()
 	go a.tenantResultConversionLoop(eventBusResultChan, outboxResultChan)
 
 	return outboxResultChan

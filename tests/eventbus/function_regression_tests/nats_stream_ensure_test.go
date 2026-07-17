@@ -29,6 +29,9 @@ import (
 // regresses to stream-name keying, only the first topic appears in the stream's
 // subjects and the assertion for the rest fails.
 func TestNATSPublish_PerTopicStreamEnsure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping broker-dependent NATS stream-ensure test in short mode")
+	}
 	clientID := fmt.Sprintf("stream-ensure-%d", time.Now().UnixNano())
 	streamName := fmt.Sprintf("TEST_ENSURE_%s", clientID)
 
