@@ -92,7 +92,7 @@ OutboxScheduler
 
 ASYNC（独立 goroutine）：
   ACK listener → broker ACK 回来 → ackMarkerBatcher 攒批 → MarkBatchAsPublished
-    （默认满 ACKBatchSize=50 或每 ACKBatchFlushInterval=200ms 一次 bulk UPDATE，
+    （DefaultPublisherConfig 默认 ACKBatchSize=0 即攒批关闭；显式设 ACKBatchSize（如 50）后，满批或每 ACKBatchFlushInterval=200ms 一次 bulk UPDATE，
       而非逐条 MarkAsPublished；优雅关停 StopACKListener 会冲刷剩余缓冲）
 ```
 
@@ -110,7 +110,7 @@ ASYNC（独立 goroutine）：
 | 操作 | 同步 publisher（InProcess） | 异步 publisher（Kafka/NATS） |
 |---|---|---|
 | 幂等检查 `filterPublishedEvents` | `FindPublishedByIdempotencyKeys` — `WHERE idempotency_key IN (…)` → **1 次 SELECT** | 同左 |
-| 标记 published | `PublishBatch` 内同步 `MarkBatchAsPublished`（1 次 `UPDATE … WHERE id IN (…) AND status='pending'`） | ACK listener 经 `ackMarkerBatcher` 攒批 → `MarkBatchAsPublished`（默认满 `ACKBatchSize=50` 或每 `ACKBatchFlushInterval=200ms` 一次 bulk UPDATE） |
+| 标记 published | `PublishBatch` 内同步 `MarkBatchAsPublished`（1 次 `UPDATE … WHERE id IN (…) AND status='pending'`） | ACK listener 经 `ackMarkerBatcher` 攒批 → `MarkBatchAsPublished`（`ACKBatchSize` 默认 0 即关闭；显式设 >0 后满批或每 `ACKBatchFlushInterval=200ms` 一次 bulk UPDATE） |
 
 > 异步路径的 ACK 攒批是 v1.1.59 引入：之前每收到 1 个 broker ACK 跑 1 条 `MarkAsPublished`（= 1 次事务/commit），现攥批后 commit 数降 ~12×（实测 run J：95,866 → 8,026）。
 
