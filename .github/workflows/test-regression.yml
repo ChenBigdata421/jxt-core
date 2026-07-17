@@ -1,0 +1,90 @@
+# Runs the broker-backed regression suites under tests/eventbus and tests/outbox against
+# live NATS (JetStream) + RedPanda (Kafka), on every push/PR to master.
+#
+# Brokers are brought up from the repo's own docker-compose-nats.yml — the same definitions
+# that run locally as benchmark-nats-jetstream / benchmark-redpanda. This reuses the exact
+# images, ports (NATS 4223, RedPanda 29094) and RedPanda --advertise-kafka-addr the suites
+# are validated against, so there is no config drift between local and CI.
+#
+# Each GitHub Actions run is a fresh, ephemeral runner VM with no pre-existing containers,
+# so brokers are started per run (hermetic, reproducible, no cross-run state pollution) and
+# torn down at the end of the job. There is no shared/persistent broker to reuse in CI.
+name: test-regression
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: test-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: regression (NATS + RedPanda)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Bring up the brokers the suites need (nats + redpanda; skip the nats-box dashboard).
+      # Reuse docker-compose-nats.yml verbatim so CI matches local (same image tags, ports,
+      # and RedPanda advertise address).
+      - name: Bring up brokers (reuse docker-compose-nats.yml)
+        run: |
+          docker compose -f docker-compose-nats.yml up -d nats redpanda
+          # The compose redpanda healthcheck only verifies reachability; poll for real
+          # readiness (NATS JetStream enabled + RedPanda cluster Healthy) before tests.
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -sf "http://127.0.0.1:8223/healthz?js-enabled=true" >/dev/null 2>&1 \
+               && docker exec benchmark-redpanda rpk cluster health 2>/dev/null \
+                  | grep -qE 'Healthy:[[:space:]]*true'; then
+              ok=1; echo "Brokers ready"; break
+            fi
+            sleep 2
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::Brokers did not become ready"
+            docker compose -f docker-compose-nats.yml logs
+            exit 1
+          fi
+
+      # Build gate (no broker needed).
+      - name: go build ./...
+        run: go build ./...
+
+      # 5 packages sequentially (shared brokers -> avoid topic/stream collisions). Each
+      # batch has its own -timeout so a hang fails that batch, not the job. All batches run
+      # even if one fails, and the step exits non-zero if any failed.
+      - name: Regression suites (all packages, fail at end)
+        run: |
+          set +e
+          status=0
+          run() {
+            local label="$1"; shift
+            echo "### $label"
+            go test -count=1 "$@"
+            rc=$?
+            [ $rc -ne 0 ] && status=1
+            echo "### $label -> exit=$rc"
+            echo
+          }
+          run "eventbus/function"    -timeout 12m ./tests/eventbus/function_regression_tests/
+          run "eventbus/reliability" -timeout 10m ./tests/eventbus/reliability_regression_tests/
+          run "outbox/function"      -timeout 10m ./tests/outbox/function_regression_tests/
+          run "eventbus/performance" -timeout 25m ./tests/eventbus/performance_regression_tests/
+          run "outbox/performance"   -timeout 10m ./tests/outbox/performance_regression_tests/
+          exit $status
+
+      - name: Tear down brokers
+        if: always()
+        run: docker compose -f docker-compose-nats.yml down -v || true
