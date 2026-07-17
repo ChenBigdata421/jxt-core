@@ -108,42 +108,50 @@
 
 ### 运行所有测试
 
+> 全量真 broker 测试约需 **~387s**（104 个用例，Kafka + NATS）。务必用足够大的
+> `-timeout`（建议 **`600s`**），否则会误判为超时失败。前置条件见下文（Kafka
+> `localhost:29094`、NATS `localhost:4223`）。
+
 ```bash
-go test -v ./tests/eventbus/function_tests/
+go test -v ./tests/eventbus/function_regression_tests/ -timeout 600s
 ```
+
+> ⚠️ 注意：`go test ./sdk/pkg/eventbus/`（SDK 包本身）在**没有 broker 时会挂起**——
+> 部分用例硬编码拨 `localhost:9092`/`4222`。SDK 包用 scoped `-run` + `go build ./...`
+> 作编译门禁；真 broker 集成用例统一走本目录（连 `29094`/`4223`）。
 
 ### 运行特定测试文件
 
 ```bash
 # 基础功能测试
-go test -v ./tests/eventbus/function_tests/ -run TestKafkaBasic
+go test -v ./tests/eventbus/function_regression_tests/ -run TestKafkaBasic
 
 # Envelope 测试
-go test -v ./tests/eventbus/function_tests/ -run TestKafkaEnvelope
+go test -v ./tests/eventbus/function_regression_tests/ -run TestKafkaEnvelope
 
 # 主题配置测试
-go test -v ./tests/eventbus/function_tests/ -run TestKafkaTopic
+go test -v ./tests/eventbus/function_regression_tests/ -run TestKafkaTopic
 
 # 生命周期测试
-go test -v ./tests/eventbus/function_tests/ -run TestKafkaStart
+go test -v ./tests/eventbus/function_regression_tests/ -run TestKafkaStart
 
 # 健康检查测试
-go test -v ./tests/eventbus/function_tests/ -run TestKafkaHealth
+go test -v ./tests/eventbus/function_regression_tests/ -run TestKafkaHealth
 
 # 积压检测测试
-go test -v ./tests/eventbus/function_tests/ -run TestKafkaBacklog
+go test -v ./tests/eventbus/function_regression_tests/ -run TestKafkaBacklog
 ```
 
 ### 运行 Kafka 测试
 
 ```bash
-go test -v ./tests/eventbus/function_tests/ -run Kafka
+go test -v ./tests/eventbus/function_regression_tests/ -run Kafka
 ```
 
 ### 运行 NATS 测试
 
 ```bash
-go test -v ./tests/eventbus/function_tests/ -run NATS
+go test -v ./tests/eventbus/function_regression_tests/ -run NATS
 ```
 
 ---
