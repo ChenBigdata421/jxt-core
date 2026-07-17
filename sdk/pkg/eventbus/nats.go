@@ -103,7 +103,15 @@ type natsEventBus struct {
 	topicConfigStrategyMu sync.RWMutex              // 🔥 P1优化：保护 topicConfigStrategy 和 topicConfigOnMismatch
 
 	// 🔥 P0修复：改为 sync.Map（发布时无锁读取）
-	createdStreams sync.Map // key: string (streamName), value: bool
+	createdStreams sync.Map // key: string (streamName), value: bool — stream 已创建/校验
+
+	// ensuredTopics records per-topic JetStream ensure (ensureTopicInJetStream) so
+	// each unique topic is registered into its stream exactly once. MUST be keyed by
+	// topic, NOT by stream name: getStreamNameForTopic returns the SAME configured
+	// stream name for every topic, and ensureStreamExists (init) pre-populates
+	// createdStreams[streamName]=true — so a stream-name key would skip ensure for
+	// ALL topics. Keying by topic makes each first-publish run ensure (→ addTopicToStream).
+	ensuredTopics sync.Map // key: string (topic), value: bool — topic 已 ensure 进流
 
 	// 🔥 P1优化：单飞抑制（防止并发创建 Stream 风暴）
 	streamCreateGroup singleflight.Group
@@ -698,12 +706,15 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 		// - 其他策略: 检查Stream是否存在（兼容动态创建场景）
 		shouldCheckStream := n.topicConfigStrategy != StrategySkip
 
-		// 🔥 P0修复：无锁检查本地缓存（使用 sync.Map）
-		streamName := n.getStreamNameForTopic(topic)
-		_, streamExists := n.createdStreams.Load(streamName)
+		// 无锁检查 per-topic 缓存。必须按 topic 做 key（不能用 stream 名）：
+		// getStreamNameForTopic 对配置了流名的多个 topic 返回同一个 stream 名，且
+		// ensureStreamExists(init) 已预置 createdStreams[streamName]=true，若按 stream
+		// 名缓存则会跳过所有 topic 的 ensure。按 topic 缓存则每个 topic 首次发布都
+		// 会触发 ensureTopicInJetStream → addTopicToStream。
+		_, topicEnsured := n.ensuredTopics.Load(topic)
 
-		// 只有在需要检查且缓存中不存在时，才调用ensureTopicInJetStream
-		if shouldCheckStream && !streamExists {
+		// 只有在需要检查且该 topic 尚未 ensure 时，才调用 ensureTopicInJetStream
+		if shouldCheckStream && !topicEnsured {
 			// 确保主题在JetStream中存在（如果需要持久化）
 			if err := n.ensureTopicInJetStream(topic, topicConfig); err != nil {
 				n.logger.Warn("Failed to ensure topic in JetStream, falling back to Core NATS",
@@ -712,8 +723,8 @@ func (n *natsEventBus) Publish(ctx context.Context, topic string, message []byte
 				// 降级到Core NATS
 				shouldUsePersistent = false
 			} else {
-				// 🔥 P0修复：成功创建/验证Stream后，添加到本地缓存（使用 sync.Map）
-				n.createdStreams.Store(streamName, true)
+				// 成功 ensure 该 topic 进流后缓存（per-topic key）
+				n.ensuredTopics.Store(topic, true)
 			}
 		}
 	}
@@ -3019,8 +3030,11 @@ func (n *natsEventBus) ensureTopicInJetStream(topic string, options TopicOptions
 
 	// 检查主题是否已在Stream的subjects中
 	for _, subject := range streamInfo.Config.Subjects {
-		if subject == topic || subject == topic+".*" {
-			return nil // 已存在
+		// 通配符感知：若流里已有通配 subject（如 "foo.>"）覆盖本 topic，视为已存在，
+		// 避免 addTopicToStream 触发 NATS "subject overlaps"（字面 subject 不能加进
+		// 已含通配的流）。旧逻辑只做精确/“topic.*”匹配，漏判通配覆盖。
+		if n.subjectMatches(subject, topic) {
+			return nil // 已存在（含通配覆盖）
 		}
 	}
 
@@ -3175,7 +3189,7 @@ func (n *natsEventBus) ensureTopicInJetStreamIdempotent(ctx context.Context, top
 		// 检查主题是否已在Stream的subjects中
 		topicExists := false
 		for _, subject := range streamInfo.Config.Subjects {
-			if subject == topic || subject == topic+".*" {
+			if n.subjectMatches(subject, topic) { // 通配符感知：foo.> 覆盖 foo.bar
 				topicExists = true
 				break
 			}
