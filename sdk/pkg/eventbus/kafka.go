@@ -3608,10 +3608,10 @@ func (k *kafkaEventBus) sendResultToChannel(result *PublishResult) AdmissionOutc
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
 func (k *kafkaEventBus) RegisterTenant(tenantID int, bufferSize int) error {
-	// PR2-core (Task 3, ce-doc-review #3): reject after Close(). Because Close
-	// flips `closed` BEFORE the tenant-channel close loop, a RegisterTenant racing
-	// teardown either fails fast here or is serialized — it cannot install a fresh
-	// channel that nobody closes (the late-registration leak).
+	// Reject after Close() — two-level check. Outer fast check here, then a re-check
+	// UNDER tenantChannelsMu below. Close flips `closed` and clears this map while
+	// holding tenantChannelsMu, so the outer check alone races teardown; the inner
+	// re-check closes the window so we cannot install a channel nobody closes.
 	if k.closed.Load() {
 		return fmt.Errorf("eventbus closed")
 	}
@@ -3626,6 +3626,12 @@ func (k *kafkaEventBus) RegisterTenant(tenantID int, bufferSize int) error {
 
 	k.tenantChannelsMu.Lock()
 	defer k.tenantChannelsMu.Unlock()
+
+	// Inner re-check under the lock: Close sets closed + clears the map while holding
+	// this same lock. If Close has begun, bail without installing an orphan channel.
+	if k.closed.Load() {
+		return fmt.Errorf("eventbus closed")
+	}
 
 	// 延迟初始化 map
 	if k.tenantPublishResultChans == nil {

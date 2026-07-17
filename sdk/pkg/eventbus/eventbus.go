@@ -1419,13 +1419,15 @@ func (m *eventBusManager) GetPublishResultChannel() <-chan *PublishResult {
 
 // RegisterTenant 注册租户（创建租户专属的 ACK Channel）
 func (m *eventBusManager) RegisterTenant(tenantID int, bufferSize int) error {
-	// PR2-core (Task 2, D5): reject after Close(). Plain-bool closed is guarded by
-	// m.mu — snapshot it under RLock. Prevents the late-registration leak (a channel
-	// installed after Close already closed the existing ones).
+	// Reject after Close(). Memory's `closed` is a plain bool guarded by m.mu, so we
+	// HOLD m.mu.RLock across the tenantChannelsMu section (lock order m.mu ->
+	// tenantChannelsMu matches Close). That pins `closed` for the whole install: Close
+	// needs m.mu.Lock to flip it, so it cannot run between the check and the install —
+	// which prevents the late-registration leak (a channel nobody closes). The held
+	// RLock is shared, so concurrent RegisterTenant calls do not block each other.
 	m.mu.RLock()
-	closed := m.closed
-	m.mu.RUnlock()
-	if closed {
+	defer m.mu.RUnlock()
+	if m.closed {
 		return fmt.Errorf("eventbus closed")
 	}
 

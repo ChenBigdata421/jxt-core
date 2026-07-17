@@ -127,3 +127,35 @@ func TestMemoryRegistry_RejectedAfterClose(t *testing.T) {
 		t.Fatalf("expected AdmissionRejectedFrozen after Close, got %v", out)
 	}
 }
+
+// Concurrent RegisterTenant vs Close must not leak an orphan tenant channel (one a
+// RegisterTenant installs AFTER Close's clear loop, so nobody closes it). Pre-fix the
+// outer closed snapshot raced the teardown; post-fix RegisterTenant HOLDS m.mu.RLock
+// across the tenantChannelsMu install, pinning closed (Close needs m.mu.Lock to flip
+// it) so it cannot run between the check and the install. Stress: hammer many concurrent
+// registers + one Close, then assert every channel still in the map is CLOSED.
+// Run under `-race -count=N`.
+func TestMemoryRegisterTenant_ConcurrentClose_NoOrphan(t *testing.T) {
+	bus := newTestMemoryEventBus(t)
+	var wg sync.WaitGroup
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func(gid int) {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				_ = bus.RegisterTenant(gid*100000+i, 16)
+			}
+		}(g)
+	}
+	wg.Add(1)
+	go func() { defer wg.Done(); _ = bus.Close() }()
+	wg.Wait()
+
+	for id, ch := range bus.tenantPublishResultChans {
+		select {
+		case <-ch:
+		default:
+			t.Errorf("tenant %d: ACK channel still open after Close (TOCTOU orphan leak)", id)
+		}
+	}
+}
