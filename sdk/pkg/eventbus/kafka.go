@@ -3366,9 +3366,12 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 	// 检查主题是否已存在
 	metadata, err := admin.DescribeTopics([]string{topic})
 
-	if err != nil || len(metadata) == 0 {
+	// 修复：检查 per-topic 错误码（topic 不存在时 err=nil 但 metadata[0].Err != ErrNoError）
+	if err != nil || len(metadata) == 0 || (len(metadata) > 0 && metadata[0].Err != sarama.ErrNoError) {
 		// 主题不存在，创建新主题
-		k.logger.Info("Creating new Kafka topic", zap.String("topic", topic))
+		k.logger.Info("Creating new Kafka topic",
+			zap.String("topic", topic),
+			zap.String("reason", "topic not found or metadata error"))
 		return k.createKafkaTopic(topic, options)
 	}
 
