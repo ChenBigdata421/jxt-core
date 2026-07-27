@@ -729,30 +729,24 @@ func (s *OutboxScheduler) processDLQ(ctx context.Context) {
 
 	// 处理每个死信事件
 	for _, event := range events {
-		// 1. 调用 DLQ 处理器
+		// 1. 调用 DLQ 处理器（C2：失败也继续走到告警——告警不响是失效形态，不会报错）
 		if s.config.DLQHandler != nil {
 			if err := s.config.DLQHandler.Handle(ctx, event); err != nil {
 				if s.metrics != nil {
 					s.metrics.LastError.Store(err)
 				}
-				// 继续处理其他事件
-				continue
+				// 不 continue：仍要告警
 			}
 		}
 
-		// 2. 发送告警
+		// 2. 发送告警（无论 Handle 成功或失败）
 		if s.config.DLQAlertHandler != nil {
 			if err := s.config.DLQAlertHandler.Alert(ctx, event); err != nil {
 				if s.metrics != nil {
 					s.metrics.LastError.Store(err)
 				}
-				// 告警失败不影响后续处理
 			}
 		}
-
-		// 3. 可选：删除已处理的死信事件（根据业务需求）
-		// 注意：默认不删除，保留用于审计和分析
-		// 如果需要删除，可以在配置中添加 DeleteDLQAfterHandle 选项
 	}
 }
 
