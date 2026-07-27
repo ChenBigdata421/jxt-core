@@ -26,10 +26,14 @@ type MessageHandler func(ctx context.Context, message []byte) error
 // handlerWrapper 包装 handler 和 isEnvelope 标记
 // ⭐ 用于区分 Envelope 消息（at-least-once）和普通消息（at-most-once）
 type handlerWrapper struct {
-	handler    MessageHandler
-	isEnvelope bool          // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
-	dlq        DLQSender     // 可选；nil 时 envelope 失败走策略 A 阻塞（流水线路径用）
-	alerter    PoisonAlerter // 可选；nil 时由 activateTopicHandler 兜底为 loggerPoisonAlerter（永不静默）
+	handler MessageHandler
+	// M15：非 nil 时走 Delivery 路径（携带 Raw）。与 handler **恰好一个非 nil**
+	// （D3 不变量，由 Task 4 的 registerTopicSubscription 入口 fail-fast 校验）。
+	// 仅 kafka 分区流水线填充；memory/nats 永为 nil（C4：不实现 delivery）。
+	deliveryHandler EnvelopeDeliveryHandler
+	isEnvelope      bool          // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
+	dlq             DLQSender     // 可选；nil 时 envelope 失败走策略 A 阻塞（流水线路径用）
+	alerter         PoisonAlerter // 可选；nil 时由 activateTopicHandler 兜底为 loggerPoisonAlerter（永不静默）
 }
 
 // PublishResult 异步发布结果
@@ -54,18 +58,20 @@ type PublishResult struct {
 
 // AggregateMessage 聚合消息（用于消息处理）
 type AggregateMessage struct {
-	Topic       string
-	Partition   int32
-	Offset      int64
-	Key         []byte
-	Value       []byte
-	Headers     map[string][]byte
-	Timestamp   time.Time
-	AggregateID string
-	Context     context.Context
-	Done        chan error
-	Handler     MessageHandler // 每个消息携带自己的 handler（支持全局池）
-	IsEnvelope  bool           // 标记是否是 Envelope 消息（at-least-once 语义）
+	Topic           string
+	Partition       int32
+	Offset          int64
+	Key             []byte
+	Value           []byte
+	Headers         map[string][]byte
+	Timestamp       time.Time
+	AggregateID     string
+	Context         context.Context
+	Done            chan error
+	Handler         MessageHandler          // 每个消息携带自己的 handler（支持全局池）
+	IsEnvelope      bool                    // 标记是否是 Envelope 消息（at-least-once 语义）
+	Raw             RawMeta                 // M15：原始 record 指纹；仅 DeliveryHandler != nil 时有意义
+	DeliveryHandler EnvelopeDeliveryHandler // M15：非 nil 时走 Delivery 路径（携带 Raw），与 Handler 互斥
 }
 
 // EventBus 统一事件总线接口（合并基础功能和企业特性）

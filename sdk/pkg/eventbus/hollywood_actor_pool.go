@@ -123,12 +123,14 @@ func (p *HollywoodActorPool) ProcessMessage(ctx context.Context, msg *AggregateM
 
 	pid := p.actors[actorIndex]
 	p.engine.Send(pid, &DomainEventMessage{
-		AggregateID: msg.AggregateID,
-		Value:       msg.Value,
-		Context:     ctx,
-		Handler:     msg.Handler,
-		Done:        msg.Done,
-		IsEnvelope:  msg.IsEnvelope, // ⭐ 传递 Envelope 标记
+		AggregateID:     msg.AggregateID,
+		Value:           msg.Value,
+		Context:         ctx,
+		Handler:         msg.Handler,
+		Done:            msg.Done,
+		IsEnvelope:      msg.IsEnvelope,      // ⭐ 传递 Envelope 标记
+		Raw:             msg.Raw,             // M15：透传原始 record 指纹
+		DeliveryHandler: msg.DeliveryHandler, // M15：透传 delivery handler
 	})
 
 	return nil
@@ -157,12 +159,14 @@ func (p *HollywoodActorPool) hashToIndex(aggregateID string) int {
 
 // DomainEventMessage is the message type sent to actors
 type DomainEventMessage struct {
-	AggregateID string
-	Value       []byte
-	Context     context.Context
-	Handler     MessageHandler
-	Done        chan error
-	IsEnvelope  bool // ⭐ 新增：标记是否是 Envelope 消息（at-least-once 语义）
+	AggregateID     string
+	Value           []byte
+	Context         context.Context
+	Handler         MessageHandler
+	Done            chan error
+	IsEnvelope      bool                    // ⭐ 标记是否是 Envelope 消息（at-least-once 语义）
+	Raw             RawMeta                 // M15：透传原始 record 指纹
+	DeliveryHandler EnvelopeDeliveryHandler // M15：非 nil 时走 Delivery 路径
 }
 
 // PoolActor is the actor that processes messages
@@ -187,6 +191,20 @@ func NewPoolActor(index int, inboxSize int, metricsCollector ActorPoolMetricsCol
 	}
 }
 
+// dispatchMessage 是 Receive 里「Delivery vs plain」的分发逻辑，抽出便于单测。
+// DeliveryHandler != nil → 走 invokeDelivery（携带 RawMeta）；否则走原 msg.Handler 路径。
+func dispatchMessage(msg *DomainEventMessage) error {
+	if msg.DeliveryHandler != nil {
+		return invokeDelivery(msg.Context, msg.Value, msg.Raw, msg.DeliveryHandler)
+	}
+	// D3：Receive 跑在 actor goroutine 且无 recover，nil Handler 会 panic → supervisor
+	// 重启 actor → 该聚合消息静默卡死。返回显式 error 让上层能诊断。
+	if msg.Handler == nil {
+		return fmt.Errorf("no handler for message: both Handler and DeliveryHandler are nil (aggregate=%s)", msg.AggregateID)
+	}
+	return msg.Handler(msg.Context, msg.Value)
+}
+
 // Receive handles incoming messages
 func (pa *PoolActor) Receive(ctx *actor.Context) {
 	switch msg := ctx.Message().(type) {
@@ -204,8 +222,8 @@ func (pa *PoolActor) Receive(ctx *actor.Context) {
 		// 记录开始时间（用于计算延迟）
 		startTime := time.Now()
 
-		// 处理业务逻辑
-		err := msg.Handler(msg.Context, msg.Value)
+		// 处理业务逻辑（M15：经 dispatchMessage 分发——Delivery 路径携带 RawMeta，否则走旧 Handler）
+		err := dispatchMessage(msg)
 
 		// 计算处理延迟
 		duration := time.Since(startTime)

@@ -1057,6 +1057,16 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 	}
 }
 
+// deliveryRouting 决定一条消息是否走 Delivery 路径，并返回应挂到 AggregateMessage 的
+// RawMeta + handler。plain 订阅返回 (RawMeta{}, nil)；delivery 订阅填好 RawMeta。
+// Task 4 的 buildAggregateMessage 调用它。
+func deliveryRouting(message *sarama.ConsumerMessage, wrapper *handlerWrapper) (RawMeta, EnvelopeDeliveryHandler) {
+	if wrapper == nil || wrapper.deliveryHandler == nil {
+		return RawMeta{}, nil
+	}
+	return toRawMeta(message), wrapper.deliveryHandler
+}
+
 // buildAggregateMessage 构造提交给 actor pool 的 AggregateMessage（含 Done chan），不阻塞。
 // 从 processMessageWithKeyedPool 抽出供流水线复用（DRY）。路由策略与字段填充保持原语义。
 func (h *preSubscriptionConsumerHandler) buildAggregateMessage(
@@ -1192,10 +1202,10 @@ func (h *preSubscriptionConsumerHandler) consumeWithPipeline(
 
 	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, h.eventBus.consumerConfig().SessionTimeout)
 	marker := saramaSessionMarker{s: session}
-	p.dlq = wrapper.dlq       // 一次性设置（可选；nil 时 envelope 失败走策略 A 阻塞）
-	p.alert = wrapper.alerter // 一次性设置；activateTopicHandler 已保证非 nil（未注入→logger 兜底）
-	p.log = h.eventBus.logger // 停滞告警日志通道（warnStall 内判 nil，未注入则静默）
-	p.topic = claim.Topic()     // PR-0：停滞指标 seam 入参（claim 单 topic，一次性写入）
+	p.dlq = wrapper.dlq             // 一次性设置（可选；nil 时 envelope 失败走策略 A 阻塞）
+	p.alert = wrapper.alerter       // 一次性设置；activateTopicHandler 已保证非 nil（未注入→logger 兜底）
+	p.log = h.eventBus.logger       // 停滞告警日志通道（warnStall 内判 nil，未注入则静默）
+	p.topic = claim.Topic()         // PR-0：停滞指标 seam 入参（claim 单 topic，一次性写入）
 	p.partition = claim.Partition() // 空 topic 时 seam 自动 no-op（空-topic 守卫）
 
 	// buildAggMsg：复用抽出的 buildAggregateMessage（不再阻塞等 Done）。wrapper 必非 nil（上方已早返）。
