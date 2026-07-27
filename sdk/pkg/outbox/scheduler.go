@@ -788,30 +788,36 @@ func (s *OutboxScheduler) processDLQ(ctx context.Context) {
 
 // processOneDLQ 通知单个死信事件（C1 step2/step3）。
 //
-// user-supplied DLQHandler.Handle / DLQAlertHandler.Alert 在此运行；defer-recover 防止单条
-// 事件 panic（典型：*OutboxEvent 字段 nil 解引用）杀死整个 dlqLoop goroutine——该 goroutine
-// 无 supervisor，panic 会让死信通知永久停摆且 wg.Done 不触发（P4 修复）。panic 当作通知失败：
-// notifyOK=false → 不标记通知 → 下一轮补发。返回 notifyOK 仅供测试断言。
+// 防护层级（C2 + P4 + ADV-A/D）：
+//   - invokeDLQHandle 把 user-supplied DLQHandler.Handle 的 panic 兜在内部、不冒泡——
+//     否则单层 defer-recover 覆盖整个函数体时，Handle panic 会跳过下方 Alert，违反 C2
+//     「Handle 失败/panic 也 Alert」（ADV-A）。
+//   - 外层 defer-recover 兜 Alert / MarkDeadLetterNotified 的 panic，保证 dlqLoop goroutine
+//     不死（P4）。panic 当作通知失败：notifyOK=false → 不标记通知 → 下一轮补发。
+//   - evID 提前捕获：ev==nil（自定义仓储返回 nil）时 recover 闭包里访问 ev.ID 会二次 panic、
+//     破坏单条隔离（ADV-D）。
+//
+// 返回 notifyOK 仅供测试断言。
 func (s *OutboxScheduler) processOneDLQ(ctx context.Context, ev *OutboxEvent) (notifyOK bool) {
 	notifyOK = true
+	evID := ""
+	if ev != nil {
+		evID = ev.ID
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			notifyOK = false
 			if s.metrics != nil {
-				s.metrics.LastError.Store(fmt.Errorf("DLQ notify panic for event %s: %v", ev.ID, r))
+				s.metrics.LastError.Store(fmt.Errorf("DLQ notify panic for event %s: %v", evID, r))
 			}
 		}
 	}()
 
-	// 通知 = Handle + Alert；任一失败则下轮补发（C2：Handle 失败也 Alert）
-	if s.config.DLQHandler != nil {
-		if err := s.config.DLQHandler.Handle(ctx, ev); err != nil {
-			notifyOK = false
-			if s.metrics != nil {
-				s.metrics.LastError.Store(err)
-			}
-		}
+	// Handle 单独兜 panic（C2）：Handle panic 不会跳过下方的 Alert。
+	if !s.invokeDLQHandle(ctx, ev) {
+		notifyOK = false
 	}
+	// Alert：C2 保证——Handle 失败/panic 也照常调用（invokeDLQHandle 已兜 panic，不会冒泡到这里）。
 	if s.config.DLQAlertHandler != nil {
 		if err := s.config.DLQAlertHandler.Alert(ctx, ev); err != nil {
 			notifyOK = false
@@ -830,6 +836,28 @@ func (s *OutboxScheduler) processOneDLQ(ctx context.Context, ev *OutboxEvent) (n
 		}
 	}
 	return notifyOK
+}
+
+// invokeDLQHandle 调用 DLQHandler.Handle 并兜 panic；返回 false 表示 Handle 未成功
+// （返回 error 或 panic）。panic 不冒泡，保证调用方继续执行 Alert（C2：Handle 失败也 Alert）。
+func (s *OutboxScheduler) invokeDLQHandle(ctx context.Context, ev *OutboxEvent) (ok bool) {
+	if s.config.DLQHandler == nil {
+		return true
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if s.metrics != nil {
+				s.metrics.LastError.Store(fmt.Errorf("DLQ Handle panic: %v", r))
+			}
+		}
+	}()
+	if err := s.config.DLQHandler.Handle(ctx, ev); err != nil {
+		if s.metrics != nil {
+			s.metrics.LastError.Store(err)
+		}
+		return false
+	}
+	return true
 }
 
 // SchedulerMetricsSnapshot 调度器指标快照（用于读取）

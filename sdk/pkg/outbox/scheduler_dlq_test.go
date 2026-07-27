@@ -245,6 +245,39 @@ func TestProcessDLQ_HandlePanicDoesNotKillLoop(t *testing.T) {
 	}
 }
 
+// ADV-A（C2）回归：Handle panic 时 Alert 仍必须被调用。单层 defer-recover 覆盖整个函数体
+// 会让 Handle panic 跳过 Alert（违反 C2）；invokeDLQHandle 把 Handle panic 兜在内部、不冒泡，
+// 下方 Alert 照常执行。此测试在旧实现上会失败（Alert 未被调用）。
+func TestProcessDLQ_HandlePanicStillAlerts(t *testing.T) {
+	repo := newStubRepo(&OutboxEvent{ID: "ev-panic-alert", TenantID: 1, Status: EventStatusMaxRetry})
+
+	var alertMu sync.Mutex
+	alertCalled := false
+	cfg := &SchedulerConfig{
+		EnableDLQ: true, DLQInterval: time.Minute, BatchSize: 10,
+		DLQHandler: DLQHandlerFunc(func(ctx context.Context, e *OutboxEvent) error {
+			panic("simulated handler panic")
+		}),
+		DLQAlertHandler: DLQAlertHandlerFunc(func(ctx context.Context, e *OutboxEvent) error {
+			alertMu.Lock()
+			alertCalled = true
+			alertMu.Unlock()
+			return nil
+		}),
+	}
+	s := newTestScheduler(repo, cfg)
+
+	s.processDLQ(context.Background()) // Handle panic → 必须仍触发 Alert（C2）
+	if !alertCalled {
+		t.Fatal("Alert must fire even when Handle panics (C2 / ADV-A)")
+	}
+	// panic 当作通知失败 → 行保持未通知、下一轮补发
+	got, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got) != 1 {
+		t.Fatalf("Handle panic must keep row unnotified for retry, got %d", len(got))
+	}
+}
+
 // P5 回归：ctx 已取消时，processDLQ 在 step1 批次内逐条 ctx.Err() 检查命中、提前返回，
 // 不会把整批 max_retry 跑完。钉住 scheduler.go processDLQ step1 循环里的 ctx.Err() 守卫——
 // 去掉它的回归会让优雅关闭在慢仓储/大批量下拖到 ShutdownTimeout。
