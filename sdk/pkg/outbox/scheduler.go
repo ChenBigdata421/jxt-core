@@ -74,14 +74,6 @@ func (f DLQAlertHandlerFunc) Alert(ctx context.Context, event *OutboxEvent) erro
 	return f(ctx, event)
 }
 
-// NoOpDLQHandler 空操作 DLQHandler（默认实现）
-type NoOpDLQHandler struct{}
-
-// Handle 实现 DLQHandler 接口（什么都不做）
-func (n *NoOpDLQHandler) Handle(ctx context.Context, event *OutboxEvent) error {
-	return nil
-}
-
 // NoOpDLQAlertHandler 空操作 DLQAlertHandler（默认实现）
 type NoOpDLQAlertHandler struct{}
 
@@ -227,13 +219,16 @@ func (c *SchedulerConfig) Validate() error {
 		}
 	}
 
-	// 验证 DLQInterval
+	// 验证 DLQ 配置（C3：EnableDLQ 必须配 DLQHandler）
 	if c.EnableDLQ {
 		if c.DLQInterval <= 0 {
 			return fmt.Errorf("DLQInterval must be > 0 when DLQ is enabled, got %v", c.DLQInterval)
 		}
 		if c.DLQInterval < 1*time.Second {
 			return fmt.Errorf("DLQInterval is too small (min 1 second), got %v", c.DLQInterval)
+		}
+		if c.DLQHandler == nil {
+			return fmt.Errorf("DLQHandler must not be nil when EnableDLQ is true (NoOpDLQHandler was removed; silent swallow is a bug, not a default)")
 		}
 	}
 
@@ -263,9 +258,9 @@ func DefaultSchedulerConfig() *SchedulerConfig {
 		EnableRetry:         true,
 		RetryInterval:       30 * time.Second,
 		MaxRetries:          3,
-		EnableDLQ:           true,
+		EnableDLQ:           false, // C3: DLQ 改为 opt-in；启用须显式提供 DLQHandler
 		DLQInterval:         5 * time.Minute,
-		DLQHandler:          &NoOpDLQHandler{},
+		DLQHandler:          nil, // C3: 不再默认注入 NoOp（静默吞是 bug 不是默认）
 		DLQAlertHandler:     &NoOpDLQAlertHandler{},
 		ShutdownTimeout:     30 * time.Second,
 	}
