@@ -178,3 +178,100 @@ func TestProcessDLQ_NotificationRetriedUntilHandleSucceeds(t *testing.T) {
 		t.Fatalf("after retry success, expected 0 unnotified, got %+v", got)
 	}
 }
+
+// C1/C2 回归：Alert 失败 → notifyOK=false → 不标记通知 → 下一轮补发。
+// 这是 notifyOK 矩阵的第 3 条分支（Handle-fails、Handle-retry 之外）——钉住 scheduler.go 里
+// Alert 错误把 notifyOK 置 false 的那一行，防止回归静默标记已通知。
+func TestProcessDLQ_AlertFailureKeepsUnnotifiedAndRetries(t *testing.T) {
+	repo := newStubRepo(&OutboxEvent{ID: "ev-alert", TenantID: 1, Status: EventStatusMaxRetry})
+
+	var alertMu sync.Mutex
+	alerts := 0
+	cfg := &SchedulerConfig{
+		EnableDLQ: true, DLQInterval: time.Minute, BatchSize: 10,
+		DLQHandler: DLQHandlerFunc(func(ctx context.Context, e *OutboxEvent) error { return nil }),
+		DLQAlertHandler: DLQAlertHandlerFunc(func(ctx context.Context, e *OutboxEvent) error {
+			alertMu.Lock()
+			alerts++
+			alertMu.Unlock()
+			if alerts == 1 {
+				return errors.New("transient alert failure")
+			}
+			return nil
+		}),
+	}
+	s := newTestScheduler(repo, cfg)
+
+	s.processDLQ(context.Background()) // 终态转 dead_lettered；Alert 失败 → 不标记通知
+	got, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got) != 1 {
+		t.Fatalf("alert failure must keep row unnotified, got %d unnotified", len(got))
+	}
+
+	s.processDLQ(context.Background()) // Alert 成功 → 标记通知
+	got2, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got2) != 0 {
+		t.Fatalf("after alert success, expected 0 unnotified, got %d", len(got2))
+	}
+}
+
+// P4 回归：DLQHandler.Handle panic 时，processOneDLQ 的 defer-recover 兜住——
+// 不抛杀 dlqLoop goroutine，行保持未通知、下一轮补发。
+func TestProcessDLQ_HandlePanicDoesNotKillLoop(t *testing.T) {
+	repo := newStubRepo(&OutboxEvent{ID: "ev-panic", TenantID: 1, Status: EventStatusMaxRetry})
+
+	cfg := &SchedulerConfig{
+		EnableDLQ: true, DLQInterval: time.Minute, BatchSize: 10,
+		DLQHandler: DLQHandlerFunc(func(ctx context.Context, e *OutboxEvent) error {
+			panic("simulated handler panic")
+		}),
+		DLQAlertHandler: DLQAlertHandlerFunc(func(ctx context.Context, e *OutboxEvent) error { return nil }),
+	}
+	s := newTestScheduler(repo, cfg)
+
+	// 第一轮：Handle panic 被 Recover 兜住 → 不标记通知。processDLQ 必须正常返回（不向 dlqLoop 抛）。
+	s.processDLQ(context.Background())
+	got, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got) != 1 {
+		t.Fatalf("Handle panic must keep row unnotified for retry, got %d unnotified", len(got))
+	}
+
+	// 第二轮：换一个不 panic 的 handler，应正常标记通知（证明 goroutine/循环没死）。
+	s.config.DLQHandler = DLQHandlerFunc(func(ctx context.Context, e *OutboxEvent) error { return nil })
+	s.processDLQ(context.Background())
+	got2, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got2) != 0 {
+		t.Fatalf("after non-panic retry, expected 0 unnotified, got %d", len(got2))
+	}
+}
+
+// P5 回归：ctx 已取消时，processDLQ 在 step1 批次内逐条 ctx.Err() 检查命中、提前返回，
+// 不会把整批 max_retry 跑完。钉住 scheduler.go processDLQ step1 循环里的 ctx.Err() 守卫——
+// 去掉它的回归会让优雅关闭在慢仓储/大批量下拖到 ShutdownTimeout。
+func TestProcessDLQ_RespectsCtxCancellation(t *testing.T) {
+	repo := newStubRepo(
+		&OutboxEvent{ID: "ev-ctx-1", TenantID: 1, Status: EventStatusMaxRetry},
+		&OutboxEvent{ID: "ev-ctx-2", TenantID: 1, Status: EventStatusMaxRetry},
+	)
+	cfg := &SchedulerConfig{
+		EnableDLQ: true, DLQInterval: time.Minute, BatchSize: 10,
+		DLQHandler:      DLQHandlerFunc(func(ctx context.Context, e *OutboxEvent) error { return nil }),
+		DLQAlertHandler: DLQAlertHandlerFunc(func(ctx context.Context, e *OutboxEvent) error { return nil }),
+	}
+	s := newTestScheduler(repo, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 预先取消
+	s.processDLQ(ctx)
+
+	// ctx 取消 → step1 首个 ctx.Err() 命中、立即返回 → 没有行被转终态
+	got, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got) != 0 {
+		t.Fatalf("cancelled ctx must abort before terminalizing, got %d dead_lettered", len(got))
+	}
+	// max_retry 行原样还在
+	mr, _ := repo.FindMaxRetryEvents(context.Background(), 10, 0)
+	if len(mr) != 2 {
+		t.Fatalf("max_retry rows must remain after cancelled processDLQ, got %d", len(mr))
+	}
+}
