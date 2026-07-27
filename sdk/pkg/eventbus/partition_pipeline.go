@@ -71,18 +71,20 @@ type PoisonMessage struct {
 	Offset    int64
 	Key       []byte
 	Value     []byte
-	Headers   map[string]string
+	Headers   []MessageHeader // C6: 原为 map[string]string（丢序+合并重复 key），改为保真切片
+	Timestamp time.Time       // C6: 新增 broker 消息时间戳；toPoisonMessage 现填此字段
 }
 
 // toPoisonMessage 把 sarama 消息转成 PoisonMessage（边界转换，仅流水线内部用）。
 func toPoisonMessage(msg *sarama.ConsumerMessage) PoisonMessage {
-	headers := make(map[string]string, len(msg.Headers))
-	for _, h := range msg.Headers {
-		headers[string(h.Key)] = string(h.Value)
-	}
 	return PoisonMessage{
-		Topic: msg.Topic, Partition: msg.Partition, Offset: msg.Offset,
-		Key: msg.Key, Value: msg.Value, Headers: headers,
+		Topic:     msg.Topic,
+		Partition: msg.Partition,
+		Offset:    msg.Offset,
+		Key:       append([]byte(nil), msg.Key...),
+		Value:     append([]byte(nil), msg.Value...),
+		Headers:   saramaToMessageHeaders(msg.Headers),
+		Timestamp: msg.Timestamp,
 	}
 }
 
