@@ -1195,6 +1195,8 @@ func (h *preSubscriptionConsumerHandler) consumeWithPipeline(
 	p.dlq = wrapper.dlq       // 一次性设置（可选；nil 时 envelope 失败走策略 A 阻塞）
 	p.alert = wrapper.alerter // 一次性设置；activateTopicHandler 已保证非 nil（未注入→logger 兜底）
 	p.log = h.eventBus.logger // 停滞告警日志通道（warnStall 内判 nil，未注入则静默）
+	p.topic = claim.Topic()     // PR-0：停滞指标 seam 入参（claim 单 topic，一次性写入）
+	p.partition = claim.Partition() // 空 topic 时 seam 自动 no-op（空-topic 守卫）
 
 	// buildAggMsg：复用抽出的 buildAggregateMessage（不再阻塞等 Done）。wrapper 必非 nil（上方已早返）。
 	p.buildAggMsg = func(message *sarama.ConsumerMessage) *AggregateMessage {

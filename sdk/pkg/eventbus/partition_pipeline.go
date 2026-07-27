@@ -113,6 +113,11 @@ type partitionPipeline struct {
 	alert       PoisonAlerter                                   // 默认 noopAlerter（构造期地板）；生产路径由 consumeWithPipeline 注入 loggerPoisonAlerter
 	log         *zap.Logger                                     // 可为 nil（nil 时停滞告警静默）；生产路径由 consumeWithPipeline 注入 eventbus logger
 	buildAggMsg func(*sarama.ConsumerMessage) *AggregateMessage // kafka.go 注入：构造含 Done 的 AggregateMessage
+	// 停滞指标 seam 入参（PR-0）：consumeWithPipeline 在构造后写入。空 topic 时 seam 自动 no-op
+	// （空-topic 守卫，review 2026-07-26）。stalling 追踪 stall-enter 上升沿，monotonic Counter 单次触发。
+	topic     string
+	partition int32
+	stalling  bool
 }
 
 // newPartitionPipeline 构造协调器并分配两个 chan。
@@ -282,6 +287,10 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 	// （注：配置层 0 已被 applyPipelineDefaults 补成默认 10s，故显式关闭须用负值）。
 	var stallCh <-chan time.Time
 	lastAdvance := time.Now()
+	// lastRealAdvance 仅在 advanceFrontier 成功推进时刷新（review 2026-07-27，fix #4）。
+	// 与 lastAdvance 分离：stall 分支会重置 lastAdvance 以抑制 warnStall 重复告警，
+	// 若共用则 stall 指标永远爬不到 60s P1 阈值。lastRealAdvance 才是 stall Gauge 的真实计时基准。
+	lastRealAdvance := lastAdvance
 	if p.cfg.StallWarnInterval > 0 {
 		stallTicker := time.NewTicker(p.cfg.StallWarnInterval)
 		defer stallTicker.Stop()
@@ -332,6 +341,7 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			if last := advanceFrontier(inflight, &frontier); last != nil {
 				marker.MarkMessage(last, "") // mark-once
 				lastAdvance = time.Now()     // 前沿推进：重置停滞告警计时
+				lastRealAdvance = lastAdvance // PR-0：stall Gauge 的真实推进计时
 			}
 
 		case r := <-dlqDoneCh:
@@ -347,11 +357,29 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			if last := advanceFrontier(inflight, &frontier); last != nil {
 				marker.MarkMessage(last, "")
 				lastAdvance = time.Now() // 前沿推进：重置停滞告警计时
+				lastRealAdvance = lastAdvance // PR-0：stall Gauge 的真实推进计时
 			}
 
 		case <-stallCh:
-			// 窗口满（背压）且前沿停滞 ≥ StallWarnInterval：慢 handler / 热点聚合钉住某 actor，与毒消息告警区分。
-			// 刷新 lastAdvance 避免每个 tick 重复告警；下一窗再判。
+			// METRIC 条件（review 2026-07-27，fix #4）：前沿不推进 且 有在飞。旧 `len(inflight) >= WindowSize`
+			// 前置是「背压」信号——低流量下单条毒消息阻塞前沿（inflight < 32 command / < 64 query）会令
+			// isStalled=false，Gauge 读 0（健康）、stall-enter Counter 不触发，而分区实际已卡死。这正是 PR-0
+			// 要暴露的失败，故指标 MUST NOT 要求窗口满。
+			//
+			// 用 lastRealAdvance（仅 advanceFrontier 成功时刷新），NOT lastAdvance——stall 分支会重置 lastAdvance
+			// 抑制 warnStall 重复告警，共用则 Gauge 永远爬不到 60s P1 阈值。
+			stalled := len(inflight) > 0 && time.Since(lastRealAdvance) >= p.cfg.StallWarnInterval
+			if stalled {
+				ReportPartitionStall(p.topic, p.partition, time.Since(lastRealAdvance).Seconds())
+				if !p.stalling {
+					ReportPartitionStallEnter(p.topic, p.partition) // monotonic；rebalance 引发 Gauge blink 也不丢
+					p.stalling = true
+				}
+			} else {
+				ReportPartitionStall(p.topic, p.partition, 0)
+				p.stalling = false
+			}
+			// 现有 BACKPRESSURE 日志：保留其自身的窗口满条件 + 重复抑制。
 			if len(inflight) >= p.cfg.WindowSize && time.Since(lastAdvance) >= p.cfg.StallWarnInterval {
 				p.warnStall(frontier, len(inflight))
 				lastAdvance = time.Now()
