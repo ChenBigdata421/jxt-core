@@ -3283,6 +3283,14 @@ func (k *kafkaEventBus) ensureKafkaTopic(topic string, options TopicOptions) err
 
 // createKafkaTopic 创建新的Kafka主题
 func (k *kafkaEventBus) createKafkaTopic(topic string, options TopicOptions) error {
+	// 方案改动5：jxt-core 生产路径默认【不建】topic——主题存在性与分区数由 infra
+	// bootstrap 独占收敛（单一收敛点原则）。仅显式 AUTO_CREATE_TOPICS=1（本地开发 /
+	// 单测 / CI 等不起 bootstrap 的场景）才放行建新；否则 fail-fast，避免服务启动
+	// 副作用重新引入 auto-create 抢跑竞态（缺陷 D2）。
+	if !autoCreateTopicsEnabled() {
+		return fmt.Errorf("topic %s 不存在；jxt-core 生产路径不再自动创建主题，请由 infra bootstrap 收敛（开发环境可设 AUTO_CREATE_TOPICS=1）", topic)
+	}
+
 	// ✅ 无锁读取 admin
 	admin, err := k.getAdmin()
 	if err != nil {
@@ -3382,25 +3390,16 @@ func (k *kafkaEventBus) ensureKafkaTopicIdempotent(ctx context.Context, topic st
 
 	// 如果允许更新，更新主题配置
 	if allowUpdate {
-		// 🔥 修复（缺口2）：分区数 reconcile（只增不减）。
-		// 复用上面已取到的 metadata，避免重复 DescribeTopics。
-		// count 为目标分区总数（Kafka 仅支持增加），assignment=nil 让 broker 自动分配副本。
+		// 方案改动5：jxt-core 不再对已存在主题做分区 reconcile——既不 CreatePartitions
+		// 扩容（会对已被订阅的 topic 触发运行期再平衡，方案 §八 硬约束红线），也不据此
+		// 断言分区数。分区正确性由 infra bootstrap 双遍断言 + redpanda healthcheck
+		// (CHECK_ONLY) 保证；本层只负责「连上去、应用留存期/压缩配置、收发」。
+		// 仅在实际分区 > 配置值时记一条 informational 告警（Kafka 不能缩分区，且此情形
+		// 说明现实已偏离 manifest，应重跑 bootstrap）。
 		if options.Partitions > 0 && len(metadata) > 0 {
 			actualPartitions := int32(len(metadata[0].Partitions))
-			if actualPartitions > 0 && actualPartitions < int32(options.Partitions) {
-				k.logger.Info("Expanding Kafka topic partitions",
-					zap.String("topic", topic),
-					zap.Int32("from", actualPartitions),
-					zap.Int32("to", int32(options.Partitions)))
-				if perr := admin.CreatePartitions(topic, int32(options.Partitions), nil, false); perr != nil {
-					// 与 AlterConfig 失败处理一致：记日志、不中断整体配置流程
-					k.logger.Warn("Failed to expand topic partitions",
-						zap.String("topic", topic),
-						zap.Error(perr))
-				}
-			} else if actualPartitions > int32(options.Partitions) {
-				// Kafka 不支持缩减分区，仅告警，不动作
-				k.logger.Warn("Topic has more partitions than configured; Kafka cannot shrink partitions",
+			if actualPartitions > int32(options.Partitions) {
+				k.logger.Warn("Topic has more partitions than configured; partitions are managed by infra bootstrap (re-run bootstrap to reconcile)",
 					zap.String("topic", topic),
 					zap.Int32("actual", actualPartitions),
 					zap.Int("configured", options.Partitions))
