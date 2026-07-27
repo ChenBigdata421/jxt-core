@@ -815,6 +815,13 @@ type EnvelopeOptionsSubscriber interface {
 	SubscribeEnvelopeWithOptions(ctx context.Context, topic string, handler EnvelopeHandler, opts EnvelopeSubscribeOptions) error
 }
 
+// EnvelopeDeliveryOptionsSubscriber 可选能力接口：支持把 EnvelopeDelivery（含 RawMeta）交付给 handler（M15）。
+// 仅 Kafka 分区流水线路径实现（消费端原始 record 完整性）；NATS/Memory 未实现，类型断言失败即 fail-fast。
+// 可靠消费只接受该能力；缺失时不静默降级（不把空 RawMeta 当成功接线）。
+type EnvelopeDeliveryOptionsSubscriber interface {
+	SubscribeEnvelopeDeliveryWithOptions(ctx context.Context, topic string, handler EnvelopeDeliveryHandler, opts EnvelopeSubscribeOptions) error
+}
+
 // PublishOptions 发布选项
 type PublishOptions struct {
 	MessageFormatter MessageFormatter  `json:"-"`           // 消息格式化器
