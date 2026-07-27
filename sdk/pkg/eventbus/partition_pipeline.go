@@ -377,9 +377,10 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			// 以便 P1 的 `for:` 60s 子句在 Gauge blink 时仍能照常累加。若运维遇到「持续慢流量下单 handler
 			// 合法慢但健康（如批量取证长事务）」触发误告警，应调大 StallWarnInterval（type.go:
 			// PipelineConfig.StallWarnInterval，>10s 抑制灵敏度）而非改本条件——条件本身没有 bug。
-			stalled := len(inflight) > 0 && time.Since(lastRealAdvance) >= p.cfg.StallWarnInterval
+			elapsed := time.Since(lastRealAdvance)
+			stalled := len(inflight) > 0 && elapsed >= p.cfg.StallWarnInterval
 			if stalled {
-				ReportPartitionStall(p.topic, p.partition, time.Since(lastRealAdvance).Seconds())
+				ReportPartitionStall(p.topic, p.partition, elapsed.Seconds())
 				if !p.stalling {
 					ReportPartitionStallEnter(p.topic, p.partition) // monotonic；rebalance 引发 Gauge blink 也不丢
 					p.stalling = true

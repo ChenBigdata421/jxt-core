@@ -803,3 +803,52 @@ func TestRun_StallWarn(t *testing.T) {
 	require.NotEmpty(t, all, "窗口满且前沿停滞必须触发慢 handler 告警")
 	assert.Contains(t, all[0].Message, "stalled", "告警消息应标识为停滞（与毒消息告警区分）")
 }
+
+// TestRun_StallMetric_RisingEdgeAndMonotonicSeconds 守护 PR-0 停滞指标的核心不变式（fix #4 回归守护）：
+// 窗口冻结时 stall-enter Counter 恰触发一次（p.stalling 上升沿去重），且 Gauge 秒数跨 tick 单调递增。
+//
+// 秒数递增证明用 lastRealAdvance 而非 lastAdvance——backpressure 分支（line ~394）每个 tick 都重置
+// lastAdvance，若误用之则 Gauge 永远爬不到 60s P1 阈值。partition_stall_test.go 仅覆盖 seam 转发，
+// 本测试验证 run() 内部的集成语义（dedup + lastRealAdvance），是 seam 单测补不上的部分。
+func TestRun_StallMetric_RisingEdgeAndMonotonicSeconds(t *testing.T) {
+	var mu sync.Mutex
+	var stalls []float64
+	var enters int
+	StallReporter = func(_ string, _ int32, secs float64) {
+		mu.Lock()
+		stalls = append(stalls, secs)
+		mu.Unlock()
+	}
+	StallEnterReporter = func(string, int32) {
+		mu.Lock()
+		enters++
+		mu.Unlock()
+	}
+	defer func() { StallReporter = nil; StallEnterReporter = nil }()
+
+	p, compCh, dlqDoneCh := newPipelineForTest(2) // windowSize=2
+	p.log = zap.NewNop()                         // 镜像 TestRun_StallWarn：走完整 backpressure 路径
+	p.topic, p.partition = "orders", 3
+	p.cfg.StallWarnInterval = 50 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := make(chan *sarama.ConsumerMessage, 4)
+	msgs <- &sarama.ConsumerMessage{Offset: 0}
+	msgs <- &sarama.ConsumerMessage{Offset: 1} // 填满窗口；Done 永不驱动 → 前沿冻结
+	close(msgs)
+
+	done := make(chan struct{})
+	go func() { _ = p.run(ctx, msgs, &fakeMarker{}, compCh, dlqDoneCh); close(done) }()
+	<-time.After(200 * time.Millisecond) // ≥3 个 stall tick
+
+	cancel()
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, stalls, "前沿冻结时停滞指标必须触发")
+	assert.Equal(t, 1, enters, "stall-enter 必须恰触发一次（上升沿去重，monotonic Counter）")
+	assert.Greater(t, stalls[len(stalls)-1], stalls[0],
+		"秒数跨 tick 必须递增（证明用 lastRealAdvance 而非被 backpressure 分支重置的 lastAdvance）")
+}
