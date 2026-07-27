@@ -412,6 +412,11 @@ func (r *batchCountRepo) ExistsByIdempotencyKey(_ context.Context, _ string) (bo
 func (r *batchCountRepo) FindMaxRetryEvents(_ context.Context, _ int, _ int) ([]*outbox.OutboxEvent, error) {
 	return nil, nil
 }
+func (r *batchCountRepo) MarkAsDeadLettered(_ context.Context, _ string) error { return nil }
+func (r *batchCountRepo) FindUnnotifiedDeadLettered(_ context.Context, _ int, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) MarkDeadLetterNotified(_ context.Context, _ string) error { return nil }
 func (r *batchCountRepo) FindPublishedByIdempotencyKeys(_ context.Context, _ []string) (map[string]struct{}, error) {
 	return nil, nil
 }
@@ -539,6 +544,11 @@ func (r *callCountRepo) ExistsByIdempotencyKey(_ context.Context, _ string) (boo
 func (r *callCountRepo) FindMaxRetryEvents(_ context.Context, _ int, _ int) ([]*outbox.OutboxEvent, error) {
 	return nil, nil
 }
+func (r *callCountRepo) MarkAsDeadLettered(_ context.Context, _ string) error { return nil }
+func (r *callCountRepo) FindUnnotifiedDeadLettered(_ context.Context, _ int, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *callCountRepo) MarkDeadLetterNotified(_ context.Context, _ string) error { return nil }
 func (r *callCountRepo) FindPublishedByIdempotencyKeys(_ context.Context, keys []string) (map[string]struct{}, error) {
 	r.mu.Lock(); defer r.mu.Unlock()
 	r.batchIdempotentCalls.Add(1)

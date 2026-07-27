@@ -156,6 +156,11 @@ func (r *countingRepo) MarkBatchAsPublished(_ context.Context, _ []*OutboxEvent)
 	r.markBatchCallCount.Add(1)
 	return nil
 }
+func (r *countingRepo) MarkAsDeadLettered(_ context.Context, _ string) error         { return nil }
+func (r *countingRepo) FindUnnotifiedDeadLettered(_ context.Context, _ int, _ int) ([]*OutboxEvent, error) {
+	return nil, nil
+}
+func (r *countingRepo) MarkDeadLetterNotified(_ context.Context, _ string) error { return nil }
 
 type asyncFakePublisher struct{}
 

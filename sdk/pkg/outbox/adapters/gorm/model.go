@@ -67,6 +67,12 @@ type OutboxEventModel struct {
 	// IdempotencyKey 幂等性键（用于防止重复发布）
 	// 唯一索引确保同一个幂等性键只能发布一次
 	IdempotencyKey string `gorm:"type:varchar(512);uniqueIndex:idx_idempotency_key;comment:幂等性键"`
+
+	// DeadLetteredAt 发布侧死信终态时间（C1/M2）
+	DeadLetteredAt *time.Time `gorm:"index:idx_outbox_dlq_notify;comment:死信终态时间"`
+
+	// DlqNotifiedAt 死信通知成功时间；NULL=待补发（C1：通知与终态拆分）
+	DlqNotifiedAt *time.Time `gorm:"index:idx_outbox_dlq_notify;comment:死信通知时间"`
 }
 
 // TableName 指定表名
@@ -96,6 +102,8 @@ func (m *OutboxEventModel) ToEntity() *outbox.OutboxEvent {
 		TraceID:        m.TraceID,
 		CorrelationID:  m.CorrelationID,
 		IdempotencyKey: m.IdempotencyKey,
+		DeadLetteredAt: m.DeadLetteredAt,
+		DlqNotifiedAt:  m.DlqNotifiedAt,
 	}
 }
 
@@ -121,6 +129,8 @@ func FromEntity(e *outbox.OutboxEvent) *OutboxEventModel {
 		TraceID:        e.TraceID,
 		CorrelationID:  e.CorrelationID,
 		IdempotencyKey: e.IdempotencyKey,
+		DeadLetteredAt: e.DeadLetteredAt,
+		DlqNotifiedAt:  e.DlqNotifiedAt,
 	}
 }
 
