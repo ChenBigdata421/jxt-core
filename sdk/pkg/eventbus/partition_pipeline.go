@@ -368,6 +368,15 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			//
 			// 用 lastRealAdvance（仅 advanceFrontier 成功时刷新），NOT lastAdvance——stall 分支会重置 lastAdvance
 			// 抑制 warnStall 重复告警，共用则 Gauge 永远爬不到 60s P1 阈值。
+			//
+			// TRADEOFF（final-review 2026-07-27）：Gauge 与 monotonic stall-enter Counter 共用本条件是
+			// INTENTIONAL。默认 StallWarnInterval=10s（见 type.go applyPipelineDefaults）——对 evidence-ingestion，
+			// 一个单 handler 停滞 ≥10s 即合法的 page-worthy 故障（毒消息钉死 actor / DB 完全卡死），故 Counter
+			// 在此触发是正确的，Gauge 在此 set 也正确（且 Gauge 会随推进 reset 回 0）。Counter monotonic 不可逆：
+			// 它「按设计」对每一次 stall-enter 上升沿都计数（含 rebalance 导致 Gauge blink 的恢复后重入），
+			// 以便 P1 的 `for:` 60s 子句在 Gauge blink 时仍能照常累加。若运维遇到「持续慢流量下单 handler
+			// 合法慢但健康（如批量取证长事务）」触发误告警，应调大 StallWarnInterval（type.go:
+			// PipelineConfig.StallWarnInterval，>10s 抑制灵敏度）而非改本条件——条件本身没有 bug。
 			stalled := len(inflight) > 0 && time.Since(lastRealAdvance) >= p.cfg.StallWarnInterval
 			if stalled {
 				ReportPartitionStall(p.topic, p.partition, time.Since(lastRealAdvance).Seconds())
