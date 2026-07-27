@@ -707,41 +707,78 @@ func (s *OutboxScheduler) dlqLoop(ctx context.Context) {
 	}
 }
 
-// processDLQ 处理死信队列
+// processDLQ 处理死信队列（C1 重写：CAS 推进终态 + 独立通知补发）。
+//
+// 两步拆分（spec §2.2）：
+//  1. 先把 max_retry CAS 成 dead_lettered（只转一次，幂等）——「发布已彻底失败」的事实。
+//  2. 再扫描 dead_lettered 且 dlq_notified_at IS NULL 的行，调用 Handle + Alert；成功才标记通知。
+//
+// 不引入 dead_lettering 中间态：原方案的 claim 只匹配 max_retry，一旦 Handle 失败或进程崩溃，
+// dead_lettering 永远不会被下一轮重新认领。拆成两个独立事实后，crash 在通知步骤 → 下一轮补发。
+//
+// ⚠️ 多实例限制（OV#6）：step1 的 MarkAsDeadLettered 是 CAS（多实例安全）；但 step2 的
+// FindUnnotifiedDeadLettered 无 claim/lease——两个 scheduler 实例会同时取到同一批未通知行、同时
+// 调 Handle（double Handle）。PR-1 不引入 SELECT FOR UPDATE SKIP LOCKED（属 PR-2 durable claim
+// 范围，见 TODOS 'file-storage Outbox ACK batching' / 'Outbox durable DB claim/lease'）。
+// 故本方法仅保证【单实例】下 Handle 恰一次；多实例场景依赖 Handle/Alert 按 EventID 幂等
+// （PR-2 的 OutboxRecordingHandler 落地该保证）。运行多实例前须先确认 Handle 幂等。
 func (s *OutboxScheduler) processDLQ(ctx context.Context) {
-	// 增加 WaitGroup 计数（优雅关闭支持）
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	// 查找超过最大重试次数的失败事件
-	events, err := s.repo.FindMaxRetryEvents(ctx, s.config.BatchSize, s.config.TenantID)
+	// step 1: 终结 max_retry → dead_lettered（CAS，只转一次）
+	maxRetryEvents, err := s.repo.FindMaxRetryEvents(ctx, s.config.BatchSize, s.config.TenantID)
 	if err != nil {
 		if s.metrics != nil {
 			s.metrics.LastError.Store(err)
 		}
 		return
 	}
+	for _, ev := range maxRetryEvents {
+		if err := s.repo.MarkAsDeadLettered(ctx, ev.ID); err != nil {
+			if s.metrics != nil {
+				s.metrics.LastError.Store(err)
+			}
+			continue // 单条失败不阻断；下一轮再试
+		}
+	}
 
-	// 如果没有死信事件，直接返回
-	if len(events) == 0 {
+	// step 2: 扫描尚未通知的终态事实（与 step1 解耦：Handle 失败/kill 后下一轮继续补发）
+	unnotified, err := s.repo.FindUnnotifiedDeadLettered(ctx, s.config.BatchSize, s.config.TenantID)
+	if err != nil {
+		if s.metrics != nil {
+			s.metrics.LastError.Store(err)
+		}
+		return
+	}
+	if len(unnotified) == 0 {
 		return
 	}
 
-	// 处理每个死信事件
-	for _, event := range events {
-		// 1. 调用 DLQ 处理器（C2：失败也继续走到告警——告警不响是失效形态，不会报错）
+	for _, ev := range unnotified {
+		notifyOK := true
+
+		// 通知 = Handle + Alert；任一失败则下轮补发（C2：Handle 失败也 Alert）
 		if s.config.DLQHandler != nil {
-			if err := s.config.DLQHandler.Handle(ctx, event); err != nil {
+			if err := s.config.DLQHandler.Handle(ctx, ev); err != nil {
+				notifyOK = false
 				if s.metrics != nil {
 					s.metrics.LastError.Store(err)
 				}
-				// 不 continue：仍要告警
+			}
+		}
+		if s.config.DLQAlertHandler != nil {
+			if err := s.config.DLQAlertHandler.Alert(ctx, ev); err != nil {
+				notifyOK = false
+				if s.metrics != nil {
+					s.metrics.LastError.Store(err)
+				}
 			}
 		}
 
-		// 2. 发送告警（无论 Handle 成功或失败）
-		if s.config.DLQAlertHandler != nil {
-			if err := s.config.DLQAlertHandler.Alert(ctx, event); err != nil {
+		// step 3: 通知成功后条件标记（CAS：只标记未通知的）
+		if notifyOK {
+			if err := s.repo.MarkDeadLetterNotified(ctx, ev.ID); err != nil {
 				if s.metrics != nil {
 					s.metrics.LastError.Store(err)
 				}

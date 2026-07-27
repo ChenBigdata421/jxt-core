@@ -107,3 +107,74 @@ func TestProcessDLQ_AlertsEvenWhenHandleFails(t *testing.T) {
 		t.Fatal("DLQAlertHandler.Alert must be called even when DLQHandler.Handle fails (C2)")
 	}
 }
+
+// C1 回归（单实例）：max_retry 事件在【同一 scheduler 实例】的多轮 processDLQ 下不被 Handle 两次。
+// ⚠️ 不覆盖多实例并发（OV#6）：两实例同时 step2 会 double Handle，本测试用单实例顺序两轮，
+// 无法捕获多实例竞态——那条由 PR-2 durable claim + Handle 幂等保证。
+func TestProcessDLQ_SingleInstanceHandlesOnceAcrossLoops(t *testing.T) {
+	repo := newStubRepo(&OutboxEvent{ID: "ev-c1-1", TenantID: 1, Status: EventStatusMaxRetry})
+
+	var handleMu sync.Mutex
+	handleCalls := 0
+	cfg := &SchedulerConfig{
+		EnableDLQ: true, DLQInterval: time.Minute, BatchSize: 10,
+		DLQHandler: DLQHandlerFunc(func(ctx context.Context, e *OutboxEvent) error {
+			handleMu.Lock()
+			handleCalls++
+			handleMu.Unlock()
+			return nil
+		}),
+		DLQAlertHandler: DLQAlertHandlerFunc(func(ctx context.Context, e *OutboxEvent) error { return nil }),
+	}
+	s := newTestScheduler(repo, cfg)
+
+	s.processDLQ(context.Background())
+	s.processDLQ(context.Background()) // 第二轮不应再 Handle
+
+	handleMu.Lock()
+	defer handleMu.Unlock()
+	if handleCalls != 1 {
+		t.Fatalf("Handle must be called exactly once across two loops, got %d", handleCalls)
+	}
+
+	// 行已转终态且已通知：两路扫描都取不到
+	got, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got) != 0 {
+		t.Fatalf("after two loops, expected 0 unnotified, got %+v", got)
+	}
+}
+
+// C1 通知补发：Handle 失败 → 不标记通知 → 下一轮重新 Handle（幂等）。
+func TestProcessDLQ_NotificationRetriedUntilHandleSucceeds(t *testing.T) {
+	repo := newStubRepo(&OutboxEvent{ID: "ev-c1-2", TenantID: 1, Status: EventStatusMaxRetry})
+
+	var handleMu sync.Mutex
+	calls := 0
+	cfg := &SchedulerConfig{
+		EnableDLQ: true, DLQInterval: time.Minute, BatchSize: 10,
+		DLQHandler: DLQHandlerFunc(func(ctx context.Context, e *OutboxEvent) error {
+			handleMu.Lock()
+			calls++
+			handleMu.Unlock()
+			if calls == 1 {
+				return errors.New("transient handle failure") // 首次失败
+			}
+			return nil // 第二次成功
+		}),
+		DLQAlertHandler: DLQAlertHandlerFunc(func(ctx context.Context, e *OutboxEvent) error { return nil }),
+	}
+	s := newTestScheduler(repo, cfg)
+
+	s.processDLQ(context.Background()) // 终态转 dead_lettered；Handle 失败 → 不标记通知
+	s.processDLQ(context.Background()) // 重新取到未通知行；Handle 成功 → 标记通知
+
+	handleMu.Lock()
+	defer handleMu.Unlock()
+	if calls != 2 {
+		t.Fatalf("Handle must be retried after failure, expected 2 calls, got %d", calls)
+	}
+	got, _ := repo.FindUnnotifiedDeadLettered(context.Background(), 10, 0)
+	if len(got) != 0 {
+		t.Fatalf("after retry success, expected 0 unnotified, got %+v", got)
+	}
+}
