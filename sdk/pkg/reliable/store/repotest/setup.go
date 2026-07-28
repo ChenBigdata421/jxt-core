@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store/mysql"
@@ -43,18 +44,23 @@ func setupMySQL(t *testing.T) (*gorm.DB, func()) {
 	t.Helper()
 	if dsn := os.Getenv("RELIABLE_MYSQL_DSN"); dsn != "" {
 		// multiStatements 是必需的（CreateTableSQL 是多语句）。
-		sep := "?"
-		if strings.Contains(dsn, "?") {
-			sep = "&"
-		}
-		db := mustOpen(t, gormmysql.Open, dsn+sep+"multiStatements=true")
+		// parseTime + loc=UTC 是必需的：go-sql-driver/mysql 默认把 DATETIME 返回为
+		// []uint8，而 kernel 会把 created_at/updated_at 等列 Scan 进 *time.Time，
+		// 缺 parseTime 会触发 "unsupported Scan, storing driver.Value type []uint8
+		// into *time.Time"。仅在用户未显式设置时追加，尊重显式覆盖。
+		dsn = ensureMySQLParam(dsn, "multiStatements=true")
+		dsn = ensureMySQLParam(dsn, "parseTime=true")
+		dsn = ensureMySQLParam(dsn, "loc=UTC")
+		db := mustOpen(t, gormmysql.Open, dsn)
 		applyMigration(t, db, mysql.Migration())
 		return db, func() {}
 	}
 	if testing.Short() || os.Getenv("RELIABLE_SKIP_CONTAINERS") != "" {
 		t.Skip("mysql conformance needs RELIABLE_MYSQL_DSN or Docker")
 	}
-	ctx := context.Background()
+	// 90s 上限：缓存镜像启动 ~30-60s 够用；Docker daemon 不可达时跳过而非挂死 ~15min。
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
 	c, err := tcmysql.Run(ctx, "mysql:8.0",
 		tcmysql.WithDatabase("reliable_test"),
 		tcmysql.WithUsername("test"),
@@ -78,7 +84,9 @@ func setupPostgres(t *testing.T) (*gorm.DB, func()) {
 	if testing.Short() || os.Getenv("RELIABLE_SKIP_CONTAINERS") != "" {
 		t.Skip("pg conformance needs RELIABLE_PG_DSN or Docker")
 	}
-	ctx := context.Background()
+	// 90s 上限：缓存镜像启动 ~30-60s 够用；Docker daemon 不可达时跳过而非挂死 ~15min。
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
 	c, err := tcpostgres.Run(ctx, "postgres:16-alpine",
 		tcpostgres.WithDatabase("reliable_test"),
 		tcpostgres.WithUsername("test"),
@@ -136,4 +144,20 @@ func NewStoreFor(dialect Dialect, db *gorm.DB) (store.Store, store.QuarantineSto
 		return postgres.NewStore(db), postgres.NewQuarantineStore(db)
 	}
 	panic(fmt.Sprintf("unknown dialect %s", dialect))
+}
+
+// ensureMySQLParam 在 MySQL DSN 上确保 key=value 存在（用户未显式写则追加）。
+// 既要保留 ? vs & 的分隔符选择（DSN 已有 ? 时用 &），又要避免重复追加同名 key。
+// 仅做朴素的子串匹配：用户写法可能多种（parseTime / parseTime=True / parseTime=1），
+// 这里按 key= 前缀判断，若存在任何形如 "<key>=" 的子串即视为用户已显式设置，不再追加。
+func ensureMySQLParam(dsn, param string) string {
+	key := strings.SplitN(param, "=", 2)[0]
+	if strings.Contains(dsn, key+"=") {
+		return dsn // 用户已显式设置该参数，尊重覆盖。
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + param
 }
