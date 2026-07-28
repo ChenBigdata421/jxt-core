@@ -81,7 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_kind_time ON consumption_anomalies (kind, created
 CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   id BIGSERIAL PRIMARY KEY, handler_id VARCHAR(100) NOT NULL, topic VARCHAR(100) NOT NULL,
   src_partition INT NOT NULL, src_offset BIGINT NOT NULL, raw_value BYTEA NOT NULL, raw_key BYTEA,
-  headers JSONB NOT NULL, raw_payload_hash CHAR(64) NOT NULL, brokerTimestamp TIMESTAMP(3),
+  headers JSONB NOT NULL, raw_payload_hash CHAR(64) NOT NULL, broker_timestamp TIMESTAMP(3),
   error_message TEXT, status VARCHAR(16) NOT NULL, row_version BIGINT NOT NULL DEFAULT 1,
   resolved_at TIMESTAMP(3), resolved_by VARCHAR(100), created_at TIMESTAMP(3) NOT NULL,
   CONSTRAINT uk_raw_delivery UNIQUE (topic, src_partition, src_offset, handler_id)
