@@ -62,7 +62,10 @@ require (
 	modernc.org/sqlite v1.53.0
 )
 
-require github.com/go-sql-driver/mysql v1.7.1
+require (
+	github.com/go-sql-driver/mysql v1.7.1
+	github.com/jackc/pgconn v1.14.3
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -104,6 +107,11 @@ require (
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/henrylee2cn/ameda v1.4.10 // indirect
 	github.com/henrylee2cn/goutil v0.0.0-20210127050712-89660552f6f8 // indirect
+	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
+	github.com/jackc/pgio v1.0.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
