@@ -44,7 +44,7 @@ func (h *fakeHandler) HandlerID() reliable.HandlerID       { return h.id }
 func (h *fakeHandler) ReplaySafety() reliable.ReplaySafety { return reliable.ReplayIdempotent }
 func (h *fakeHandler) RequiresAggregateGate() bool         { return false }
 
-// D21：fake 直接实现真实签名（*gorm.DB），无 stubDB 占位；编译期断言钉住接口完整性。
+// D21：fake 直接实现真实签名（*gorm.DB），无占位类型；编译期断言钉住接口完整性。
 var _ store.Store = (*schedulerFakeStore)(nil)
 
 // schedulerFakeStore 实现 store.Store，记录各处置路径的调用计数与**顺序**。

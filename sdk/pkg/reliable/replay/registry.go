@@ -1,7 +1,6 @@
 package replay
 
 import (
-	"context"
 	"errors"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
@@ -50,5 +49,3 @@ func invokeResult(err error) InvokeResult {
 // `Unwrap() []error`）失效，对实现了 `Is(error) bool` 的自定义错误也失效；而同包内的
 // handleNonExecution 用的就是 errors.Is——同一个包里两套判等逻辑。统一用标准库。
 func isReliable(err, target error) bool { return errors.Is(err, target) }
-
-var _ = context.Background

@@ -13,8 +13,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// D21（本轮评审）：原稿用 `type stubDB = struct{}` 作 *gorm.DB 占位，并靠一条「实施时替换」
-// 注记补齐——那是占位，且 T12 的门禁抓不到。现直接写真实签名 `*gorm.DB`（fake 不解引用，
+// D21（本轮评审）：原稿用一个假类型作 *gorm.DB 占位，并靠一条「稍后替换」注记补齐——
+// 那是占位，且 T12 的门禁抓不到。现直接写真实签名 `*gorm.DB`（fake 不解引用，
 // 调用方传 nil 即可），并用编译期断言钉住接口完整性。
 var _ store.Store = (*fakeStore)(nil)
 
