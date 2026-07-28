@@ -495,6 +495,30 @@ scheduler := outbox.NewScheduler(
 )
 ```
 
+### 死信队列（DLQ）配置
+
+PR-1 起 DLQ 改为 **opt-in**：默认 `EnableDLQ=false`，启用须显式提供 `DLQHandler`。`Validate()` 在 `NewScheduler` 构造期 fail-fast——拒绝 `EnableDLQ=true && DLQHandler==nil`（静默吞事件是 bug，不是默认；旧的 `NoOpDLQHandler` 已删除）。
+
+```go
+config := &outbox.SchedulerConfig{
+    // ... 其他字段同上 ...
+    EnableDLQ:       true,                // C3：opt-in，默认 false
+    DLQInterval:     5 * time.Minute,     // 死信扫描间隔（默认 5min，min 1s）
+    DLQHandler:      myDLQHandler,        // ✅ EnableDLQ=true 时必填：实现 outbox.DLQHandler
+    DLQAlertHandler: myAlertHandler,      // 可选：实现 outbox.DLQAlertHandler；不提供则用 NoOpDLQAlertHandler
+}
+```
+
+**死信生命周期（C1 + C2）** — 调度器每轮 `processDLQ` 两步走：
+
+1. **终态 CAS**：`max_retry` → `dead_lettered`（`MarkAsDeadLettered` 只转一次、幂等）。这是「发布已彻底失败」的不可变事实。
+2. **独立通知补发**：扫描 `status='dead_lettered' AND dlq_notified_at IS NULL`，对每条调 `DLQHandler.Handle` + `DLQAlertHandler.Alert`；**两者都成功**才 `MarkDeadLetterNotified`。崩溃发生在通知步骤 → 下一轮补发，不引入会孤儿化的中间态。
+
+事件状态枚举（`outbox.EventStatus`）：`pending` → `published`（成功）/ `failed` → `max_retry` → `dead_lettered`（终态）。
+
+- 🔔 **C2**：`Handle` 失败时 `Alert` **仍被调用**（「告警不响」是静默失效，必须有兜底）。
+- ⚠️ **单实例前提（OV#6）**：步骤 2 无 claim/lease，**多实例会重复 `Handle` 同一条死信**。运行多实例前须确认 `Handle`/`Alert` 按 EventID 幂等；durable claim/lease（`SELECT FOR UPDATE SKIP LOCKED`）留 PR-2。
+
 ### 发布器配置
 
 ```go
