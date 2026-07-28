@@ -163,6 +163,7 @@ func (s *GormStore) tryClaimOnce(ctx context.Context, in reliable.ClaimInput, le
 
 func (s *GormStore) MarkSucceeded(ctx context.Context, db *gorm.DB, key reliable.Key, tok reliable.ClaimToken) error {
 	now := nowUTC()
+	// 必须用 map[string]any 传 nil：struct-based Updates 会静默跳过 nil 字段，破坏 chk_* CHECK 不变量。
 	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("event_id = ? AND handler_id = ? AND item_key = ? AND status = ? AND claim_id = ?",
 			key.EventID, string(key.Handler), key.ItemKey, reliable.StatusProcessing, string(tok)).
@@ -217,8 +218,13 @@ func (s *GormStore) MarkFailed(ctx context.Context, db *gorm.DB, key reliable.Ke
 		updates["status"] = reliable.StatusRetryScheduled
 		updates["next_attempt_at"] = now.Add(reliable.Backoff(m.Attempt, reliable.DefaultBackoffBase, reliable.DefaultBackoffCap, jitterFraction(m.ID, m.Attempt)))
 	}
+	// C4/§6.1 TOCTOU 防护：deadLetter 与 Backoff(m.Attempt) 都基于 SELECT 读到的 m.Attempt 计算。
+	// 无法把决策整体下推到单条 UPDATE 的 CASE 表达式——next_attempt_at = Backoff(attempt) 的 jitter
+	// 在 Go 侧计算（依赖 ID+attempt，不可移植到 SQL）。改用乐观锁：UPDATE 的 WHERE 加 attempt = m.Attempt，
+	// 若 attempt 在 SELECT 与 UPDATE 之间被并发改动，则 0 行受影响 → 返回 ErrConflict（fail-fast，不污染状态），
+	// 而非用过期的 deadLetter/退避覆盖行。
 	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
-		Where("id = ? AND status = ? AND claim_id = ?", m.ID, reliable.StatusProcessing, string(tok)).
+		Where("id = ? AND status = ? AND claim_id = ? AND attempt = ?", m.ID, reliable.StatusProcessing, string(tok), m.Attempt).
 		Updates(updates).RowsAffected
 	if rows == 0 {
 		return reliable.ErrConflict

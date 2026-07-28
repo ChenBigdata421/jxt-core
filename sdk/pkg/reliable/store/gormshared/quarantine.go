@@ -3,7 +3,6 @@ package gormshared
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
@@ -79,7 +78,7 @@ func (q *GormQuarantineStore) List(ctx context.Context, status string, limit int
 }
 
 func (q *GormQuarantineStore) MarkResolved(ctx context.Context, db *gorm.DB, id, expectedVersion int64, by string) error {
-	now := time.Now().UTC()
+	now := nowUTC()
 	rows := db.WithContext(ctx).Model(&QuarantineModel{}).
 		Where("id = ? AND row_version = ?", id, expectedVersion).
 		Updates(map[string]any{
