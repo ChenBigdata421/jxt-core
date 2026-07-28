@@ -514,6 +514,14 @@ dbConfig, ok := p.GetServiceDatabaseConfig(tenantID, "security-management")
 
 ## 版本历史
 
+- v1.1.67 - 文档 release：补登 v1.1.60–v1.1.66 版本历史（根 README 版本历史自 v1.1.59 后断档 7 个版本未登记）；无代码变更；将 v1.1.60 标记为废弃（sumdb 锁定，被 v1.1.61 替代）
+- v1.1.66 - PR-1 投递契约（delivery contract，破坏性变更）：EventBus 新增 `EnvelopeDelivery`/`RawMeta`/`MessageHeader` 契约 + `EnvelopeDeliveryOptionsSubscriber` 能力接口，Kafka `SubscribeEnvelopeDeliveryWithOptions` 填充 raw key/value、保序去重保留 headers、topic/partition/offset/timestamp、sha256 payload hash，actor pool 显式线程化 `Raw`+`DeliveryHandler`（无 context key，M14）；C6 `PoisonMessage.Headers` 由 `map[string]string` 改为 `[]MessageHeader`（保序+重复键）并加 `Timestamp`，Key/Value 防御性拷贝；C4 仅 `kafkaEventBus` 实现 delivery 订阅，memory/nats fail-fast；Outbox 发布侧死信终态（C1）：`EventStatusDeadLettered` 状态 + `dead_lettered_at`/`dlq_notified_at` 列 + 迁移 003，`OutboxRepository` 新增 `MarkAsDeadLettered`(CAS)/`FindUnnotifiedDeadLettered`/`MarkDeadLetterNotified`(CAS)，`processDLQ` 重写为 CAS 终态 + 通知拆分（crash 可下一轮补发、无孤儿中间态）；C2 Alert 不再被 Handle 失败吞；C3 删 `NoOpDLQHandler`、`EnableDLQ=false` 默认、`Validate` 拒绝 `EnableDLQ=true`+nil handler；reconnect 重建 consumer-group + restoreSubscriptions 闭包恢复；新增 Tier-1 系统测试（真 MySQL：DLQ + 幂等端到端）。破坏性：`OutboxRepository` 接口 +3 方法、`PoisonMessage.Headers` 类型变更，消费方需跟随
+- v1.1.65 - EventBus 分区流水线 stall 加固：hoist stall-elapsed 局部变量、补 partition-stall metric 测试缺口；新增 partition-stall 注入 seam（core 命名 + service 侧实现）；文档化 stall-counter 灵敏度权衡
+- v1.1.64 - EventBus `ensureKafkaTopicIdempotent` 修复：检查 `metadata[0].Err`，防止 topic 不存在时被误判为已存在（与 `GetTopicPartitions` 同一 sarama DescribeTopics 坑；仍被 RedPanda auto-create 掩盖，naive 修复会破坏启动故保留）
+- v1.1.63 - PR-2 后续加固：提交 `go.sum`（此前被 gitignore，全新 checkout 无法构建，2026-07-17 修复）；3 处并发修复——adapter tenant-loop spawn vs Close 的 WaitGroup panic、InProcess publisher close-vs-send 数据竞争、三驱动 RegisterTenant-vs-Close TOCTOU；ACK-drop 日志对齐（kafka/nats）；新增 broker-free `-race` 并发测试（kafka/nats/memory byte-parallel）+ 2 个 CI workflow（test-race、test-regression via docker-compose-nats）
+- v1.1.62 - PR-2 Outbox ACK 生命周期契约：无损 ACK 准入（admission）+ 稳定终态错误 Close + Kafka producerResultWg（sender WG）+ adapter join + default-off/checked 构造器 + createdStreams 缓存修复
+- v1.1.61 - jwtauth 新增 `GetPoliceName` getter（读 policename claim）、弃用 dormant `GetOrgId`（错误 key 'orgid'，0 调用方，v1.3 移除）；作为 v1.1.60 的干净替换发布（2026-07-12）
+- v1.1.60 - ⚠️ 废弃：tag 内容含 `GetPoliceName`+弃用 `GetOrgId`，但 sumdb 锁定在 pre-GetPoliceName 内容，消费者拉取不到目标代码，不可用，已被 v1.1.61 替代，请勿引用
 - v1.1.59 - Outbox 异步 ACK 批量化（ackMarkerBatcher）：成功 ACK 攒满 50 条或每 200ms flush 一次 MarkBatchAsPublished，解开生产端 commit-bound；配套加固——flushFunc panic recover、防 onError 自死锁（异步+recover）、监听器 Done-ch 快照防竞争、连续失败计数节流、关停冲刷剩余 + 回归测试
 - v1.1.58 - Outbox v2.0.0：SyncSemanticsPublisher 同步/异步标记分流；FindPublishedByIdempotencyKeys 批量幂等检查；BatchUpdate 更名为 MarkBatchAsPublished（单条 UPDATE 状态迁移，幂等 WHERE status='pending'）；filterPublishedEvents 批量化（破坏性接口变更）
 - v1.1.57 - EventBus 新增 TopicPartitionInfo 可选接口（分区查询）；修复 create_or_update 未扩已有 topic 分区
