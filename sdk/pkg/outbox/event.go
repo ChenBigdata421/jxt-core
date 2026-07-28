@@ -272,6 +272,17 @@ func (e *OutboxEvent) Clone() *OutboxEvent {
 		lastRetryAt := *e.LastRetryAt
 		clone.LastRetryAt = &lastRetryAt
 	}
+	// DeadLetteredAt / DlqNotifiedAt 是 C1 新增的 *time.Time 指针字段；必须与
+	// PublishedAt/ScheduledAt/LastRetryAt 同样深拷贝，否则 clone 与原对象共享指针，
+	// 修改一方会反向污染另一方（快照/测试隔离失效）。
+	if e.DeadLetteredAt != nil {
+		v := *e.DeadLetteredAt
+		clone.DeadLetteredAt = &v
+	}
+	if e.DlqNotifiedAt != nil {
+		v := *e.DlqNotifiedAt
+		clone.DlqNotifiedAt = &v
+	}
 	return &clone
 }
 

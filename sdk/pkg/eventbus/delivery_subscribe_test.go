@@ -2,7 +2,9 @@ package eventbus
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/IBM/sarama"
 	"go.uber.org/zap"
@@ -140,11 +142,12 @@ func TestRegisterTopicSubscription_RejectsAmbiguousHandlers(t *testing.T) {
 	k := newKafkaBusForRegisterTest(t)
 	msgH := func(ctx context.Context, m []byte) error { return nil }
 	delH := func(ctx context.Context, d EnvelopeDelivery) error { return nil }
+	restorer := func(context.Context) error { return nil } // 值无关紧要——D3 在 LoadOrStore 之前拒绝
 
 	if err := k.registerTopicSubscription(context.Background(), "a", nil, nil, nil, true, EnvelopeSubscribeOptions{}); err == nil {
 		t.Fatal("both handlers nil must be rejected at subscribe time")
 	}
-	if err := k.registerTopicSubscription(context.Background(), "b", msgH, delH, msgH, true, EnvelopeSubscribeOptions{}); err == nil {
+	if err := k.registerTopicSubscription(context.Background(), "b", msgH, delH, restorer, true, EnvelopeSubscribeOptions{}); err == nil {
 		t.Fatal("both handlers non-nil must be rejected at subscribe time")
 	}
 }
@@ -201,16 +204,134 @@ func TestBuildAggregateMessage_PopulatesRawAndDeliveryHandler(t *testing.T) {
 	}
 }
 
-// D10 回归：subscriptions 里混入 EnvelopeDeliveryHandler 时，重连恢复必须
-// 「跳过 + 记错误日志」，绝不能 panic（旧无条件断言会 panic 在无 recover 的重连 goroutine）。
-func TestRestoreSubscriptions_SkipsDeliveryHandlerWithoutPanic(t *testing.T) {
+// D10 回归（修复后）：重连后 restoreSubscriptions 必须恢复【全部三种】订阅——
+// plain / envelope / delivery。旧实现把 delivery 条目归为 unrestorable 并静默丢弃。
+// 「先删后调」还顺带修了历史 F6（无 Delete → Subscribe 返回 already subscribed）。
+func TestRestoreSubscriptions_RestoresAllKinds(t *testing.T) {
 	k := newKafkaBusForRegisterTest(t)
-	var dh EnvelopeDeliveryHandler = func(context.Context, EnvelopeDelivery) error { return nil }
-	k.subscriptions.Store("t-delivery", dh)
+	ctx := context.Background()
 
-	// 只放 delivery 条目：混入 plain 条目会撞上既有缺陷（无 Delete → Subscribe 返回
-	// already subscribed），那是另一个 bug，不在本用例射程内。
-	if err := k.restoreSubscriptions(context.Background()); err != nil {
-		t.Fatalf("restoreSubscriptions must skip delivery entries, got error: %v", err)
+	plainH := func(context.Context, []byte) error { return nil }
+	envH := func(context.Context, *Envelope) error { return nil }
+	delH := func(context.Context, EnvelopeDelivery) error { return nil }
+
+	if err := k.Subscribe(ctx, "t-plain", plainH); err != nil {
+		t.Fatalf("Subscribe plain: %v", err)
+	}
+	if err := k.subscribeEnvelope(ctx, "t-env", envH, EnvelopeSubscribeOptions{}); err != nil {
+		t.Fatalf("subscribeEnvelope: %v", err)
+	}
+	if err := k.subscribeEnvelopeDelivery(ctx, "t-del", delH, EnvelopeSubscribeOptions{}); err != nil {
+		t.Fatalf("subscribeEnvelopeDelivery: %v", err)
+	}
+
+	// 模拟重连把 active handlers 撕掉（broker 端消费者已 gone，待 restore 重建）。
+	k.activeTopicHandlers.Delete("t-plain")
+	k.activeTopicHandlers.Delete("t-env")
+	k.activeTopicHandlers.Delete("t-del")
+
+	// 重连恢复：三种订阅都必须重新激活，不能只恢复 plain/envelope 而丢 delivery。
+	if err := k.restoreSubscriptions(ctx); err != nil {
+		t.Fatalf("restoreSubscriptions must restore all three kinds, got: %v", err)
+	}
+
+	for _, topic := range []string{"t-plain", "t-env", "t-del"} {
+		v, ok := k.activeTopicHandlers.Load(topic)
+		if !ok {
+			t.Errorf("topic %s must be re-activated after restore", topic)
+			continue
+		}
+		w, ok := v.(*handlerWrapper)
+		if !ok {
+			t.Errorf("topic %s active handler has wrong type %T", topic, v)
+			continue
+		}
+		switch topic {
+		case "t-del":
+			if w.deliveryHandler == nil {
+				t.Error("delivery topic must be restored with its deliveryHandler (D10)")
+			}
+		case "t-env":
+			if w.handler == nil {
+				t.Error("envelope topic must be restored with its (wrapped) handler (D10)")
+			}
+		case "t-plain":
+			if w.handler == nil {
+				t.Error("plain topic must be restored with its handler (D10)")
+			}
+		}
+	}
+}
+
+// fakeConsumerGroup 是消费循环重连测试用的假 sarama.ConsumerGroup。只实现 Consume/Close
+// （nil-embed 接口保其余方法签名；测试路径只调 Consume，生产修复路径只调 Close）。不接触 broker。
+type fakeConsumerGroup struct {
+	sarama.ConsumerGroup // nil-embedded：仅满足接口签名，未覆盖方法不会在测试路径被调
+	id           string
+	consumeCalls int32
+	closed       int32
+}
+
+func (f *fakeConsumerGroup) Consume(ctx context.Context, topics []string, handler sarama.ConsumerGroupHandler) error {
+	atomic.AddInt32(&f.consumeCalls, 1)
+	// 模拟「Consume 返回（重平衡/会话结束）→ 循环重新迭代」；短暂 sleep 避免忙循环吃满 CPU。
+	time.Sleep(2 * time.Millisecond)
+	return nil
+}
+
+func (f *fakeConsumerGroup) Close() error {
+	atomic.StoreInt32(&f.closed, 1)
+	return nil
+}
+
+// D10 完整修复回归：消费循环每轮从 k.unifiedConsumerGroup 取 group 调 Consume。
+// 模拟重连——把 unifiedConsumerGroup 替换成新 group——循环必须在下一次迭代读到新 group。
+// 这条【循环侧】不变量 + reinitializeConnection 重建 group，共同保证「重连后真实消费恢复」。
+// （reinitializeConnection 自身调 sarama.NewClient 会拨号，无法 broker-free 测试；本测试钉住
+// 它依赖的循环侧不变量——若循环不重读 group，reinitializeConnection 的重建也无济于事。）
+func TestConsumeLoop_ReadsReplacedConsumerGroup(t *testing.T) {
+	k := newKafkaBusForRegisterTest(t)
+	k.consumerStarted = false                  // 默认 true 是为短路消费者启动；这里要真起循环
+	k.topicsSnapshot.Store([]string{"t-fake"}) // 非空，否则循环会等 ctx.Done 直接退出
+
+	g1 := &fakeConsumerGroup{id: "g1"}
+	k.unifiedConsumerGroup.Store(g1)
+
+	if err := k.startPreSubscriptionConsumer(context.Background()); err != nil {
+		t.Fatalf("startPreSubscriptionConsumer: %v", err)
+	}
+	defer func() {
+		if k.consumerCancel != nil {
+			k.consumerCancel()
+		}
+		<-k.consumerDone
+	}()
+
+	waitConsumed := func(g *fakeConsumerGroup, what string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && atomic.LoadInt32(&g.consumeCalls) == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if atomic.LoadInt32(&g.consumeCalls) == 0 {
+			t.Fatalf("loop never Consume'd on %s", what)
+		}
+	}
+
+	// 循环先在 g1 上 Consume。
+	waitConsumed(g1, "g1 (before swap)")
+
+	// 模拟重连修复：用新 group 替换 unifiedConsumerGroup（reinitializeConnection 现在就是这么做的）。
+	g2 := &fakeConsumerGroup{id: "g2"}
+	k.unifiedConsumerGroup.Store(g2)
+
+	// 循环下一次迭代必须读到 g2 并 Consume。
+	waitConsumed(g2, "g2 (after swap)")
+
+	// 切换后 g1 不应再被调用。
+	g1CallsAtSwap := atomic.LoadInt32(&g1.consumeCalls)
+	time.Sleep(30 * time.Millisecond)
+	if got := atomic.LoadInt32(&g1.consumeCalls); got > g1CallsAtSwap {
+		t.Errorf("g1 must not be invoked after swap; calls grew %d -> %d", g1CallsAtSwap, got)
 	}
 }

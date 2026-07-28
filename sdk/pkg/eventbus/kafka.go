@@ -151,10 +151,10 @@ type kafkaEventBus struct {
 
 	// 🔥 高频路径：改为 sync.Map（消息处理时无锁查找）
 	// 订阅管理（用于重连后恢复订阅）- 保持兼容性
-	// M15：这张 map 现在是异构的——plain/envelope 订阅存 MessageHandler，
-	// delivery 订阅存 EnvelopeDeliveryHandler。restoreSubscriptions 用 comma-ok 区分，
-	// 任何新代码写入此 map 前请先看 registerTopicSubscription 的 storeHandler 形参。
-	subscriptions sync.Map // key: string (topic), value: MessageHandler；delivery 订阅存 EnvelopeDeliveryHandler（M15）
+	// D10 fix：每个 topic 存一个 restorer 闭包（捕获原始 handler + opts），restoreSubscriptions
+	// 删旧条目后调用它按原路径重新订阅——plain/envelope/delivery 三种订阅都能在重连后恢复。
+	// 任何新代码写入此 map 前请先看 registerTopicSubscription 的 restorer 形参。
+	subscriptions sync.Map // key: string (topic), value: func(context.Context) error（restorer 闭包）
 
 	// 全局 Hollywood Actor Pool（所有 topic 共享）
 	globalActorPool *HollywoodActorPool // ⭐ 全局 Hollywood Actor Pool（统一架构）
@@ -1664,8 +1664,10 @@ func (k *kafkaEventBus) Subscribe(ctx context.Context, topic string, handler Mes
 	// 预订阅模式 - 激活topic处理器
 
 	// ✅ 使用 sync.Map 存储订阅信息（用于重连后恢复）
-	// 使用 LoadOrStore 检查重复订阅
-	if _, loaded := k.subscriptions.LoadOrStore(topic, handler); loaded {
+	// 存 restorer 闭包（捕获 topic+handler）：restoreSubscriptions 删旧条目后调用它重新订阅，
+	// 保证 plain 订阅在重连后恢复（D10）。
+	restorer := func(rctx context.Context) error { return k.Subscribe(rctx, topic, handler) }
+	if _, loaded := k.subscriptions.LoadOrStore(topic, restorer); loaded {
 		k.mu.Unlock()
 		return fmt.Errorf("already subscribed to topic: %s", topic)
 	}
@@ -2160,6 +2162,11 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 	if admin, err := k.getAdmin(); err == nil && admin != nil {
 		admin.Close()
 	}
+	// D10 完整修复：关闭旧 unifiedConsumerGroup。consume loop 每轮从 k.unifiedConsumerGroup
+	// 取 group 调 Consume；旧 group 绑定到下方即将关闭的旧 client，不关闭+重建会让循环永远重试死 group。
+	if oldGroup, err := k.getUnifiedConsumerGroup(); err == nil && oldGroup != nil {
+		oldGroup.Close()
+	}
 	if client, err := k.getClient(); err == nil && client != nil {
 		client.Close()
 	}
@@ -2201,11 +2208,24 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 		return fmt.Errorf("failed to create kafka admin: %w", err)
 	}
 
+	// 重新创建统一消费者组（绑定新 client）。consume loop 从 k.unifiedConsumerGroup 取 group 调
+	// Consume；不重建会让循环继续用绑定到【已关闭旧 client】的旧 group，重连后真实消费不恢复
+	// （D10 完整修复——restoreSubscriptions 只解决了 handler 重注册，这半是 broker 消费者本身）。
+	unifiedConsumerGroup, err := sarama.NewConsumerGroupFromClient(k.config.Consumer.GroupID, client)
+	if err != nil {
+		admin.Close()
+		consumer.Close()
+		asyncProducer.Close()
+		client.Close()
+		return fmt.Errorf("failed to recreate unified consumer group: %w", err)
+	}
+
 	// ✅ 使用 atomic.Value 存储
 	k.client.Store(client)
 	k.asyncProducer.Store(asyncProducer)
 	k.consumer.Store(consumer)
 	k.admin.Store(admin)
+	k.unifiedConsumerGroup.Store(unifiedConsumerGroup)
 
 	// 优化1：重新启动AsyncProducer处理goroutine
 	// PR2-core (Task 4): Add(2) BEFORE the go calls (never after — races with Done).
@@ -2222,42 +2242,43 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 
 // restoreSubscriptions 恢复订阅
 func (k *kafkaEventBus) restoreSubscriptions(ctx context.Context) error {
-	// ✅ 使用 sync.Map 遍历订阅
-	// M15（D10）：k.subscriptions 现在是异构的——plain/envelope 订阅存 MessageHandler，
-	// delivery 订阅存 EnvelopeDeliveryHandler。旧代码此处是无条件 `value.(MessageHandler)`，
-	// 一旦存在 delivery 订阅，重连 goroutine（无 recover）直接 panic。
-	// PR-1 契约只到「不 panic、不静默」：delivery 条目跳过 + 记 Error 日志；
-	// delivery 的重连恢复留 PR-2（PR1_SCOPE.md carry-over）。
-	subscriptions := make(map[string]MessageHandler)
-	var unrestorable []string
+	// D10 fix：k.subscriptions 存的是每个 topic 的 restorer 闭包（捕获原始 handler + opts）。
+	// 快照后【先删后调】：每个 Subscribe* 内部 LoadOrStore，若不先删会撞 "already subscribed"
+	// 守卫（历史 F6 缺陷——重连后所有订阅都恢复不了）。删旧条目后调用 restorer 按原路径重新订阅，
+	// plain/envelope/delivery 三种一视同仁——delivery 不再被静默丢弃。
+	type sub struct {
+		topic    string
+		restorer func(context.Context) error
+	}
+	var subs []sub
 	k.subscriptions.Range(func(key, value interface{}) bool {
-		topic := key.(string)
-		handler, ok := value.(MessageHandler)
+		topic, ok := key.(string)
 		if !ok {
-			// delivery 订阅存的是 EnvelopeDeliveryHandler，形态上无法走 k.Subscribe 恢复。
-			unrestorable = append(unrestorable, topic)
 			return true
 		}
-		subscriptions[topic] = handler
+		restorer, ok := value.(func(context.Context) error)
+		if !ok {
+			k.logger.Error("unrecognized subscription entry; skipping",
+				zap.String("topic", topic))
+			return true
+		}
+		subs = append(subs, sub{topic: topic, restorer: restorer})
 		return true
 	})
-	if len(unrestorable) > 0 {
-		k.logger.Error("delivery subscriptions cannot be restored after reconnect; these topics stay unsubscribed until process restart (PR-2 carry-over)",
-			zap.Strings("topics", unrestorable))
-	}
 
-	for topic, handler := range subscriptions {
-		k.logger.Info("Restoring subscription", zap.String("topic", topic))
-		if err := k.Subscribe(ctx, topic, handler); err != nil {
+	for _, s := range subs {
+		k.subscriptions.Delete(s.topic) // 清旧条目，让 restorer 内部的 LoadOrStore 重新写入
+		k.logger.Info("Restoring subscription", zap.String("topic", s.topic))
+		if err := s.restorer(ctx); err != nil {
 			k.logger.Error("Failed to restore subscription",
-				zap.String("topic", topic),
+				zap.String("topic", s.topic),
 				zap.Error(err))
-			return fmt.Errorf("failed to restore subscription for topic %s: %w", topic, err)
+			return fmt.Errorf("failed to restore subscription for topic %s: %w", s.topic, err)
 		}
 	}
 
 	k.logger.Info("All subscriptions restored successfully",
-		zap.Int("count", len(subscriptions)))
+		zap.Int("count", len(subs)))
 	return nil
 }
 
@@ -2991,8 +3012,9 @@ func (k *kafkaEventBus) subscribeEnvelope(ctx context.Context, topic string, han
 	}
 
 	// msgHandler=wrappedHandler（走 MessageHandler 路径），deliveryHandler=nil（不是 Delivery 订阅）。
-	// storeHandler=wrappedHandler：重连恢复时 k.subscriptions 里存的是 MessageHandler 形态。
-	return k.registerTopicSubscription(ctx, topic, wrappedHandler, nil, wrappedHandler, true, opts)
+	// restorer 捕获【原始】EnvelopeHandler + opts：重连时按原路径重新订阅（D10：envelope 订阅可恢复）。
+	restorer := func(rctx context.Context) error { return k.subscribeEnvelope(rctx, topic, handler, opts) }
+	return k.registerTopicSubscription(ctx, topic, wrappedHandler, nil, restorer, true, opts)
 }
 
 // registerTopicSubscription 是 Envelope 类订阅的共享注册路径（D2）。
@@ -3004,14 +3026,14 @@ func (k *kafkaEventBus) subscribeEnvelope(ctx context.Context, topic string, han
 // 错误接线在订阅期就报错，而不是等第一条消息流到 actor goroutine 才 nil-panic
 // （那里无 recover，会走 supervisor 重启）。
 //
-// storeHandler：存入 k.subscriptions（重连恢复用）的值；由调用方决定，
-// 因为 delivery 路径没有 MessageHandler 形态（存 EnvelopeDeliveryHandler，restoreSubscriptions 会跳过——见 D10）。
+// restorer：存入 k.subscriptions（重连恢复用）的闭包；由调用方构造，捕获原始 handler + opts，
+// 按 plain/envelope/delivery 原路径重新订阅。restoreSubscriptions 删旧条目后调用它（见 D10 修复）。
 func (k *kafkaEventBus) registerTopicSubscription(
 	ctx context.Context,
 	topic string,
 	msgHandler MessageHandler,
 	deliveryHandler EnvelopeDeliveryHandler,
-	storeHandler interface{},
+	restorer func(context.Context) error,
 	isEnvelope bool,
 	opts EnvelopeSubscribeOptions,
 ) error {
@@ -3030,7 +3052,7 @@ func (k *kafkaEventBus) registerTopicSubscription(
 
 	// ✅ 使用 sync.Map 存储订阅信息（用于重连后恢复）
 	// 使用 LoadOrStore 检查重复订阅
-	if _, loaded := k.subscriptions.LoadOrStore(topic, storeHandler); loaded {
+	if _, loaded := k.subscriptions.LoadOrStore(topic, restorer); loaded {
 		k.mu.Unlock()
 		return fmt.Errorf("already subscribed to topic: %s", topic)
 	}
@@ -3069,9 +3091,10 @@ func (k *kafkaEventBus) subscribeEnvelopeDelivery(ctx context.Context, topic str
 		return fmt.Errorf("nil EnvelopeDeliveryHandler for topic %s", topic)
 	}
 	// msgHandler=nil（不走 MessageHandler 路径），deliveryHandler=handler。
-	// storeHandler=handler（EnvelopeDeliveryHandler）：重连恢复时 restoreSubscriptions
-	// 识别不出 MessageHandler 形态，会跳过并记 Error 日志（D10）——delivery 的重连恢复留 PR-2。
-	return k.registerTopicSubscription(ctx, topic, nil, handler, handler, true, opts)
+	// restorer 捕获原始 EnvelopeDeliveryHandler + opts：重连时按原路径重新订阅（D10 修复：
+	// delivery 订阅不再被 restoreSubscriptions 跳过）。
+	restorer := func(rctx context.Context) error { return k.subscribeEnvelopeDelivery(rctx, topic, handler, opts) }
+	return k.registerTopicSubscription(ctx, topic, nil, handler, restorer, true, opts)
 }
 
 // SubscribeEnvelopeDeliveryWithOptions 实现 EnvelopeDeliveryOptionsSubscriber（M15）。

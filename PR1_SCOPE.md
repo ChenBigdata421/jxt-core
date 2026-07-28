@@ -76,17 +76,19 @@ These 5 items reference `sdk/pkg/reliable` artifacts that PR-2 creates — expli
 - **MessageHeader JSON contract (OV#9)**: when PR-2 persists `RawMeta.Headers` to a `headers JSON`
   column, `Value []byte` will encode as base64 via `encoding/json`. Order + duplicate keys survive,
   but add a MarshalJSON/round-trip contract test so consumers don't misread it as raw bytes.
-- **delivery reconnect restore (D10)**: `restoreSubscriptions` (kafka.go) can only restore
-  `MessageHandler`-shaped entries. PR-1 changed the unconditional `value.(MessageHandler)` assertion
-  to comma-ok, so delivery topics are **skipped + Error-logged** (otherwise the reconnect goroutine
-  — no recover — would panic). Consequence: after a Kafka reconnect, delivery topics need a process
-  restart to resume consumption. PR-2 should change the `k.subscriptions` value to a discriminable
-  struct (`{handler, deliveryHandler, isEnvelope, opts}`) and dispatch restore by shape.
-- **Pre-existing defect (not this PR)**: `restoreSubscriptions` calls `k.Subscribe` without first
-  `k.subscriptions.Delete(topic)` (no `Delete` anywhere in kafka.go), so the `LoadOrStore` always
-  reports `loaded` → reconnect restore returns `already subscribed to topic` on the first entry.
-  I.e. reconnect restoration is broken today for any non-empty subscription set. Logged to root
-  `TODOS.md` — do not misattribute to the delivery change.
+- **delivery reconnect restore (D10) — FIXED in PR-1** (was a PR-2 carry-over): `restoreSubscriptions`
+  now stores a **restorer closure** per topic in `k.subscriptions` (capturing the original handler +
+  opts), and restores by **snapshot -> Delete -> call restorer**. This dispatches plain/envelope/delivery
+  by the captured subscribe path, so delivery topics are no longer skipped + Error-logged. Verified by
+  `TestRestoreSubscriptions_RestoresAllKinds` (broker-free seam).
+- **Pre-existing reconnect restore defect (F6) — also FIXED**: the same Delete-before-restore change
+  closes the historic `LoadOrStore` -> "already subscribed" guard bug (reconnect restoration was broken
+  for any non-empty subscription set). Both fixes ride the same `restoreSubscriptions` rewrite.
+- **reconnect consumer-group rebuild (D10-complete)**: `reinitializeConnection` now also closes the old
+  `unifiedConsumerGroup` and rebuilds it from the new client via `sarama.NewConsumerGroupFromClient`
+  (stored in `k.unifiedConsumerGroup`). Without this the consume loop kept re-`Consume`-ing the dead
+  group bound to the closed client, so handler re-registration alone did not resume real consumption.
+  Verified by `TestConsumeLoop_ReadsReplacedConsumerGroup` (fake ConsumerGroup + real loop, broker-free).
 - **D11 — `NewSchedulerChecked`** (panic → error): not in PR-1; logged to root `TODOS.md`.
 - **D12 — gorm repository UTC timestamps**: PR-1's new repo methods use `time.Now().UTC()`; the
   pre-existing `MarkAsMaxRetry`/`MarkBatchAsPublished` use bare `time.Now()`. Normalize repo-wide
