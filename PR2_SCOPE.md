@@ -23,7 +23,7 @@ safety), §8.4 (MarkFailed matrix), §10 (metrics), §11 (PR-2 acceptance).
 - **gormshared core** (`sdk/pkg/reliable/store/gormshared/`) — the shared ~500-line heart
   (D17): `store.go` (TryClaim with inline CAS reclaim + D4 LEASE_ORPHAN anomaly, FindEligibleHeads
   with D5 dead-branch removal, MarkFailed/MarkSucceeded/ScheduleReplay/Discard, ObserveExpiredLeases
-  batch insert + STUCK_PROCESSING escalation, AcquireAggregateGate/ReleaseAggregateGate,
+  batch insert (LEASE_ORPHAN only — STUCK_PROCESSING reverted to PR-7, review R3), AcquireAggregateGate/ReleaseAggregateGate,
   QuarantineStore), `model.go` (GORM tags + anomaly model with `uk_anomaly_once`), `fingerprint.go`
   (D10 sha256 64-hex + D11 PII redactor), `now.go` (UTC oracle), `quarantine.go`.
 - **Thin dialect packages** (D17):
@@ -37,8 +37,9 @@ safety), §8.4 (MarkFailed matrix), §10 (metrics), §11 (PR-2 acceptance).
   pooled-visible + forbidden-case tx-join) + quarantine + `explain_test.go` (D22 deterministic
   EXPLAIN gate, 2K-row seed). **Controller-verified 48/48 pass on real MySQL+PG (2026-07-28).**
 - **Lease runner** (`sdk/pkg/reliable/lease/`) — D20: `ObserveExpiredLeases` only records
-  anomalies (`LEASE_ORPHAN` batch + `STUCK_PROCESSING` escalation); does NOT mutate row status
-  or ownership. The sole re-claim path is `TryClaim`'s inline CAS.
+  anomalies (`LEASE_ORPHAN` batch only — STUCK_PROCESSING + `RecoverStuckProcessing` reverted to
+  PR-7, review R3); does NOT mutate row status or ownership. The sole re-claim path is
+  `TryClaim`'s inline CAS.
 - **Replay scheduler** (`sdk/pkg/reliable/replay/`) — eligible-head `Tick`/`Run` loop;
   aggregate gate acquired BEFORE `ClaimForReplay` (A3); three post-claim branches via Store
   methods (D8 — no raw SQL bypass): `MarkSucceeded` / `MarkFailed` (matrix decides
@@ -148,11 +149,14 @@ inline in the source file it originates from.
 4. **`idx_aggregate` tail column `first_seen_at`** (T7/T8, D22) — appended so the
    `FindEligibleHeads NOT EXISTS` subquery has a deterministic tie-breaker when events carry no
    `causal_seq`. Spec §2.1 index definition lacks it.
-5. **`STUCK_PROCESSING` anomaly kind** (T7 gormshared/store.go) — extends the spec §2.3 closed
-   enum (`CLAIM_TOKEN_MISMATCH`/`LEASE_ORPHAN`) with a third kind for lease-orphan rows past
-   `stuckProcessingThreshold` (P1 alert, separable from transient P2 `LEASE_ORPHAN`).
-   - **Spec revision needed**: §2.3 enum + §10 metric label, OR carry the whole anomaly-kind
-     question to PR-7.
+5. **`STUCK_PROCESSING` anomaly kind — REVERTED to PR-7 (review R3)**: PR-2 originally shipped a
+   third anomaly kind for lease-orphan rows past a 2h `stuckProcessingThreshold` (P1 alert,
+   separable from transient P2 `LEASE_ORPHAN`), extending spec §2.3's closed enum. The spec is not
+   in-repo, so §2.3/§10 could not be revised alongside PR-2; rather than ship a spec-undefined kind
+   (ops would see a Grafana signal with no spec meaning), the escalation was removed from
+   `ObserveExpiredLeases` (now LEASE_ORPHAN only) and the whole stuck-row closure moves to PR-7 as
+   one unit: `STUCK_PROCESSING` kind + `RecoverStuckProcessing(id, reconstructedPayload)` ops API +
+   spec §2.3/§10 revision. See the R3 comment in `gormshared/store.go`.
 
 **Other deviations (lower-stakes, documentation-only)**:
 - `idx_due` is partial on PostgreSQL (`WHERE status = 'RETRY_SCHEDULED'`) and non-partial on

@@ -70,27 +70,30 @@ CREATE INDEX IF NOT EXISTS idx_handler  ON event_consumption (handler_id, status
 CREATE INDEX IF NOT EXISTS idx_aggregate ON event_consumption (tenant_id, aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at);
 
 CREATE TABLE IF NOT EXISTS consumption_anomalies (
-  id BIGSERIAL PRIMARY KEY, kind VARCHAR(32) NOT NULL, event_id VARCHAR(64),
-  handler_id VARCHAR(100),
+  -- review #11：列入 uk_anomaly_once 的列须 NOT NULL DEFAULT ''（NULL 在唯一索引里互不相等，与 claim_id 同处理）。
+  id BIGSERIAL PRIMARY KEY, kind VARCHAR(32) NOT NULL, event_id VARCHAR(64) NOT NULL DEFAULT '',
+  handler_id VARCHAR(100) NOT NULL DEFAULT '',
   -- B8：与 AnomalyModel.TenantID int / MySQL DDL 对齐
   tenant_id INT NOT NULL DEFAULT 0,
   claim_id VARCHAR(36) NOT NULL DEFAULT '',
   detail TEXT, created_at TIMESTAMP(3) NOT NULL,
   -- 幂等键（本轮评审）：ObserveExpiredLeases 每 tick 反复扫到同一孤儿行，靠此唯一键 +
   -- ON CONFLICT DO NOTHING 保证同一次占位只记一条，避免 LEASE_ORPHAN 告警自噪。
-  CONSTRAINT uk_anomaly_once UNIQUE (kind, event_id, handler_id, claim_id)
+  -- review #6：键含 tenant_id（与 MySQL DDL 对齐）——纵深防御跨租户幂等（见 MySQL DDL 同名注释）。
+  CONSTRAINT uk_anomaly_once UNIQUE (kind, tenant_id, event_id, handler_id, claim_id)
 );
 CREATE INDEX IF NOT EXISTS idx_kind_time ON consumption_anomalies (kind, created_at);
 
 CREATE TABLE IF NOT EXISTS raw_message_quarantine (
-  id BIGSERIAL PRIMARY KEY, handler_id VARCHAR(100) NOT NULL, topic VARCHAR(100) NOT NULL,
+  -- review #1：租户隔离——隔离区同样按租户隔离（与 event_consumption.tenant_id 对齐）。
+  id BIGSERIAL PRIMARY KEY, tenant_id INT NOT NULL, handler_id VARCHAR(100) NOT NULL, topic VARCHAR(100) NOT NULL,
   src_partition INT NOT NULL, src_offset BIGINT NOT NULL, raw_value BYTEA NOT NULL, raw_key BYTEA,
   headers JSONB NOT NULL, raw_payload_hash VARCHAR(64) NOT NULL, broker_timestamp TIMESTAMP(3),
   error_message TEXT, status VARCHAR(16) NOT NULL, row_version BIGINT NOT NULL DEFAULT 1,
   resolved_at TIMESTAMP(3), resolved_by VARCHAR(100), created_at TIMESTAMP(3) NOT NULL,
   CONSTRAINT uk_raw_delivery UNIQUE (topic, src_partition, src_offset, handler_id)
 );
-CREATE INDEX IF NOT EXISTS idx_raw_status ON raw_message_quarantine (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_raw_status ON raw_message_quarantine (tenant_id, status, created_at);
 
 CREATE TABLE IF NOT EXISTS consumption_aggregate_leases (
   tenant_id INT NOT NULL, aggregate_type VARCHAR(64) NOT NULL, aggregate_id VARCHAR(100) NOT NULL,

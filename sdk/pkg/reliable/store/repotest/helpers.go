@@ -108,13 +108,14 @@ func rowCount(t *testing.T, d *ConformanceDeps, key reliable.Key) int64 {
 // forceExpireLease 把行的 lease 设为「刚过期」——绑定一个 Go time.Time（两方言均接受），
 // 避开 D7 担心的 DATEADD 占位分歧。
 //
-// C7：必须用「近期过期」而非字面 '1970-01-01 00:00:00'。ObserveExpiredLeases 的 kind 选择逻辑是
-// `now - lease_expires_at > 2h ⇒ STUCK_PROCESSING`；1970 距 now 56 年，恒落 STUCK_PROCESSING，
-// 本用例测的是瞬态 LEASE_ORPHAN 路径，会被 misclassify 成 stuck → 断言 anomalyCount(LEASE_ORPHAN)
-// 永远 0。kernel 行为（1970=极旧=stuck）本身正确，是测试的过期量级选错了。
+// C7：用「近期过期」（1 分钟前）而非字面 '1970-01-01 00:00:00'，保留对未来 STUCK_PROCESSING 分级的
+// 前瞻兼容——PR-7 会按 `now - lease_expires_at > 2h ⇒ STUCK_PROCESSING` 重新引入 kind 分级（见
+// store.ObserveExpiredLeases 的 PR-7 carry-over 注释 + PR2_SCOPE deviation #5）；届时 1970 会恒落
+// STUCK_PROCESSING，本用例测的 LEASE_ORPHAN 路径就会被 misclassify。PR-2 本方法只产 LEASE_ORPHAN
+// （分级已撤），任何过期量级都命中同一 kind，但保持近期过期让本用例在 PR-7 引入分级后无需再改。
 func forceExpireLease(t *testing.T, d *ConformanceDeps, key reliable.Key) {
 	t.Helper()
-	expired := time.Now().UTC().Add(-1 * time.Minute) // 1 分钟前过期：足够 now > lease，又远不及 stuckProcessingThreshold(2h)
+	expired := time.Now().UTC().Add(-1 * time.Minute) // 1 分钟前过期：足够 now > lease，又远不及 PR-7 的 2h stuck 阈值
 	require.NoError(t, d.DB.WithContext(context.Background()).Exec(
 		`UPDATE event_consumption SET lease_expires_at = ? WHERE event_id=? AND handler_id=? AND item_key=?`,
 		expired, key.EventID, string(key.Handler), key.ItemKey).Error)

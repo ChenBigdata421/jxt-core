@@ -33,11 +33,15 @@ func (f fakeRegistry) All() []HandlerInfo { return []HandlerInfo{{HandlerID: f.h
 type fakeHandler struct {
 	id     reliable.HandlerID
 	retErr error
+	panicV any // 非 nil 时 Handle panic（测 recover 路径）
 	calls  int32
 }
 
 func (h *fakeHandler) Handle(context.Context, []byte, reliable.DeliveryMeta) error {
 	atomic.AddInt32(&h.calls, 1)
+	if h.panicV != nil {
+		panic(h.panicV)
+	}
 	return h.retErr
 }
 func (h *fakeHandler) HandlerID() reliable.HandlerID       { return h.id }
@@ -52,6 +56,7 @@ type schedulerFakeStore struct {
 	heads         []store.Row
 	claimTok      reliable.ClaimToken
 	claimErr      error
+	claimAttempt  int // ClaimForReplay 返回的 Row.Attempt（测 defer-exhaustion 用）
 	gateErr       error
 	advanceDue    int32
 	moveToDL      int32
@@ -69,7 +74,7 @@ func (s *schedulerFakeStore) ClaimForReplay(_ context.Context, _ *gorm.DB, id in
 	if s.claimErr != nil {
 		return "", store.Row{}, s.claimErr
 	}
-	return s.claimTok, store.Row{ID: id, HandlerID: "h", EventID: "e"}, nil
+	return s.claimTok, store.Row{ID: id, HandlerID: "h", EventID: "e", Attempt: s.claimAttempt}, nil
 }
 func (s *schedulerFakeStore) ReleaseClaim(context.Context, *gorm.DB, int64, reliable.ClaimToken) error {
 	atomic.AddInt32(&s.releaseClaim, 1)
@@ -83,7 +88,7 @@ func (s *schedulerFakeStore) MoveToDeadLetter(context.Context, *gorm.DB, int64, 
 	atomic.AddInt32(&s.moveToDL, 1)
 	return nil
 }
-func (s *schedulerFakeStore) MoveToDeadLetterWithToken(_ context.Context, _ *gorm.DB, _ int64, _ reliable.ClaimToken, _ string) error {
+func (s *schedulerFakeStore) MoveToDeadLetterWithToken(_ context.Context, _ *gorm.DB, _ int64, _ reliable.ClaimToken, _ reliable.ErrorClass, _ string) error {
 	atomic.AddInt32(&s.moveToDL, 1) // A5：post-claim 死信路径，与 MoveToDeadLetter 共用计数器
 	return nil
 }
@@ -115,7 +120,9 @@ func (s *schedulerFakeStore) ScheduleReplay(context.Context, *gorm.DB, int64, in
 func (s *schedulerFakeStore) Discard(context.Context, *gorm.DB, int64, int64, string, string) error {
 	return nil
 }
-func (s *schedulerFakeStore) ReleaseAggregateGate(context.Context, *gorm.DB, string) error { return nil }
+func (s *schedulerFakeStore) ReleaseAggregateGate(context.Context, *gorm.DB, string) error {
+	return nil
+}
 func (s *schedulerFakeStore) ReclaimExpiredAggregateGates(context.Context, time.Time) (int, error) {
 	return 0, nil
 }
@@ -125,7 +132,7 @@ func (s *schedulerFakeStore) ObserveExpiredLeases(context.Context, time.Time) (i
 func (s *schedulerFakeStore) RecordAnomaly(context.Context, *gorm.DB, int, string, reliable.Key, string, string) error {
 	return nil
 }
-func (s *schedulerFakeStore) GetByID(context.Context, int64) (store.Row, error) {
+func (s *schedulerFakeStore) GetByID(context.Context, int, int64) (store.Row, error) {
 	return store.Row{}, nil
 }
 func (s *schedulerFakeStore) List(context.Context, store.ListFilter) ([]store.Row, error) {
@@ -191,4 +198,47 @@ func TestScheduler_NotPermitted_MovesRetryScheduledRowOut(t *testing.T) {
 	// UNKNOWN_HANDLER 分支刻意不动行（滚动发布中本实例可能尚未注册该 handler）。
 	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.moveToDL))
 	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.claimCalls))
+}
+
+// 本轮评审（bundle 2）：post-claim ErrRetryLater 到达 maxAttempts → DEAD_LETTER
+// （REPLAY_DEFER_EXHAUSTED），不再 ReleaseClaim。防止「handler 永远返回 RetryLater」的行以
+// ~1h 间隔无限重试、永不终结（ClaimForReplay 每轮 attempt+1，故 attempt 会涨到上限）。
+func TestScheduler_RetryLaterAfterClaim_DeferExhausted_DeadLetters(t *testing.T) {
+	fs := &schedulerFakeStore{
+		heads:        []store.Row{retryHead(6)},
+		claimTok:     "tok",
+		claimAttempt: 5, // ClaimForReplay 已 attempt+1 → 5
+	}
+	reg := fakeRegistry{h: &fakeHandler{id: "h", retErr: reliable.ErrRetryLater}}
+	sch := NewScheduler(fs, nil, reg, nil, nil) // 默认 maxAttempts=5 → ShouldDeadLetter(5,5)=true
+	_ = sch.Tick(context.Background())
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.moveToDL), "attempt>=max → MoveToDeadLetterWithToken")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.releaseClaim), "exhausted 后不得再 ReleaseClaim")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.markSucceeded))
+}
+
+// 本轮评审（bundle 2，对称校验）：attempt 未到上限的 ErrRetryLater 仍走 ReleaseClaim（让路不增 attempt）。
+func TestScheduler_RetryLaterAfterClaim_BelowMax_ReleasesClaim(t *testing.T) {
+	fs := &schedulerFakeStore{
+		heads:        []store.Row{retryHead(8)},
+		claimTok:     "tok",
+		claimAttempt: 2, // 远低于默认 maxAttempts=5
+	}
+	reg := fakeRegistry{h: &fakeHandler{id: "h", retErr: reliable.ErrRetryLater}}
+	sch := NewScheduler(fs, nil, reg, nil, nil)
+	_ = sch.Tick(context.Background())
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.releaseClaim), "below max → ReleaseClaim")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.moveToDL), "未耗尽不得死信")
+}
+
+// 本轮评审（bundle 1）：handler panic 不得沿 Tick→Run 上抛杀掉调度器 goroutine——
+// 须 recover → MoveToDeadLetterWithToken + 告警，打破「broker 重投 → 再 panic」死循环。
+func TestScheduler_HandlerPanic_RecoveredAndDeadLettered(t *testing.T) {
+	fs := &schedulerFakeStore{heads: []store.Row{retryHead(7)}, claimTok: "tok"}
+	reg := fakeRegistry{h: &fakeHandler{id: "h", panicV: "boom"}}
+	sch := NewScheduler(fs, nil, reg, nil, nil) // alerter 默认 NoOp
+	assert.NotPanics(t, func() { _ = sch.Tick(context.Background()) }, "panic must be recovered, not crash the scheduler")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.moveToDL), "panic → MoveToDeadLetterWithToken")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.markSucceeded))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.releaseClaim))
 }

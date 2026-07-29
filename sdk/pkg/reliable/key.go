@@ -72,8 +72,11 @@ type HeaderPair struct {
 	Value []byte
 }
 
-// ClaimToken 是占位的「票据」= claim_id（UUID 字符串）。MarkSucceeded/MarkFailed 凭它做
-// WHERE claim_id = ? 校验（§3.1）；持令牌者丢失所有权（租约被回收）时命中 0 行 → 记 CLAIM_TOKEN_MISMATCH。
+// ClaimToken 是占位的「票据」（fencing token）。**对调用方是不透明字符串**：禁止解析、拆分或假定其内部结构
+// （PR-3 adapter 只透传、比较）。MarkSucceeded/MarkFailed/MoveToDeadLetterWithToken 凭它做 WHERE claim_id = ?
+// 校验（§3.1）；持令牌者丢失所有权（租约被回收）时命中 0 行 → reliable.ErrConflict（review #17）。
+//
+// 注意：AcquireAggregateGate 返回的 gate token（string）是另一种格式（holder+uuid），不可与 ClaimToken 互换。
 type ClaimToken string
 
 // String 返回底层 claim_id，供日志/调试。

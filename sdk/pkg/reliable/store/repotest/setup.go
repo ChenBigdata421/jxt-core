@@ -102,9 +102,22 @@ func setupPostgres(t *testing.T) (*gorm.DB, func()) {
 
 func mustOpen(t *testing.T, dialector func(string) gorm.Dialector, dsn string) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(dialector(dsn), &gorm.Config{})
+	// testcontainers 的就绪信号（尤其 postgres:16-alpine——init 期间会重启并提前吐一次
+	// "ready to accept connections" 日志）可能在 DB 真正接受连接前就 fire，首个 gorm.Open
+	// 偶发 "unexpected EOF"。重试到连上为止（上限 30s，延续 77b4105 的有界启动哲学）。
+	var (
+		db  *gorm.DB
+		err error
+	)
+	for attempt := 0; attempt < 60; attempt++ {
+		db, err = gorm.Open(dialector(dsn), &gorm.Config{})
+		if err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
-		t.Fatalf("open gorm: %v", err)
+		t.Fatalf("open gorm after retries: %v", err)
 	}
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(20)

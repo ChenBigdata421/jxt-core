@@ -66,8 +66,10 @@ CREATE TABLE IF NOT EXISTS event_consumption (
 CREATE TABLE IF NOT EXISTS consumption_anomalies (
   id           BIGINT AUTO_INCREMENT PRIMARY KEY,
   kind         VARCHAR(32) NOT NULL,
-  event_id     VARCHAR(64),
-  handler_id   VARCHAR(100),
+  -- review #11：列入 uk_anomaly_once 的列须 NOT NULL DEFAULT ''——NULL 在唯一索引里互不相等，
+  -- 否则缺 event/handler 上下文的异常 kind 会让幂等失效、anomaly 成倍写入刷爆告警（与 claim_id 同处理）。
+  event_id     VARCHAR(64) NOT NULL DEFAULT '',
+  handler_id   VARCHAR(100) NOT NULL DEFAULT '',
   tenant_id    INT NOT NULL DEFAULT 0,  -- B8：与 AnomalyModel.TenantID int 对齐（D18#8 RecordAnomaly 必传）
   claim_id     VARCHAR(36) NOT NULL DEFAULT '',
   detail       TEXT,
@@ -75,11 +77,15 @@ CREATE TABLE IF NOT EXISTS consumption_anomalies (
   KEY idx_kind_time (kind, created_at),
   -- 幂等键（本轮评审）：ObserveExpiredLeases 每 tick 反复扫到同一孤儿行，靠此唯一键 +
   -- ON CONFLICT DO NOTHING 保证「同一次占位的同类异常只记一条」，避免告警自噪。
-  UNIQUE KEY uk_anomaly_once (kind, event_id, handler_id, claim_id)
+  -- review #6：键含 tenant_id——纵然当前每租户独立库（库内 tenant_id 恒定），一旦 store 跨租户，
+  -- 缺 tenant_id 会让第二租户的同 (event,handler,claim) 异常被 ON CONFLICT 静默丢弃、告警欠计。
+  UNIQUE KEY uk_anomaly_once (kind, tenant_id, event_id, handler_id, claim_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  -- review #1：租户隔离——隔离区同样按租户隔离（与 event_consumption.tenant_id 对齐）。
+  tenant_id INT NOT NULL,
   handler_id VARCHAR(100) NOT NULL,
   topic VARCHAR(100) NOT NULL,
   src_partition INT NOT NULL,
@@ -96,7 +102,7 @@ CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   resolved_by VARCHAR(100),
   created_at DATETIME(3) NOT NULL,
   UNIQUE KEY uk_raw_delivery (topic, src_partition, src_offset, handler_id),
-  KEY idx_raw_status (status, created_at)
+  KEY idx_raw_status (tenant_id, status, created_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS consumption_aggregate_leases (

@@ -18,6 +18,11 @@ import (
 // 服务层必须把它们指向单租户 *gorm.DB（每租户独立库，见 CLAUDE.md 多租户 DB 模型）；List 强制 tenant 作用域
 // （TenantID==0 拒绝，不留静默跨租户读）。跨租户隔离由「服务层 DB 绑定 + List 强制」共同保证，
 // PR-3 补「第二租户行不被触碰」conformance 用例（见 PR2_SCOPE carry-over）。
+//
+// 标识符约定（review #19）：TryClaim/MarkSucceeded/MarkFailed/RecordTerminal/RecordAnomaly 用 reliable.Key
+// （EventID+Handler+ItemKey）定位行——这些路径在 claim 之前或与 claim 同事务；ClaimForReplay 之后的处置
+// （ReleaseClaim/MoveToDeadLetterWithToken）与 pre-claim 的 AdvanceDue/MoveToDeadLetter 用 ClaimForReplay
+// 返回的 Row.ID（int64）定位。前者调用方持有 Key，后者持有 claim 返回的 Row。
 type Store interface {
 	// —— 占位与终结（§3.1）——
 
@@ -85,7 +90,7 @@ type Store interface {
 	// MoveToDeadLetterWithToken 把【已占位】的 PROCESSING 行移到 DEAD_LETTER，须出示 claim token（A5 fencing）。
 	// 供 scheduler 在 ClaimForReplay 之后命中 not-permitted/not-self-replayable 时调用；WHERE claim_id=tok
 	// 保证不会毒掉别实例在途的 claim。0 行返回 reliable.ErrConflict。
-	MoveToDeadLetterWithToken(ctx context.Context, db *gorm.DB, id int64, tok reliable.ClaimToken, reason string) error
+	MoveToDeadLetterWithToken(ctx context.Context, db *gorm.DB, id int64, tok reliable.ClaimToken, errorClass reliable.ErrorClass, reason string) error
 
 	// —— 人工重放授权（§6.2）——
 
@@ -111,13 +116,19 @@ type Store interface {
 
 	// —— 异常记录（§2.3；D18#8：带 tenantID，使 anomaly 可按租户过滤/告警）——
 
-	// claimID 参与幂等键 uk_anomaly_once (kind, event_id, handler_id, claim_id)：同一次占位的同类异常
+	// claimID 参与幂等键 uk_anomaly_once (kind, tenant_id, event_id, handler_id, claim_id)：同一次占位的同类异常
 	// 只记一条（本轮评审）——ObserveExpiredLeases 每 tick 都会扫到尚未被续占的同一孤儿行，
 	// 若不去重就会把 consumption_anomaly_total{kind="LEASE_ORPHAN"} 的 >10/h 告警用自身刷爆。
+	//
+	// claimID 语义（review #25）：标识「哪一次占位成了孤儿」。TryClaim 内联续占时传【被顶替的旧 claim_id】
+	// （gormshared/store.go tryClaimOnce），ObserveExpiredLeases 观测扫描时传行【当前的 claim_id】——两条路径
+	// 用同一孤儿行的同一 claim_id 去重，不会重复计数。传空串会把同 (kind,tenant,event,handler) 的所有异常坍缩成一条。
 	RecordAnomaly(ctx context.Context, db *gorm.DB, tenantID int, kind string, key reliable.Key, claimID, detail string) error
 
 	// —— 读（运维 API 用；写权限/审计在服务侧）——
-	GetByID(ctx context.Context, id int64) (Row, error)
+	// review #5：GetByID 强制 tenant 作用域（与 List 的 S3 守卫对齐）——杜绝按主键枚举跨租户裸读
+	// payload/headers。运维侧若需全局视图，PR-7 另立 GetByIDGlobal（参考 ListGlobal 的 S3 carry-over）。
+	GetByID(ctx context.Context, tenantID int, id int64) (Row, error)
 	List(ctx context.Context, filter ListFilter) ([]Row, error)
 }
 
@@ -127,15 +138,19 @@ type ListFilter struct {
 	Status     reliable.Status
 	ErrorClass reliable.ErrorClass
 	HandlerID  reliable.HandlerID
-	From, To   time.Time
-	Limit      int
-	Offset     int
+	// From/To 约束的是 first_seen_at（行首次占位时间，TryClaim 时写一次、之后不变），而非 created_at/updated_at
+	// —— 后者随每次状态迁移变化。若要「最近活跃」窗口请按 updated_at 另行过滤（review #26）。
+	From, To time.Time
+	Limit    int
+	Offset   int
 }
 
 // QuarantineStore 是 raw_message_quarantine 的写入/读取接口（§2.3）。落库成功才 ACK。
 type QuarantineStore interface {
 	Record(ctx context.Context, db *gorm.DB, row QuarantineRow) (int64, error)
-	GetByID(ctx context.Context, id int64) (QuarantineRow, error)
-	List(ctx context.Context, status string, limit int) ([]QuarantineRow, error)
+	// review #1：GetByID/List 强制 tenant 作用域（与 event_consumption.List 的 S3 对齐）——
+	// 隔离区存的是不可解码的毒消息，最可能带 PII/攻击者可控内容，绝不能跨租户裸读。
+	GetByID(ctx context.Context, tenantID int, id int64) (QuarantineRow, error)
+	List(ctx context.Context, tenantID int, status string, limit int) ([]QuarantineRow, error)
 	MarkResolved(ctx context.Context, db *gorm.DB, id, expectedVersion int64, by string) error
 }

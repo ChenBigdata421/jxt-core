@@ -78,6 +78,7 @@ func (r *Row) Key() reliable.Key {
 // QuarantineRow 是 raw_message_quarantine 的领域投影（§2.3）。
 type QuarantineRow struct {
 	ID              int64
+	TenantID        int
 	HandlerID       reliable.HandlerID
 	Topic           string
 	SrcPartition    int32

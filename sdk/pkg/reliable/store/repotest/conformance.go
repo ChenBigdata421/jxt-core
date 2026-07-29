@@ -2,14 +2,17 @@ package repotest
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 var lease5 = 5 * time.Minute
@@ -33,6 +36,10 @@ func RunConformance(t *testing.T, d *ConformanceDeps) {
 	t.Run("M12_OrderedReplay_CreatedBeforeChanged", func(t *testing.T) { confOrderedReplay(t, d) })
 	t.Run("M15_HeaderFidelity_RoundTrip", func(t *testing.T) { confHeaderFidelity(t, d) })
 	t.Run("ManualReplayAuth_TwoPerson_And_OneTimeToken", func(t *testing.T) { confManualReplayAuth(t, d) })
+	// review #3/#7/#22（本轮）：ClaimForReplay CAS 并发 / 跨租户隔离 / aggregate gate 两步路径。
+	t.Run("ConcurrentClaimForReplay_SingleRetryRow", func(t *testing.T) { confConcurrentClaimForReplay(t, d) })
+	t.Run("TenantIsolation_ListGetByID_EventAndQuarantine", func(t *testing.T) { confTenantIsolation(t, d) })
+	t.Run("AggregateGate_FreshLiveExpired_And_Concurrent", func(t *testing.T) { confAggregateGate(t, d) })
 }
 
 func confFirstClaim(t *testing.T, d *ConformanceDeps) {
@@ -291,4 +298,131 @@ func confConcurrentSingleRow(t *testing.T, d *ConformanceDeps) {
 	wg.Wait()
 	assert.Equal(t, int64(1), atomic.LoadInt64(&claimed), "exactly one Claimed; rest AlreadyProcessing")
 	assert.Equal(t, int64(1), rowCount(t, d, in.Key))
+}
+
+// review #3：ClaimForReplay 的 CAS（RETRY_SCHEDULED→PROCESSING, attempt+1）在并发下恰有一个竞得，
+// 其余得 ErrRetryLater，attempt 终值为 seed+1。confConcurrentSingleRow 只压 TryClaim 的 INSERT 路径；
+// 本用例压 scheduler 真正的 HA 入场路径（ClaimForReplay）——这是主部署拓扑（多实例同抢一个 head）。
+func confConcurrentClaimForReplay(t *testing.T, d *ConformanceDeps) {
+	in := newClaimInput(t, "cfr")
+	now := time.Now().UTC()
+	seedRetryRow(t, d, in, 1, now.Add(-time.Minute))
+	r := mustGetByEvent(t, d, in.Key)
+	require.NotZero(t, r.ID)
+
+	const N = 10
+	var wg sync.WaitGroup
+	var won, retried int64
+	start := make(chan struct{})
+	wg.Add(N)
+	for i := 0; i < N; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			tok, _, err := d.Store.ClaimForReplay(context.Background(), d.DB, r.ID)
+			switch {
+			case err == nil && tok != "":
+				atomic.AddInt64(&won, 1)
+			case errors.Is(err, reliable.ErrRetryLater):
+				atomic.AddInt64(&retried, 1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	assert.Equal(t, int64(1), won, "exactly one ClaimForReplay wins the CAS")
+	assert.Equal(t, int64(N-1), retried, "losers get ErrRetryLater (no data corruption / double-execute)")
+	after := mustGetByEvent(t, d, in.Key)
+	assert.Equal(t, "PROCESSING", after.Status)
+	assert.Equal(t, 2, after.Attempt, "attempt ends at seed(1)+1, not +N")
+}
+
+// review #7：event + quarantine 的 List/GetByID 强制租户作用域——第二租户的行不可达。
+// FindEligibleHeads 故意 tenant-agnostic（隔离靠每租户独立库，单测试库无法建模），本用例只覆盖有 tenant 谓词的读路径。
+func confTenantIsolation(t *testing.T, d *ConformanceDeps) {
+	now := time.Now().UTC()
+	in1 := newClaimInput(t, "t1")
+	in2 := newClaimInput(t, "t2")
+	in2.TenantID = 2
+	seedRetryRow(t, d, in1, 1, now.Add(-time.Minute))
+	seedRetryRow(t, d, in2, 1, now.Add(-time.Minute))
+	r2 := mustGetByEvent(t, d, in2.Key)
+
+	// event_consumption.List：tenant=1 不含 tenant-2 行。
+	rows, err := d.Store.List(context.Background(), store.ListFilter{TenantID: 1, Limit: 50})
+	require.NoError(t, err)
+	for _, r := range rows {
+		assert.NotEqual(t, in2.Key.EventID, r.EventID, "List(TenantID=1) must not leak tenant-2 rows")
+	}
+	// event_consumption.GetByID：tenant-2 的 id 配 tenant=1 查 → ErrRecordNotFound。
+	_, err = d.Store.GetByID(context.Background(), 1, r2.ID)
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound, "GetByID(tenant=1, tenant2-id) must not cross tenants")
+
+	// quarantine：Record 两租户，List/GetByID 按 tenant 隔离。
+	qid1, err := d.QStore.Record(context.Background(), d.DB, store.QuarantineRow{
+		TenantID: 1, HandlerID: "qh", Topic: "qt", SrcPartition: 1, SrcOffset: 1,
+		RawValue: []byte("v1"), RawPayloadHash: "qh1", Status: "QUARANTINED",
+	})
+	require.NoError(t, err)
+	qid2, err := d.QStore.Record(context.Background(), d.DB, store.QuarantineRow{
+		TenantID: 2, HandlerID: "qh", Topic: "qt", SrcPartition: 1, SrcOffset: 2,
+		RawValue: []byte("v2"), RawPayloadHash: "qh2", Status: "QUARANTINED",
+	})
+	require.NoError(t, err)
+	qrows, err := d.QStore.List(context.Background(), 1, "", 50)
+	require.NoError(t, err)
+	for _, q := range qrows {
+		assert.NotEqual(t, qid2, q.ID, "QuarantineStore.List(tenant=1) must not leak tenant-2")
+	}
+	_, err = d.QStore.GetByID(context.Background(), 1, qid2)
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound, "QuarantineStore.GetByID(tenant=1, tenant2-id) must not cross tenants")
+	got1, err := d.QStore.GetByID(context.Background(), 1, qid1)
+	require.NoError(t, err, "GetByID with correct tenant must find the row")
+	assert.Equal(t, qid1, got1.ID)
+}
+
+// review #22：AcquireAggregateGate 的两步路径（CAS 覆盖过期 holder → INSERT ON CONFLICT）+ 并发单持有者。
+// A6 两步写法专为修复 PG「事务 aborted」陷阱，fake-store 单测验不出；这里在真 DB 双方言上钉。
+func confAggregateGate(t *testing.T, d *ConformanceDeps) {
+	ctx := context.Background()
+	key := reliable.AggregateGateKey{TenantID: 1, AggregateType: "Media", AggregateID: "gate-conf"}
+
+	// 1) fresh INSERT 成功。
+	tok1, err := d.Store.AcquireAggregateGate(ctx, d.DB, key, "holder-1", 5*time.Minute)
+	require.NoError(t, err)
+	require.NotEmpty(t, tok1)
+
+	// 2) 活跃 holder 阻止第二次 acquire。
+	_, err = d.Store.AcquireAggregateGate(ctx, d.DB, key, "holder-2", 5*time.Minute)
+	assert.ErrorIs(t, err, reliable.ErrRetryLater, "live holder blocks second acquire")
+
+	// 3) 过期 CAS 回收：把 expires_at 改到过去，再 acquire 经 CAS 覆盖成功，token 刷新。
+	require.NoError(t, d.DB.WithContext(ctx).Exec(
+		`UPDATE consumption_aggregate_leases SET expires_at = ? WHERE aggregate_id = ?`,
+		time.Now().UTC().Add(-time.Minute), key.AggregateID).Error)
+	tok3, err := d.Store.AcquireAggregateGate(ctx, d.DB, key, "holder-3", 5*time.Minute)
+	require.NoError(t, err, "expired gate reclaimed via CAS branch (not INSERT)")
+	require.NotEmpty(t, tok3)
+	assert.NotEqual(t, tok1, tok3, "reclaimed gate gets a fresh token")
+
+	// 4) 并发：N 个 acquire 同一 fresh key，恰一个成功（INSERT ON CONFLICT DO NOTHING 串行化）。
+	key2 := reliable.AggregateGateKey{TenantID: 1, AggregateType: "Media", AggregateID: "gate-race"}
+	const N = 10
+	var wg sync.WaitGroup
+	var won int64
+	start := make(chan struct{})
+	wg.Add(N)
+	for i := 0; i < N; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			tok, err := d.Store.AcquireAggregateGate(ctx, d.DB, key2, "race", 5*time.Minute)
+			if err == nil && tok != "" {
+				atomic.AddInt64(&won, 1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	assert.Equal(t, int64(1), atomic.LoadInt64(&won), "exactly one concurrent gate acquire wins")
 }

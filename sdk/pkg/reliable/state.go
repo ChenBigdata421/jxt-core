@@ -109,6 +109,12 @@ func Backoff(attempt int, base, cap time.Duration, jitterFraction float64) time.
 	if r > cap {
 		r = cap
 	}
+	// 防御下界（review #23）：cap 误配为近 MaxInt64 时，循环里 d *= 2 会把 int64 溢出成负值，
+	// 上面的 `r > cap` 只封上界、抓不到 → 返回负时长会让 next_attempt_at 落到过去、行被永久热自旋。
+	// 当前所有调用方都用 DefaultBackoffCap=1h（约 22 次翻倍即封顶，远未触及溢出），此为纵深防御。
+	if r < 0 {
+		r = base
+	}
 	return r
 }
 
@@ -117,3 +123,10 @@ const (
 	DefaultBackoffBase = time.Second
 	DefaultBackoffCap  = time.Hour
 )
+
+// DefaultMaxAttempts 是 attempt 耗尽终点的默认上限（§6.2）。MarkFailed 的 ShouldDeadLetter 与
+// replay scheduler 的 ErrRetryLater 让路终点共用同一常量——失败路径与让路路径的「重试天花板」必须对称：
+// 否则一个永远返回 ErrRetryLater 的 handler 会以 ~1h 间隔无限重试、永不进死信（scheduler.processOne 的
+// InvokeRetryLater 分支据此把 attempt≥max 升级为 DEAD_LETTER + REPLAY_DEFER_EXHAUSTED）。服务可按 handler
+// 覆盖；PR-3 的装饰器应让 MarkFailed 与 scheduler 取同一值。
+const DefaultMaxAttempts = 5

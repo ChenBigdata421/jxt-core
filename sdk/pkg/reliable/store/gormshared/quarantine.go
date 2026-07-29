@@ -22,7 +22,7 @@ func (q *GormQuarantineStore) Record(ctx context.Context, db *gorm.DB, row store
 		row.Status = "QUARANTINED"
 	}
 	m := &QuarantineModel{
-		HandlerID: string(row.HandlerID), Topic: row.Topic,
+		TenantID: row.TenantID, HandlerID: string(row.HandlerID), Topic: row.Topic,
 		SrcPartition: row.SrcPartition, SrcOffset: row.SrcOffset,
 		RawValue: row.RawValue, RawKey: row.RawKey,
 		// B7：headers 列是 NOT NULL，空 header 必须落 JSON 空数组而非 NULL。
@@ -50,20 +50,21 @@ func (q *GormQuarantineStore) Record(ctx context.Context, db *gorm.DB, row store
 	return exist.ID, nil
 }
 
-func (q *GormQuarantineStore) GetByID(ctx context.Context, id int64) (store.QuarantineRow, error) {
+func (q *GormQuarantineStore) GetByID(ctx context.Context, tenantID int, id int64) (store.QuarantineRow, error) {
 	var m QuarantineModel
-	if err := q.db.WithContext(ctx).First(&m, id).Error; err != nil {
+	// review #1：强制 tenant 作用域——隔离区存的是不可解码的毒消息（最可能带 PII），绝不能跨租户裸读。
+	if err := q.db.WithContext(ctx).Where("id = ? AND tenant_id = ?", id, tenantID).First(&m).Error; err != nil {
 		return store.QuarantineRow{}, err
 	}
 	return m.ToRow(), nil
 }
 
-func (q *GormQuarantineStore) List(ctx context.Context, status string, limit int) ([]store.QuarantineRow, error) {
+func (q *GormQuarantineStore) List(ctx context.Context, tenantID int, status string, limit int) ([]store.QuarantineRow, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	var ms []QuarantineModel
-	qry := q.db.WithContext(ctx).Model(&QuarantineModel{})
+	qry := q.db.WithContext(ctx).Model(&QuarantineModel{}).Where("tenant_id = ?", tenantID)
 	if status != "" {
 		qry = qry.Where("status = ?", status)
 	}

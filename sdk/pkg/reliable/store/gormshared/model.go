@@ -123,7 +123,9 @@ func unmarshalHeaders(b []byte) []reliable.HeaderPair {
 
 // QuarantineModel 是 raw_message_quarantine 的 portable GORM model（§2.3）。
 type QuarantineModel struct {
-	ID              int64      `gorm:"primaryKey;autoIncrement"`
+	ID int64 `gorm:"primaryKey;autoIncrement"`
+	// review #1：租户隔离（与 event_consumption.tenant_id 对齐）。idx_raw_status 首列改为 tenant_id。
+	TenantID        int        `gorm:"column:tenant_id;not null;index:idx_raw_status,priority:1"`
 	HandlerID       string     `gorm:"column:handler_id;type:varchar(100);not null;uniqueIndex:uk_raw_delivery,priority:4"`
 	Topic           string     `gorm:"column:topic;type:varchar(100);not null;uniqueIndex:uk_raw_delivery,priority:1"`
 	SrcPartition    int32      `gorm:"column:src_partition;not null;uniqueIndex:uk_raw_delivery,priority:2"`
@@ -134,18 +136,18 @@ type QuarantineModel struct {
 	RawPayloadHash  string     `gorm:"column:raw_payload_hash;type:char(64);not null"`
 	BrokerTimestamp *time.Time `gorm:"column:broker_timestamp"`
 	ErrorMessage    string     `gorm:"column:error_message;type:text"`
-	Status          string     `gorm:"column:status;type:varchar(16);not null;index:idx_raw_status,priority:1"`
+	Status          string     `gorm:"column:status;type:varchar(16);not null;index:idx_raw_status,priority:2"`
 	RowVersion      int64      `gorm:"column:row_version;not null;default:1"`
 	ResolvedAt      *time.Time `gorm:"column:resolved_at"`
 	ResolvedBy      string     `gorm:"column:resolved_by;type:varchar(100)"`
-	CreatedAt       time.Time  `gorm:"column:created_at;not null;index:idx_raw_status,priority:2"`
+	CreatedAt       time.Time  `gorm:"column:created_at;not null;index:idx_raw_status,priority:3"`
 }
 
 func (QuarantineModel) TableName() string { return "raw_message_quarantine" }
 
 func (m *QuarantineModel) ToRow() store.QuarantineRow {
 	return store.QuarantineRow{
-		ID: m.ID, HandlerID: reliable.HandlerID(m.HandlerID), Topic: m.Topic,
+		ID: m.ID, TenantID: m.TenantID, HandlerID: reliable.HandlerID(m.HandlerID), Topic: m.Topic,
 		SrcPartition: m.SrcPartition, SrcOffset: m.SrcOffset,
 		RawValue: m.RawValue, RawKey: m.RawKey, Headers: unmarshalHeaders(m.Headers),
 		RawPayloadHash: m.RawPayloadHash, BrokerTimestamp: m.BrokerTimestamp,

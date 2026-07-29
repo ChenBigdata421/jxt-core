@@ -57,7 +57,7 @@ func (f *fakeStore) ReleaseClaim(context.Context, *gorm.DB, int64, reliable.Clai
 }
 func (f *fakeStore) AdvanceDue(context.Context, *gorm.DB, int64) error               { return nil }
 func (f *fakeStore) MoveToDeadLetter(context.Context, *gorm.DB, int64, string) error { return nil }
-func (f *fakeStore) MoveToDeadLetterWithToken(context.Context, *gorm.DB, int64, reliable.ClaimToken, string) error {
+func (f *fakeStore) MoveToDeadLetterWithToken(context.Context, *gorm.DB, int64, reliable.ClaimToken, reliable.ErrorClass, string) error {
 	return nil
 }
 func (f *fakeStore) ScheduleReplay(context.Context, *gorm.DB, int64, int64, string, string, string) error {
@@ -76,7 +76,7 @@ func (f *fakeStore) ReclaimExpiredAggregateGates(context.Context, time.Time) (in
 func (f *fakeStore) RecordAnomaly(context.Context, *gorm.DB, int, string, reliable.Key, string, string) error {
 	return nil
 }
-func (f *fakeStore) GetByID(context.Context, int64) (store.Row, error)           { return store.Row{}, nil }
+func (f *fakeStore) GetByID(context.Context, int, int64) (store.Row, error)      { return store.Row{}, nil }
 func (f *fakeStore) List(context.Context, store.ListFilter) ([]store.Row, error) { return nil, nil }
 
 func TestRunnerTickObservesOrphans(t *testing.T) {
