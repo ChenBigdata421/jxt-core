@@ -69,3 +69,28 @@ func run(ctx context.Context, db *gorm.DB) error {
 > 生产用法还需：用 `mysql.NewQuarantineStore(db)` 接不可解码坏消息的隔离区；起 `lease.Runner`（见[包结构](#包结构)）观测租约孤儿；注入真实的 `ConsumptionMetrics` / `Alerter`。
 
 ## 核心概念
+
+**五状态机**（状态与合法转移以 `state.go`（`Status*` 常量 + `legalTransitions`）为准；下图为示意）：
+
+```mermaid
+stateDiagram-v2
+    [*] --> PROCESSING: TryClaim
+    PROCESSING --> SUCCEEDED: MarkSucceeded
+    PROCESSING --> RETRY_SCHEDULED: MarkFailed(retryable)
+    PROCESSING --> DEAD_LETTER: MarkFailed(poison/unsafe)
+    RETRY_SCHEDULED --> PROCESSING: ClaimForReplay
+    RETRY_SCHEDULED --> DEAD_LETTER: MoveToDeadLetter
+    DEAD_LETTER --> RETRY_SCHEDULED: ScheduleReplay(双人授权)
+    DEAD_LETTER --> DISCARDED: Discard
+    DEAD_LETTER --> SUCCEEDED: 人工结案
+    SUCCEEDED --> [*]
+    DISCARDED --> [*]
+```
+
+- **一张表三用（M1）**：`event_consumption` 同时承担幂等去重、死信、重投调度，无需额外队列表。
+- **fencing token**：每次占位发新的 `ClaimToken`（`claim_id`），结算须出示它。这让「UPDATE 0 行」从设计边界变成**可判定异常**——能区分「已被别实例接管」与「真失败」。
+- **at-least-once + 租约自愈**：handler 处理期间持租约；进程崩溃留下 `PROCESSING` 孤儿行，由 `lease.Runner` 观测 + broker 重投恢复（可能重复执行，故 handler 须标 `ReplaySafety`）。
+- **aggregate gate**：`RequiresAggregateGate=true` 的 handler，重放前先抢 (tenant, aggregate) 级 lease，保证同聚合串行——对非幂等 handler 尤其关键。
+- **replay safety**：每个 handler 声明 `Idempotent`/`Deterministic`/`ExternalEffect`/`NotSelfReplayable`，决定能否自动重放（细节见 `safety.go`）。
+
+## 包结构
