@@ -136,7 +136,6 @@ func BenchmarkContextPool(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			ctx := &Context{
 				Context: context.Background(),
-				data:    make(map[string]interface{}),
 			}
 			ctx.Set("key", "value")
 			_ = ctx
