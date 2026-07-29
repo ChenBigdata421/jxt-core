@@ -148,9 +148,11 @@ type ListFilter struct {
 // QuarantineStore 是 raw_message_quarantine 的写入/读取接口（§2.3）。落库成功才 ACK。
 type QuarantineStore interface {
 	Record(ctx context.Context, db *gorm.DB, row QuarantineRow) (int64, error)
-	// review #1：GetByID/List 强制 tenant 作用域（与 event_consumption.List 的 S3 对齐）——
-	// 隔离区存的是不可解码的毒消息，最可能带 PII/攻击者可控内容，绝不能跨租户裸读。
+	// review #1：GetByID/List/MarkResolved 强制 tenant 作用域（与 event_consumption.List 的 S3 对齐）——
+	// 隔离区存的是不可解码的毒消息，最可能带 PII/攻击者可控内容，绝不能跨租户裸读或裸改。
+	// review #2：MarkResolved 是 ops 处置路径（凭 id+version），凭 id 泄露即可跨租户 dispose 别租户证据——
+	// 故与读路径同等级地强制 tenant；跨租户命中 0 行 → ErrConflict（不泄露 id 归属，兼作枚举预言机防护）。
 	GetByID(ctx context.Context, tenantID int, id int64) (QuarantineRow, error)
 	List(ctx context.Context, tenantID int, status string, limit int) ([]QuarantineRow, error)
-	MarkResolved(ctx context.Context, db *gorm.DB, id, expectedVersion int64, by string) error
+	MarkResolved(ctx context.Context, db *gorm.DB, tenantID int, id, expectedVersion int64, by string) error
 }

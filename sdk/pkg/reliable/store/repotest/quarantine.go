@@ -25,8 +25,8 @@ func RunQuarantineConformance(t *testing.T, d *ConformanceDeps) {
 		q.SrcOffset = q.SrcOffset + 100
 		id, err := d.QStore.Record(context.Background(), d.DB, q)
 		require.NoError(t, err)
-		require.NoError(t, d.QStore.MarkResolved(context.Background(), d.DB, id, 1, "ops"))
-		assert.Error(t, d.QStore.MarkResolved(context.Background(), d.DB, id, 1, "ops"), "stale version conflicts")
+		require.NoError(t, d.QStore.MarkResolved(context.Background(), d.DB, 0, id, 1, "ops"))
+		assert.Error(t, d.QStore.MarkResolved(context.Background(), d.DB, 0, id, 1, "ops"), "stale version conflicts")
 	})
 	// B7：headers 列是 NOT NULL，而一条不带 header 的坏消息必须也能落隔离区——
 	// 否则按 §4 语义必须上抛不 ACK → 分区阻塞（准入 ⑯ 会踩到）。
@@ -72,6 +72,27 @@ func RunQuarantineConformance(t *testing.T, d *ConformanceDeps) {
 			`SELECT COUNT(*) FROM raw_message_quarantine WHERE topic=? AND src_partition=? AND src_offset=? AND handler_id=?`,
 			"t", 1, off, "h").Scan(&n).Error)
 		assert.Equal(t, int64(2), n, "identical coordinates must yield one row per tenant (no silent cross-tenant dedup)")
+	})
+
+	// review #2（纵深防御）：MarkResolved 必须按 tenant 作用域——隔离区读已 PII 加固（GetByID/List），
+	// 处置写同理不可跨租户。证据系统里跨租户 resolve = 静默处置别租户的毒消息证据（完整性问题）。
+	// tenant-1 凭泄露的 (id, version) 处置 tenant-2 的行：必须 ErrConflict，且 tenant-2 行不被动。
+	t.Run("MarkResolved_RejectsCrossTenant", func(t *testing.T) {
+		qid2, err := d.QStore.Record(context.Background(), d.DB, store.QuarantineRow{
+			TenantID: 2, HandlerID: reliable.HandlerID("h"), Topic: "tx", SrcPartition: 1, SrcOffset: 303,
+			RawValue: []byte("victim"), RawPayloadHash: "hx2", Status: "QUARANTINED",
+		})
+		require.NoError(t, err)
+
+		// tenant-1（运维）拿到 tenant-2 的 (id, version=1) 试图处置。
+		err = d.QStore.MarkResolved(context.Background(), d.DB, 1, qid2, 1, "ops-tenant-1")
+		assert.ErrorIs(t, err, reliable.ErrConflict, "tenant-1 must not resolve tenant-2 row")
+
+		// tenant-2 行未被触碰：仍 QUARANTINED、version 仍 1。
+		got, err := d.QStore.GetByID(context.Background(), 2, qid2)
+		require.NoError(t, err)
+		assert.Equal(t, "QUARANTINED", got.Status, "victim row status untouched by cross-tenant resolve")
+		assert.Equal(t, int64(1), got.RowVersion, "victim row version untouched by cross-tenant resolve")
 	})
 }
 
