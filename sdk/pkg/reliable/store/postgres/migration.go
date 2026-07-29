@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   headers JSONB NOT NULL, raw_payload_hash VARCHAR(64) NOT NULL, broker_timestamp TIMESTAMP(3),
   error_message TEXT, status VARCHAR(16) NOT NULL, row_version BIGINT NOT NULL DEFAULT 1,
   resolved_at TIMESTAMP(3), resolved_by VARCHAR(100), created_at TIMESTAMP(3) NOT NULL,
-  CONSTRAINT uk_raw_delivery UNIQUE (topic, src_partition, src_offset, handler_id)
+  -- review #1（纵深防御）：键含 tenant_id——与 consumption_anomalies.uk_anomaly_once 同理（见 MySQL DDL 同名注释）。
+  CONSTRAINT uk_raw_delivery UNIQUE (tenant_id, topic, src_partition, src_offset, handler_id)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_status ON raw_message_quarantine (tenant_id, status, created_at);
 

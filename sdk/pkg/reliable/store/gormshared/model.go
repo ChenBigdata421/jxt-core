@@ -124,12 +124,14 @@ func unmarshalHeaders(b []byte) []reliable.HeaderPair {
 // QuarantineModel 是 raw_message_quarantine 的 portable GORM model（§2.3）。
 type QuarantineModel struct {
 	ID int64 `gorm:"primaryKey;autoIncrement"`
-	// review #1：租户隔离（与 event_consumption.tenant_id 对齐）。idx_raw_status 首列改为 tenant_id。
-	TenantID        int        `gorm:"column:tenant_id;not null;index:idx_raw_status,priority:1"`
-	HandlerID       string     `gorm:"column:handler_id;type:varchar(100);not null;uniqueIndex:uk_raw_delivery,priority:4"`
-	Topic           string     `gorm:"column:topic;type:varchar(100);not null;uniqueIndex:uk_raw_delivery,priority:1"`
-	SrcPartition    int32      `gorm:"column:src_partition;not null;uniqueIndex:uk_raw_delivery,priority:2"`
-	SrcOffset       int64      `gorm:"column:src_offset;not null;uniqueIndex:uk_raw_delivery,priority:3"`
+	// review #1：租户隔离（与 event_consumption.tenant_id 对齐）。idx_raw_status 首列为 tenant_id；
+	// uk_raw_delivery 也含 tenant_id（priority:1，列序与两方言 DDL 一致）——与 consumption_anomalies.uk_anomaly_once
+	// 同理的纵深防御（见 mysql/migration.go uk_raw_delivery 注释）。
+	TenantID        int        `gorm:"column:tenant_id;not null;index:idx_raw_status,priority:1;uniqueIndex:uk_raw_delivery,priority:1"`
+	HandlerID       string     `gorm:"column:handler_id;type:varchar(100);not null;uniqueIndex:uk_raw_delivery,priority:5"`
+	Topic           string     `gorm:"column:topic;type:varchar(100);not null;uniqueIndex:uk_raw_delivery,priority:2"`
+	SrcPartition    int32      `gorm:"column:src_partition;not null;uniqueIndex:uk_raw_delivery,priority:3"`
+	SrcOffset       int64      `gorm:"column:src_offset;not null;uniqueIndex:uk_raw_delivery,priority:4"`
 	RawValue        []byte     `gorm:"column:raw_value;type:bytes;not null"`
 	RawKey          []byte     `gorm:"column:raw_key;type:bytes"`
 	Headers         []byte     `gorm:"column:headers;type:json;not null"`

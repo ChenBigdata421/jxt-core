@@ -101,7 +101,10 @@ CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   resolved_at DATETIME(3),
   resolved_by VARCHAR(100),
   created_at DATETIME(3) NOT NULL,
-  UNIQUE KEY uk_raw_delivery (topic, src_partition, src_offset, handler_id),
+  -- review #1（纵深防御）：键含 tenant_id——与 consumption_anomalies.uk_anomaly_once 同理。共享库下两租户
+  -- 撞上相同 (topic,partition,offset,handler) 时，缺 tenant_id 会让第二租户的毒消息被 ON CONFLICT DO NOTHING
+  -- 静默吞掉、回读还拿到第一租户 id（丢消息 + id 污染 + ACK 语义错误）。当前每租户独立库不触发，纵深对齐。
+  UNIQUE KEY uk_raw_delivery (tenant_id, topic, src_partition, src_offset, handler_id),
   KEY idx_raw_status (tenant_id, status, created_at)
 ) ENGINE=InnoDB;
 

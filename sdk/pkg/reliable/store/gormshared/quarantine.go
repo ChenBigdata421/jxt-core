@@ -43,8 +43,9 @@ func (q *GormQuarantineStore) Record(ctx context.Context, db *gorm.DB, row store
 		return m.ID, nil
 	}
 	var exist QuarantineModel
-	if err := db.WithContext(ctx).Where("topic = ? AND src_partition = ? AND src_offset = ? AND handler_id = ?",
-		row.Topic, row.SrcPartition, row.SrcOffset, string(row.HandlerID)).First(&exist).Error; err != nil {
+	// review #1：回读必须带 tenant_id——否则共享库下 ON CONFLICT 命中别租户行时，会读回第一租户的 id（id 污染）。
+	if err := db.WithContext(ctx).Where("tenant_id = ? AND topic = ? AND src_partition = ? AND src_offset = ? AND handler_id = ?",
+		row.TenantID, row.Topic, row.SrcPartition, row.SrcOffset, string(row.HandlerID)).First(&exist).Error; err != nil {
 		return 0, err
 	}
 	return exist.ID, nil
