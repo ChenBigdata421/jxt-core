@@ -107,7 +107,13 @@ stateDiagram-v2
 
 ## 关键不变量
 
-（Task 5 填充）
+- **一张表三用（M1）**：`event_consumption` = 幂等 + 死信 + 重投调度。
+- **TryClaim 独立提交**：`NewStore` 构造期派生独立 session（§3.3）；`Mark*`/`AdvanceDue` 等显式接收调用方 `*gorm.DB`，可加入业务事务（M14）。
+- **fencing**：`Mark*` 须出示 `claim_id`（`ClaimToken`）；0 行 = 可判定异常，非设计边界（M3）。
+- **§2.4 列清空规则**：状态迁移时按不变量表清 ownership / 错误字段。
+- **aggregate gate 前置**：抢不到 gate 整行不动、`attempt` 不增，下一周期重试。
+- **多租户隔离**：`GetByID`/`List`/`MarkResolved` 强制 `tenant` 作用域；部署模型为每租户独立库（S3）。
+- **CAS 写路径传播 `res.Error`**：DB 错误/ctx 取消不被伪装成 `ErrConflict`（先查 `*gorm.DB.Error` 再看 `RowsAffected`）。
 
 ## 文档地图
 
