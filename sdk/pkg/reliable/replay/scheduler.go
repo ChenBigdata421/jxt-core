@@ -11,6 +11,11 @@ import (
 	"gorm.io/gorm"
 )
 
+// gateReleaseTimeout：释放 aggregate gate 用的独立 ctx 超时。release 是纯清理，**不得继承业务 ctx**——
+// tickTimeout fire / 上层取消时 processOne 的 ctx 已 done，ReleaseAggregateGate 的 DELETE 会随 ctx 失败 →
+// gate 残留到 TTL、卡住同聚合重放（P2）。独立短超时让清理与 tick 生命周期解耦。
+const gateReleaseTimeout = 3 * time.Second
+
 type Scheduler struct {
 	store       store.Store
 	db          *gorm.DB // Mark*/AdvanceDue/MoveToDeadLetter/aggregate gate 的连接（服务侧注入 pooled db）
@@ -153,7 +158,17 @@ func (s *Scheduler) processOne(ctx context.Context, row store.Row) {
 			s.metrics.IncReplayBlocked(row.HandlerID)
 			return
 		}
-		defer func() { _ = s.store.ReleaseAggregateGate(ctx, s.db, holder) }()
+		// review #3：release 用独立 ctx（不继承业务 ctx）——tickTimeout/上层取消时 ctx 已 done，
+		// 随 ctx 跑 DELETE 会失败、gate 残留到 TTL。失败须告警（与 ReleaseClaim 的 REPLAY_RELEASE_FAILED 同词汇），
+		// 不再 `_ =` 吞掉（否则排查只见 replay 让路/无进度，不见 gate release 失败）。
+		defer func() {
+			relCtx, relCancel := context.WithTimeout(context.Background(), gateReleaseTimeout)
+			defer relCancel()
+			if err := s.store.ReleaseAggregateGate(relCtx, s.db, holder); err != nil {
+				s.alerter.AlertAnomaly("REPLAY_GATE_RELEASE_FAILED", row.HandlerID,
+					fmt.Sprintf("ReleaseAggregateGate: %v (gate lingers until TTL — verify reclaim sweeper)", err))
+			}
+		}()
 	}
 
 	tok, claimed, err := s.store.ClaimForReplay(ctx, s.db, row.ID)

@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
@@ -53,17 +55,20 @@ var _ store.Store = (*schedulerFakeStore)(nil)
 
 // schedulerFakeStore 实现 store.Store，记录各处置路径的调用计数与**顺序**。
 type schedulerFakeStore struct {
-	heads         []store.Row
-	claimTok      reliable.ClaimToken
-	claimErr      error
-	claimAttempt  int // ClaimForReplay 返回的 Row.Attempt（测 defer-exhaustion 用）
-	gateErr       error
-	advanceDue    int32
-	moveToDL      int32
-	markSucceeded int32
-	releaseClaim  int32
-	claimCalls    int32
-	gateCalls     int32
+	heads               []store.Row
+	claimTok            reliable.ClaimToken
+	claimErr            error
+	claimAttempt        int // ClaimForReplay 返回的 Row.Attempt（测 defer-exhaustion 用）
+	gateErr             error
+	advanceDue          int32
+	moveToDL            int32
+	markSucceeded       int32
+	releaseClaim        int32
+	claimCalls          int32
+	gateCalls           int32
+	releaseGate         int32
+	releaseGateCtxAlive bool
+	releaseGateErr      error // 强制 release 失败（测告警路径）
 }
 
 func (s *schedulerFakeStore) FindEligibleHeads(context.Context, time.Time, int) ([]store.Row, error) {
@@ -120,7 +125,18 @@ func (s *schedulerFakeStore) ScheduleReplay(context.Context, *gorm.DB, int64, in
 func (s *schedulerFakeStore) Discard(context.Context, *gorm.DB, int64, int64, string, string) error {
 	return nil
 }
-func (s *schedulerFakeStore) ReleaseAggregateGate(context.Context, *gorm.DB, string) error {
+func (s *schedulerFakeStore) ReleaseAggregateGate(ctx context.Context, _ *gorm.DB, _ string) error {
+	atomic.AddInt32(&s.releaseGate, 1)
+	// 在调用瞬间快照 ctx 是否存活——不能存 ctx 引用事后查：scheduler 的 release defer 会在调用返回后
+	// 立即 relCancel() 取消它（正常清理），事后查 ctx.Err() 必为 canceled，会误报。
+	s.releaseGateCtxAlive = ctx.Err() == nil
+	// 模拟真实 GORM/db：ctx 已取消 → DELETE 立即失败（这正是生产里 gate 泄漏到 TTL 的机制）。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.releaseGateErr != nil {
+		return s.releaseGateErr
+	}
 	return nil
 }
 func (s *schedulerFakeStore) ReclaimExpiredAggregateGates(context.Context, time.Time) (int, error) {
@@ -241,4 +257,54 @@ func TestScheduler_HandlerPanic_RecoveredAndDeadLettered(t *testing.T) {
 	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.moveToDL), "panic → MoveToDeadLetterWithToken")
 	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.markSucceeded))
 	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.releaseClaim))
+}
+
+// recordingAlerter 记录 AlertAnomaly 的 kind（测「gate release 失败须告警」用）。
+// Tick 在测试里同步执行，无并发，append 无需加锁。
+type recordingAlerter struct {
+	anomalies []string
+}
+
+func (r *recordingAlerter) AlertPoison(reliable.HandlerID, string, error) {}
+func (r *recordingAlerter) AlertRecordFailure(reliable.HandlerID, error)  {}
+func (r *recordingAlerter) AlertAnomaly(kind string, _ reliable.HandlerID, _ string) {
+	r.anomalies = append(r.anomalies, kind)
+}
+func (r *recordingAlerter) has(kind string) bool {
+	for _, k := range r.anomalies {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// review #3：gate 释放不得继承业务 ctx。tickTimeout fire / 上层取消时，processOne 的 ctx 已 done，
+// ReleaseAggregateGate 的 DELETE 会随 ctx 失败 → gate 残留到 TTL，卡住同聚合重放（P2）。
+// 驱动一个【已取消】的 ctx 跑 processOne，断言 release 仍被调用、且收到的是独立未取消 ctx。
+func TestScheduler_GateRelease_UsesIndependentContextOnCancel(t *testing.T) {
+	fs := &schedulerFakeStore{heads: []store.Row{retryHead(11)}, claimTok: "tok"}
+	reg := fakeRegistry{h: &fakeHandler{id: "h"}, needGate: true}
+	sch := NewScheduler(fs, nil, reg, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 模拟 tickTimeout fire / 上层取消：进 processOne 时 ctx 已 done
+	_ = sch.Tick(ctx)
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&fs.releaseGate), "gate must be released even when tick ctx cancelled")
+	assert.True(t, fs.releaseGateCtxAlive,
+		"release must use an independent non-cancelled context, not the tick ctx (else DELETE fails → gate leaks to TTL)")
+}
+
+// review #3：release 失败不得被 `_ =` 吞掉——与 ReleaseClaim 的 REPLAY_RELEASE_FAILED 同词汇，
+// 让泄漏可观测（排查时不再只看到 replay 让路/无进度）。
+func TestScheduler_GateRelease_AlertsOnFailure(t *testing.T) {
+	fs := &schedulerFakeStore{heads: []store.Row{retryHead(12)}, claimTok: "tok", releaseGateErr: errors.New("db down")}
+	reg := fakeRegistry{h: &fakeHandler{id: "h"}, needGate: true}
+	al := &recordingAlerter{}
+	sch := NewScheduler(fs, nil, reg, nil, al)
+
+	_ = sch.Tick(context.Background()) // ctx 未取消；fake 因 releaseGateErr 强制失败
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.releaseGate), "release attempted")
+	assert.True(t, al.has("REPLAY_GATE_RELEASE_FAILED"), "release failure must surface an anomaly, not be swallowed")
 }
