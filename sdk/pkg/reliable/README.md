@@ -91,7 +91,7 @@ stateDiagram-v2
 - **fencing token**：每次占位发新的 `ClaimToken`（`claim_id`），结算须出示它。这让「UPDATE 0 行」从设计边界变成**可判定异常**——能区分「已被别实例接管」与「真失败」。
 - **at-least-once + 租约自愈**：handler 处理期间持租约；进程崩溃留下 `PROCESSING` 孤儿行，由 `lease.Runner` 观测 + broker 重投恢复（可能重复执行，故 handler 须标 `ReplaySafety`）。
 - **aggregate gate**：`RequiresAggregateGate=true` 的 handler，重放前先抢 (tenant, aggregate) 级 lease，保证同聚合串行——对非幂等 handler 尤其关键。
-- **replay safety**：每个 handler 声明 `Unsafe`/`NeedsTxClaim`/`Idempotent`（默认 `Unsafe`，有进程外副作用），决定能否自动重放（细节见 `safety.go`）。
+- **replay safety**：每个 handler 声明 `ReplayUnsafe`/`ReplayNeedsTxClaim`/`ReplayIdempotent`（默认 `ReplayUnsafe`，有进程外副作用），决定能否自动重放（细节见 `safety.go`）。
 
 ## 包结构
 
