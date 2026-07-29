@@ -94,3 +94,24 @@ stateDiagram-v2
 - **replay safety**：每个 handler 声明 `Idempotent`/`Deterministic`/`ExternalEffect`/`NotSelfReplayable`，决定能否自动重放（细节见 `safety.go`）。
 
 ## 包结构
+
+| 包 | 职责 | 文档 |
+|----|------|------|
+| `reliable`（根） | 契约类型 + 纯函数（`Status`/`Key`/`ClaimInput`/`Decision`/`ReplaySafety`/`ErrorClass`/分类器雏形）。零第三方依赖。 | `doc.go` |
+| `reliable/store` | `Store` / `QuarantineStore` 接口 + `Row` / `QuarantineRow`。 | `store/doc.go` |
+| `reliable/store/gormshared` | MySQL / PostgreSQL 共享 GORM 实现。 | `store/gormshared/doc.go` |
+| `reliable/store/mysql` `reliable/store/postgres` | 方言 migration SQL + classifier + `NewStore`。 | `store/{mysql,postgres}/doc.go` |
+| `reliable/store/repotest` | 双方言 conformance 套件（准入门禁）。 | `store/repotest/doc.go` |
+| `reliable/replay` | eligible-head 重放调度器（`Scheduler`）。 | `replay/doc.go` |
+| `reliable/lease` | 租约孤儿观测 runner。 | `lease/doc.go` |
+
+## 关键不变量
+
+（Task 5 填充）
+
+## 文档地图
+
+- **`doc.go`（8 个，根 + 7 子包）**：每个类型的契约与设计注记，参考型文档主体。
+- **`PR2_SCOPE.md`（仓库根）**：PR-2 范围、设计决策、PR-3 / PR-7 carry-over。
+- **§spec（opus5-RCC-v2 §1~§8）**：代码注释中大量 `§N` 引用指向的外部规范；本 README 不复述。
+- **conformance 套件**：`reliable/store/repotest`——双方言（MySQL/PostgreSQL）下的行为真相源。
