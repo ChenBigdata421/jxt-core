@@ -12,8 +12,8 @@ safety), §8.4 (MarkFailed matrix), §10 (metrics), §11 (PR-2 acceptance).
     `ErrNotSelfReplayable`/`ErrConflict`) + typed wrappers (`PermanentError`/`RetryableError`/
     `DuplicateKeyError`) so dup-detection is `errors.As` not string-match (D3).
   - `key.go` — `HandlerID`/`Key`/`Meta`/`ClaimInput`/`ClaimToken`/`Decision`/`AggregateGateKey`.
-  - `state.go` — five-state machine (`PENDING`/`PROCESSING`/`SUCCEEDED`/`RETRY_SCHEDULED`/
-    `DEAD_LETTER`) + attempt/backoff oracle (capped exponential + jitter seeded by attempt).
+  - `state.go` — five-state machine (`PROCESSING`/`SUCCEEDED`/`RETRY_SCHEDULED`/`DEAD_LETTER`/
+    `DISCARDED`) + attempt/backoff oracle (capped exponential + jitter seeded by attempt).
   - `safety.go` — `ReplaySafety` enum (`Idempotent`/`Deterministic`/`ExternalEffect`/`NotSelfReplayable`).
   - `classify.go` — two-level `ErrorClassifier` (`ErrorClass` × `ReplaySafety`) + `IsDuplicateKey`.
   - `metrics.go` — metric-name constants aligned verbatim with §10; `NoOpMetrics` default.
