@@ -111,6 +111,21 @@ PR-7 once a production delivery subscriber exists to anchor the benchmark.
 - Multi-tenant fan-out: tenant → `*gormshared.GormStore` cache + lifecycle (D6).
 - Scheduler live-behavior verification against a real broker (CI DSN contract —
   `TestConformance_AllDialects` runs on real MySQL+PG via env DSNs; PR-3 adds the broker leg).
+- **New `tests/reliable/` integration/regression dir** (mirrors `tests/outbox` + `tests/eventbus`),
+  deferred to PR-3 because the end-to-end surface it exercises doesn't exist until the §4 consumer
+  + adapters land. PR-2's own surface is already covered by `sdk/pkg/reliable/store/repotest/`
+  dual-dialect conformance (the store-level regression suite, runs on real MySQL+PG via
+  testcontainers) + inline unit tests + `gates_test.go`; repotest is a reusable harness and stays
+  in `sdk/pkg/`, not `tests/`. Two tiers to add in PR-3:
+  - `tests/reliable/system_tests/` (`//go:build system`, skip-if-down, **not** in default
+    `go test ./...`): full pipeline broker → outbox → reliable consumer → store → quarantine,
+    against docker-compose RedPanda + DB — the only layer that catches cross-component wiring
+    drift (EventBusDLQAdapter / OutboxRecordingHandler, lease reclaim under real redelivery).
+  - `tests/reliable/reliability_regression_tests/` (mirrors `tests/eventbus/reliability_regression_tests`):
+    broker fault injection — consumer crash mid-processing, lease orphan + inline reclaim,
+    double-delivery idempotency, dead-letter/quarantine under real broker redelivery.
+  - Infra choice for PR-3: prefer testcontainers (consistent with repotest — one Docker daemon,
+    no `docker-compose up` prerequisite) over docker-compose services; decide when the dir is created.
 - `MarkFailed` repo-wide UTC timestamp normalization (carry-over from PR-1 TODOS; PR-2's new
   methods already use `nowUTC()`).
 
