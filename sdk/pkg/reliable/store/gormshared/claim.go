@@ -59,14 +59,18 @@ func (s *GormStore) tryClaimOnce(ctx context.Context, in reliable.ClaimInput, le
 				return "", reliable.AlreadyProcessing, nil, false // 租约有效，让路
 			}
 			// 租约过期：内联 CAS 续占（D4：同时记 LEASE_ORPHAN）。
-			rows := s.claimDB.WithContext(ctx).Model(&EventConsumptionModel{}).
+			// review #4：先查 res.Error——DB 错误/ctx 取消不得伪装成 AlreadyProcessing（否则调用方零感知）。
+			res := s.claimDB.WithContext(ctx).Model(&EventConsumptionModel{}).
 				Where("id = ? AND status = ? AND lease_expires_at < ?", existing.ID, reliable.StatusProcessing, now).
 				Updates(map[string]any{
 					"status": reliable.StatusProcessing, "claim_id": claimID,
 					"claimed_at": now, "lease_expires_at": expires, "last_attempt_at": now,
 					"row_version": gorm.Expr("row_version + 1"),
-				}).RowsAffected
-			if rows == 1 {
+				})
+			if res.Error != nil {
+				return "", 0, res.Error, false
+			}
+			if res.RowsAffected == 1 {
 				// D4：内联回收也记 LEASE_ORPHAN，与 lease runner 观测一致。
 				// D20（本轮）：这条内联 CAS 是【唯一】的重新占位路径——lease.Runner 只观测不改行。
 				// claimID 传【被顶替掉的旧 claim_id】：幂等键按「哪一次占位成了孤儿」去重，

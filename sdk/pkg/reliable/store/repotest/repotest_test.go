@@ -18,6 +18,7 @@ func TestConformance_AllDialects(t *testing.T) {
 			RunConformance(t, d)
 			RunInvariant(t, d)
 			RunQuarantineConformance(t, d)
+			RunErrorPropagationConformance(t, d)
 		})
 	}
 }

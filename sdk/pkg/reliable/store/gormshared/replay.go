@@ -78,15 +78,19 @@ func (s *GormStore) ClaimForReplay(ctx context.Context, db *gorm.DB, id int64) (
 	claimID := uuid.NewString()
 	now := nowUTC()
 	lease := 5 * time.Minute
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error，DB 错误不得伪装成 ErrRetryLater（让路）。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND replay_mode = ?", id, reliable.StatusRetryScheduled, "AUTO").
 		Updates(map[string]any{
 			"status": reliable.StatusProcessing, "claim_id": claimID,
 			"claimed_at": now, "lease_expires_at": now.Add(lease),
 			"last_attempt_at": now, "attempt": gorm.Expr("attempt + 1"),
 			"row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 1 {
+		})
+	if res.Error != nil {
+		return "", store.Row{}, res.Error
+	}
+	if res.RowsAffected == 1 {
 		var m EventConsumptionModel
 		if err := db.WithContext(ctx).First(&m, id).Error; err != nil {
 			return "", store.Row{}, err
@@ -116,7 +120,8 @@ func (s *GormStore) claimManualReplay(ctx context.Context, db *gorm.DB, id int64
 	if m.ReplayMode != "MANUAL" || m.ReplayAuthID == "" || m.ReplayAuthConsumedAt != nil {
 		return "", store.Row{}, reliable.ErrNotPermitted
 	}
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error，DB 错误不得伪装成 ErrNotPermitted。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND replay_auth_id = ? AND replay_auth_consumed_at IS NULL",
 			id, reliable.StatusRetryScheduled, m.ReplayAuthID).
 		Updates(map[string]any{
@@ -124,8 +129,11 @@ func (s *GormStore) claimManualReplay(ctx context.Context, db *gorm.DB, id int64
 			"claimed_at": now, "lease_expires_at": now.Add(lease),
 			"last_attempt_at": now, "attempt": gorm.Expr("attempt + 1"),
 			"replay_auth_consumed_at": now, "row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 0 {
+		})
+	if res.Error != nil {
+		return "", store.Row{}, res.Error
+	}
+	if res.RowsAffected == 0 {
 		return "", store.Row{}, reliable.ErrNotPermitted
 	}
 	if err := db.WithContext(ctx).First(&m, id).Error; err != nil {
@@ -151,13 +159,17 @@ func (s *GormStore) AdvanceDue(ctx context.Context, db *gorm.DB, id int64) error
 	// ClaimForReplay→MarkFailed 改了 attempt 且把行放回 RETRY_SCHEDULED，无 attempt 守卫会用过期退避覆盖
 	// 新 due（行 attempt=3 却按 attempt=2 排程，退避被静默缩短）。加 attempt = m.Attempt 乐观锁（与
 	// MarkFailed 同模式）；0 行返回 ErrConflict，scheduler 调用方已把它当良性（handleNonExecution）。
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error（0 行才是良性 CAS conflict）。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND attempt = ?", id, reliable.StatusRetryScheduled, m.Attempt).
 		Updates(map[string]any{
 			"next_attempt_at": next, "updated_at": nowUTC(),
 			"row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 0 {
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
 	}
 	return nil
@@ -177,7 +189,8 @@ func (s *GormStore) ReleaseClaim(ctx context.Context, db *gorm.DB, id int64, tok
 	}
 	now := nowUTC()
 	next := now.Add(reliable.Backoff(m.Attempt, reliable.DefaultBackoffBase, reliable.DefaultBackoffCap, s.jitter()))
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error（0 行才是良性 CAS conflict / guard 未命中）。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND claim_id = ? AND payload IS NOT NULL AND error_class IS NOT NULL",
 			id, reliable.StatusProcessing, string(tok)).
 		Updates(map[string]any{
@@ -185,8 +198,11 @@ func (s *GormStore) ReleaseClaim(ctx context.Context, db *gorm.DB, id int64, tok
 			"claim_id": nil, "claimed_at": nil, "lease_expires_at": nil,
 			"next_attempt_at": next, "updated_at": now,
 			"row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 0 {
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
 	}
 	return nil
@@ -204,7 +220,8 @@ func (s *GormStore) ReleaseClaim(ctx context.Context, db *gorm.DB, id int64, tok
 // 宁可返回 ErrConflict 让调用方告警，也不要招来约束错误。离开 RETRY_SCHEDULED 时统一清 ownership
 // （§2.4 不变量表：DEAD_LETTER 必清 claim_id/claimed_at/lease_expires_at/next_attempt_at）。
 func (s *GormStore) MoveToDeadLetter(ctx context.Context, db *gorm.DB, id int64, reason string) error {
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error，再走 re-SELECT 区分良性竞态/真失败。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND payload IS NOT NULL AND error_class IS NOT NULL",
 			id, reliable.StatusRetryScheduled).
 		Updates(map[string]any{
@@ -212,8 +229,11 @@ func (s *GormStore) MoveToDeadLetter(ctx context.Context, db *gorm.DB, id int64,
 			"claim_id": nil, "claimed_at": nil, "lease_expires_at": nil,
 			"error_message": sanitizeMsg(reason), "updated_at": nowUTC(),
 			"row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 1 {
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 1 {
 		return nil
 	}
 	// **R2**：rows==0 区分「状态被别实例抢走（预期，不报错）」与「guard 未命中（真失败）」。原稿一律 ErrConflict
@@ -249,11 +269,15 @@ func (s *GormStore) MoveToDeadLetterWithToken(ctx context.Context, db *gorm.DB, 
 	if errorClass != "" {
 		updates["error_class"] = errorClass
 	}
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error（0 行才是 token 不匹配 / guard 未命中）。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND claim_id = ? AND payload IS NOT NULL AND error_class IS NOT NULL",
 			id, reliable.StatusProcessing, string(tok)).
-		Updates(updates).RowsAffected
-	if rows == 0 {
+		Updates(updates)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
 	}
 	return nil
@@ -269,7 +293,8 @@ func (s *GormStore) ScheduleReplay(ctx context.Context, db *gorm.DB, id, expecte
 	}
 	now := nowUTC()
 	authID := uuid.NewString()
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error（0 行才是版本不匹配）。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND row_version = ?", id, reliable.StatusDeadLetter, expectedVersion).
 		Updates(map[string]any{
 			"status":              reliable.StatusRetryScheduled,
@@ -279,8 +304,11 @@ func (s *GormStore) ScheduleReplay(ctx context.Context, db *gorm.DB, id, expecte
 			"replay_auth_id": authID, "replay_auth_consumed_at": nil,
 			"next_attempt_at": now, "updated_at": now,
 			"row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 0 {
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
 	}
 	return nil
@@ -288,15 +316,19 @@ func (s *GormStore) ScheduleReplay(ctx context.Context, db *gorm.DB, id, expecte
 
 func (s *GormStore) Discard(ctx context.Context, db *gorm.DB, id, expectedVersion int64, by, reason string) error {
 	now := nowUTC()
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error（0 行才是版本不匹配）。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND row_version = ?", id, reliable.StatusDeadLetter, expectedVersion).
 		Updates(map[string]any{
 			"status": reliable.StatusDiscarded, "resolved_at": now, "resolved_by": by,
 			"discard_reason": reason, "claim_id": nil, "claimed_at": nil,
 			"lease_expires_at": nil, "next_attempt_at": nil,
 			"updated_at": now, "row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 0 {
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
 	}
 	return nil

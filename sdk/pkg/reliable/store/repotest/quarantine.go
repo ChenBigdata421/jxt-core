@@ -2,6 +2,7 @@ package repotest
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
@@ -93,6 +94,20 @@ func RunQuarantineConformance(t *testing.T, d *ConformanceDeps) {
 		require.NoError(t, err)
 		assert.Equal(t, "QUARANTINED", got.Status, "victim row status untouched by cross-tenant resolve")
 		assert.Equal(t, int64(1), got.RowVersion, "victim row version untouched by cross-tenant resolve")
+	})
+
+	// review #4：MarkResolved 的 UPDATE 必须传播 res.Error——ctx 取消/DB 错误（RowsAffected=0）
+	// 不能伪装成 ErrConflict，否则真实失败丢失。用【预先取消的 ctx】驱动直 UPDATE 路径。
+	t.Run("MarkResolved_CtxError_Propagates", func(t *testing.T) {
+		q := quarantineRow()
+		q.SrcOffset = q.SrcOffset + 400
+		id, err := d.QStore.Record(context.Background(), d.DB, q)
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		err = d.QStore.MarkResolved(ctx, d.DB, 0, id, 1, "ops")
+		assert.True(t, errors.Is(err, context.Canceled),
+			"MarkResolved must propagate the real ctx error, not mask it as ErrConflict")
 	})
 }
 

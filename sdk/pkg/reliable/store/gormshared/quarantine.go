@@ -83,13 +83,17 @@ func (q *GormQuarantineStore) MarkResolved(ctx context.Context, db *gorm.DB, ten
 	now := nowUTC()
 	// review #2：WHERE 含 tenant_id——跨租户凭泄露的 (id, version) 处置命中 0 行 → ErrConflict。
 	// 与 GetByID/List 同等级隔离；0 行同时覆盖「版本不匹配/已处置/租户不符」，不泄露 id 归属。
-	rows := db.WithContext(ctx).Model(&QuarantineModel{}).
+	// review #4：先查 res.Error——DB 错误/ctx 取消（RowsAffected=0）不得伪装成 ErrConflict。
+	res := db.WithContext(ctx).Model(&QuarantineModel{}).
 		Where("id = ? AND tenant_id = ? AND row_version = ?", id, tenantID, expectedVersion).
 		Updates(map[string]any{
 			"status": "RESOLVED", "resolved_at": now, "resolved_by": by,
 			"row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 0 {
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return errors.Join(reliable.ErrConflict, errors.New("quarantine row version mismatch"))
 	}
 	return nil

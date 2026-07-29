@@ -14,7 +14,8 @@ import (
 func (s *GormStore) MarkSucceeded(ctx context.Context, db *gorm.DB, key reliable.Key, tok reliable.ClaimToken) error {
 	now := nowUTC()
 	// 必须用 map[string]any 传 nil：struct-based Updates 会静默跳过 nil 字段，破坏 chk_* CHECK 不变量。
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error 再看 RowsAffected——否则 DB 错误/ctx 取消（RowsAffected=0）被伪装成 ErrConflict。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("event_id = ? AND handler_id = ? AND item_key = ? AND status = ? AND claim_id = ?",
 			key.EventID, string(key.Handler), key.ItemKey, reliable.StatusProcessing, string(tok)).
 		Updates(map[string]any{
@@ -25,8 +26,11 @@ func (s *GormStore) MarkSucceeded(ctx context.Context, db *gorm.DB, key reliable
 			// 但「成功了却留着上次失败的指纹」会污染 §10 按 error_fingerprint 的聚合定位。
 			"error_code": "", "error_fingerprint": "",
 			"updated_at": now, "row_version": gorm.Expr("row_version + 1"),
-		}).RowsAffected
-	if rows == 0 {
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
 	}
 	return nil
@@ -78,10 +82,14 @@ func (s *GormStore) MarkFailed(ctx context.Context, db *gorm.DB, key reliable.Ke
 	// 在 Go 侧计算（s.jitter() 真随机，不可移植到 SQL）。改用乐观锁：UPDATE 的 WHERE 加 attempt = m.Attempt，
 	// 若 attempt 在 SELECT 与 UPDATE 之间被并发改动，则 0 行受影响 → 返回 ErrConflict（fail-fast，不污染状态），
 	// 而非用过期的 deadLetter/退避覆盖行。
-	rows := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+	// review #4：先查 res.Error（同 MarkSucceeded），DB 错误不得伪装成 CAS conflict。
+	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
 		Where("id = ? AND status = ? AND claim_id = ? AND attempt = ?", m.ID, reliable.StatusProcessing, string(tok), m.Attempt).
-		Updates(updates).RowsAffected
-	if rows == 0 {
+		Updates(updates)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
 	}
 	return nil

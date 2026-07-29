@@ -426,3 +426,49 @@ func confAggregateGate(t *testing.T, d *ConformanceDeps) {
 	wg.Wait()
 	assert.Equal(t, int64(1), atomic.LoadInt64(&won), "exactly one concurrent gate acquire wins")
 }
+
+// review #4：CAS 写路径必须传播 res.Error。原稿链式取 .RowsAffected 丢弃了 *gorm.DB.Error——
+// DB 错误 / ctx 取消时 RowsAffected=0，被伪装成 ErrConflict（或 AlreadyProcessing/ErrNotPermitted），
+// 真实失败丢失。这里用【预先取消的 ctx】驱动：直 UPDATE 路径（无前置/后置 SELECT 兜底）必然随 ctx 失败，
+// 断言 ctx 错误原样上抛、未被业务哨兵盖掉。（带前置/后置 SELECT 的路径其 UPDATE-error 分支无法用此法隔离，
+// 由同一次统一修复覆盖——见 mark.go/replay.go/claim.go/quarantine.go 的 res.Error 检查。）
+func RunErrorPropagationConformance(t *testing.T, d *ConformanceDeps) {
+	cancelledCtx := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
+	seedDeadLetter := func(t *testing.T, name string) (int64, int64) {
+		t.Helper()
+		in := newClaimInput(t, name)
+		tok, _, err := d.Store.TryClaim(context.Background(), in, lease5)
+		require.NoError(t, err)
+		require.NoError(t, d.Store.MarkFailed(context.Background(), d.DB, in.Key, tok,
+			reliable.ClassPoison, reliable.ReplayIdempotent, 5, reliable.Permanent(reliableErr("bad")), []byte("p")))
+		r := mustGetByEvent(t, d, in.Key)
+		return r.ID, r.RowVersion
+	}
+
+	t.Run("MarkSucceeded_CtxError_Propagates", func(t *testing.T) {
+		in := newClaimInput(t, "ctx-err-succ")
+		tok, _, err := d.Store.TryClaim(context.Background(), in, lease5)
+		require.NoError(t, err)
+		err = d.Store.MarkSucceeded(cancelledCtx(), d.DB, in.Key, tok)
+		assert.True(t, errors.Is(err, context.Canceled),
+			"MarkSucceeded must propagate the real ctx error, not mask it as ErrConflict")
+	})
+
+	t.Run("ScheduleReplay_CtxError_Propagates", func(t *testing.T) {
+		id, ver := seedDeadLetter(t, "ctx-err-sched")
+		err := d.Store.ScheduleReplay(cancelledCtx(), d.DB, id, ver, "alice", "bob", "r")
+		assert.True(t, errors.Is(err, context.Canceled),
+			"ScheduleReplay must propagate the real ctx error, not mask it as ErrConflict")
+	})
+
+	t.Run("Discard_CtxError_Propagates", func(t *testing.T) {
+		id, ver := seedDeadLetter(t, "ctx-err-disc")
+		err := d.Store.Discard(cancelledCtx(), d.DB, id, ver, "ops", "done")
+		assert.True(t, errors.Is(err, context.Canceled),
+			"Discard must propagate the real ctx error, not mask it as ErrConflict")
+	})
+}
