@@ -48,3 +48,60 @@ Tracked follow-ups. Each item: what / why / context / depends on.
   `evidence-management/command` have distinct groupIds and each receives 100% of
   its own topic's partitions (check consumer-group membership / lag via
   Kafka/RedPanda admin).
+
+## F3 — Kafka consumer pipeline activation prerequisites (gate Task 8 canary)
+
+Three timing-invariant gaps surfaced in the 2026-07-30 `/review` of the v1.1.69
+dead-switch fix (commits `7812717`, `9e130ef`). All assume values the user config
+layer does not guarantee. None bite while the pipeline ships default-OFF (v1.1.69
+no-op); all must be closed **before** Task 8 flips `pipeline.enabled:true` in any
+canary.
+
+- **What:**
+  1. **`sessionTimeout=0` skips the flush-timeout fail-fast.**
+     `NewKafkaEventBus` calls `effective.validate(cfg.Consumer.SessionTimeout)`
+     (`sdk/pkg/eventbus/kafka.go:254`) and `validate` guards the invariant on
+     `sessionTimeout > 0` (`sdk/pkg/eventbus/type.go:650`). The natural minimal
+     enablement (`pipeline:{enabled:true}`, no `sessionTimeout`) →
+     `SessionTimeout=0` → invariant skipped → sarama receives
+     `session.timeout=0` (`kafka.go:311`, no `>0` guard) and fails late with a
+     non-pipeline error. The PR's "fail-fast, network-free validation" contract
+     does not hold for this shape. Fix: validate against an *effective* session
+     timeout (apply a default, e.g. 10s mirroring sarama, before `validate`) and
+     add an `enabled=true + sessionTimeout=0` regression test asserting it now
+     fails fast with the wrapped pipeline error.
+  2. **Flush-timeout error points at a value the operator cannot set.**
+     `validate` returns `pipeline.flushTimeout (4s) must be < sessionTimeout/2`
+     (`type.go:651`), but `flushTimeout` is internal-only (`PipelineUserConfig`
+     strips it — `sdk/config/eventbus.go:188-193`); the 4s comes from
+     `applyPipelineDefaults`. The operator's only lever is to **raise**
+     `sessionTimeout`, which the message never says. Fix: mention "raise
+     sessionTimeout" in the message, or carry a user-facing hint in the wrap at
+     `kafka.go:255`.
+  3. **Bare-`Unmarshal` silent-drop still live for timing keys.**
+     `sdk/config/config.go:56` is still `v.Unmarshal(AppConfig)` with no
+     `ErrorUnused`. A user who copies a `pipeline.flushTimeout`/`dlqTimeout` line
+     from an internal-struct example or older doc gets it silently dropped — same
+     mechanism as the original dead switch, narrowed to timing keys (including
+     *invalid* values the invariant would otherwise have caught). Fix: at minimum
+     warn on unused keys under `pipeline.`; ideally add
+     `viper.DecoderConfigOption(...WithErrorUnused)` (or a targeted check) so the
+     dead switch can't recur for the next field.
+- **Why:** v1.1.69 ships the pipeline dark (default `Enabled=false`), so there is
+  no live hazard today. Task 8 (pipeline canary) is the first time `enabled:true`
+  is set in prod; the fail-fast contract must actually hold by then, or a
+  misconfigured canary fails late and confusingly instead of at construction.
+- **Context:** 2026-07-30 `/review` of the 3-hour dead-switch window
+  (`25c0f72..c141b8c`). The dead-switch decode fix itself is now pinned
+  end-to-end by `sdk/config/eventbus_pipeline_decode_test.go` (added in the same
+  review). Findings 1 and 2 share a root cause: timing-invariant enforcement
+  assumes values the user layer doesn't default.
+- **Depends on / blocked by:** Task 8 (pipeline canary activation). Nothing in
+  v1.1.69.
+- **Verify:**
+  1. `enabled=true + sessionTimeout=0` construction returns the wrapped
+     `"invalid kafka consumer pipeline config"` error (not a sarama dial/validate
+     error) — pinned by a regression test.
+  2. The error message tells the operator to raise `sessionTimeout`.
+  3. An unknown `pipeline.flushTimeout`/`pipeline.dlqTimeout` key is surfaced
+     (warn/error), not silently dropped.
