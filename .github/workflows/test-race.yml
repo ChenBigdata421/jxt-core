@@ -58,8 +58,14 @@ jobs:
             ./sdk/pkg/tenant/database \
             ./sdk/pkg/crypto \
             ./sdk/pkg/json \
+            ./sdk/pkg/logger \
             ./sdk/pkg/utils \
             ./sdk/pkg/captcha
+
+      # sdk/config 也持有 Redis testcontainer 测试（需 Docker），不能整包 broker-free 跑。
+      # 仅按名运行死开关解码守卫（viper YAML 往返，纯解析、无 infra）。
+      - name: go test -race (sdk/config pipeline decode guard)
+        run: go test -race -timeout 3m -run 'TestEventBusKafkaPipeline_Decode' ./sdk/config
 
       # eventbus is the most concurrency-heavy package, but most of its tests need a live
       # Kafka/NATS broker and hang without one. Run only the broker-free registry-lifecycle
@@ -79,7 +85,7 @@ jobs:
       - name: go test -race (eventbus broker-free subset)
         run: |
           go test -race -timeout 5m -run \
-            'TestKafka(SendResult|UnregisterTenant|Close|RegisterTenant|Reinitialize)|TestMemory(SendResult|UnregisterTenant|Close|Registry)|TestClose_(StableTerminalError|IdempotentSecondCall)|TestRegisterTenant_RejectedAfterClose|TestUnregisterTenant_(NoSendOnClosedPanic|RejectedAfterClose)|TestSendResult_(NoFallbackNoDropWhenFull|FrozenAfterClose)|TestNATSRegisterTenant' \
+            'TestKafka(SendResult|UnregisterTenant|Close|RegisterTenant|Reinitialize)|TestMemory(SendResult|UnregisterTenant|Close|Registry)|TestClose_(StableTerminalError|IdempotentSecondCall)|TestRegisterTenant_RejectedAfterClose|TestUnregisterTenant_(NoSendOnClosedPanic|RejectedAfterClose)|TestSendResult_(NoFallbackNoDropWhenFull|FrozenAfterClose)|TestNATSRegisterTenant|TestNewKafkaEventBus_Pipeline(ValidationBeforeDial|WindowSizeUpperBound)|TestConvertUserConfig_Pipeline(Passthrough|DefaultOff)' \
             ./sdk/pkg/eventbus
 
       # reliable kernel (PR-2): broker-free AND DB-free unit tests + the TestGate_* CI gates
