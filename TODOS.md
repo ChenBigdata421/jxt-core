@@ -51,9 +51,9 @@ Tracked follow-ups. Each item: what / why / context / depends on.
 
 ## F3 — Kafka consumer pipeline activation prerequisites (gate Task 8 canary)
 
-Three timing-invariant gaps surfaced in the 2026-07-30 `/review` of the v1.1.69
+Three timing-invariant gaps surfaced in the 2026-07-30 `/review` of the v1.1.70
 dead-switch fix (commits `7812717`, `9e130ef`). All assume values the user config
-layer does not guarantee. None bite while the pipeline ships default-OFF (v1.1.69
+layer does not guarantee. None bite while the pipeline ships default-OFF (v1.1.70
 no-op); all must be closed **before** Task 8 flips `pipeline.enabled:true` in any
 canary.
 
@@ -87,7 +87,7 @@ canary.
      warn on unused keys under `pipeline.`; ideally add
      `viper.DecoderConfigOption(...WithErrorUnused)` (or a targeted check) so the
      dead switch can't recur for the next field.
-- **Why:** v1.1.69 ships the pipeline dark (default `Enabled=false`), so there is
+- **Why:** v1.1.70 ships the pipeline dark (default `Enabled=false`), so there is
   no live hazard today. Task 8 (pipeline canary) is the first time `enabled:true`
   is set in prod; the fail-fast contract must actually hold by then, or a
   misconfigured canary fails late and confusingly instead of at construction.
@@ -97,7 +97,7 @@ canary.
   review). Findings 1 and 2 share a root cause: timing-invariant enforcement
   assumes values the user layer doesn't default.
 - **Depends on / blocked by:** Task 8 (pipeline canary activation). Nothing in
-  v1.1.69.
+  v1.1.70.
 - **Verify:**
   1. `enabled=true + sessionTimeout=0` construction returns the wrapped
      `"invalid kafka consumer pipeline config"` error (not a sarama dial/validate
