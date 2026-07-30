@@ -17,8 +17,8 @@ const (
 )
 
 var (
-	Logger        *zap.Logger        //全局ZapLogger打印
-	DefaultLogger *zap.SugaredLogger //全局SugarLogger打印，用于简易打印
+	Logger        = zap.NewNop()         //全局ZapLogger打印（默认 nop：Setup/Init 之前裸调用 logger.* 不致 nil panic；initialize.Setup 覆盖为实例）
+	DefaultLogger = zap.NewNop().Sugar() //全局SugarLogger打印，用于简易打印（默认 nop，initialize.Setup 覆盖为实例）
 )
 
 // jiyuanjie add in order to  设置logger中间件

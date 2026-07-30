@@ -244,12 +244,12 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		return nil, fmt.Errorf("kafka brokers cannot be empty")
 	}
 
-	// ⭐ 分区流水线配置（§4.3/§4.4，P3 单一派生）：校验 + 启动可观测共用同一 effective。
-	// 顺序不变量：必须在首次 sarama 建连（sarama.NewClient）之前——错误路径不触网、单测零 broker。
+	// ⭐ 分区流水线配置（§4.3/§4.4）：构造期校验 + 启动可观测共用同一 effective（applyPipelineDefaults 派生一次）。
+	// 注意：effective 不回写进 cfg——运行期 consumeWithPipeline 经 pipelineConfig()（kafka.go:982）按同一幂等
+	// 函数再派生一次，两处派生同源（k.config 指针不变）。顺序不变量：必须在首次 sarama 建连（sarama.NewClient）之前——错误路径不触网、单测零 broker。
 	effective := applyPipelineDefaults(cfg.Consumer.Pipeline)
-	logger.Info("kafka consumer pipeline config",
-		"pipelineEnabled", effective.Enabled,
-		"pipelineWindowSize", effective.WindowSize) // 生效值（0→16 已补全），D3=A——on/off 都打
+	logger.Infof("kafka consumer pipeline config: enabled=%v windowSize=%d", // 生效值（0→16 已补全），D3=A——on/off 都打
+		effective.Enabled, effective.WindowSize)
 	if effective.Enabled {
 		if err := effective.validate(cfg.Consumer.SessionTimeout); err != nil {
 			return nil, fmt.Errorf("invalid kafka consumer pipeline config: %w", err)
@@ -470,9 +470,8 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	// 初始化发布端流量控制器
 	if cfg.Enterprise.Publisher.RateLimit.Enabled {
 		bus.publishRateLimiter = NewRateLimiter(cfg.Enterprise.Publisher.RateLimit)
-		logger.Info("Publisher rate limiter enabled",
-			"ratePerSecond", cfg.Enterprise.Publisher.RateLimit.RatePerSecond,
-			"burstSize", cfg.Enterprise.Publisher.RateLimit.BurstSize)
+		logger.Infof("Publisher rate limiter enabled: ratePerSecond=%d burstSize=%d",
+			cfg.Enterprise.Publisher.RateLimit.RatePerSecond, cfg.Enterprise.Publisher.RateLimit.BurstSize)
 	}
 
 	// 优化1：启动AsyncProducer的成功和错误处理goroutine
@@ -482,14 +481,11 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	go bus.handleAsyncProducerSuccess()
 	go bus.handleAsyncProducerErrors()
 
-	logger.Info("Kafka EventBus created successfully (AsyncProducer mode)",
-		"brokers", cfg.Brokers,
-		"clientId", cfg.ClientID,
-		"healthCheckInterval", cfg.HealthCheckInterval,
-		"compressionMode", "topic-level", // 🔥 重构：压缩配置改为 topic 级别
-		"flushFrequency", saramaConfig.Producer.Flush.Frequency,
-		"flushMessages", saramaConfig.Producer.Flush.Messages,
-		"flushBytes", saramaConfig.Producer.Flush.Bytes)
+	logger.Infof("Kafka EventBus created successfully (AsyncProducer mode): "+ // 🔥 重构：压缩配置改为 topic 级别
+		"brokers=%v clientId=%v healthCheckInterval=%v compressionMode=topic-level "+
+		"flushFrequency=%v flushMessages=%v flushBytes=%v",
+		cfg.Brokers, cfg.ClientID, cfg.HealthCheckInterval,
+		saramaConfig.Producer.Flush.Frequency, saramaConfig.Producer.Flush.Messages, saramaConfig.Producer.Flush.Bytes)
 
 	return bus, nil
 }

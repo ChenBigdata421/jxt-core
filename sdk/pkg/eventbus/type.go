@@ -654,7 +654,8 @@ func (c PipelineConfig) validate(sessionTimeout time.Duration) error {
 		return fmt.Errorf("pipeline.flushTimeout must be > 0")
 	}
 	if sessionTimeout > 0 && c.FlushTimeout >= sessionTimeout/2 {
-		return fmt.Errorf("pipeline.flushTimeout (%s) must be < sessionTimeout/2 (%s)", c.FlushTimeout, sessionTimeout/2)
+		// flushTimeout 是内部安全不变量（用户层 PipelineUserConfig 不暴露）；运维唯一杠杆是抬高 consumer.sessionTimeout。
+		return fmt.Errorf("pipeline flushTimeout (%s) must be < consumer.sessionTimeout/2 (%s); raise consumer.sessionTimeout (flushTimeout is internal, not user-configurable)", c.FlushTimeout, sessionTimeout/2)
 	}
 	if c.DLQTimeout <= 0 {
 		return fmt.Errorf("pipeline.dlqTimeout must be > 0")
