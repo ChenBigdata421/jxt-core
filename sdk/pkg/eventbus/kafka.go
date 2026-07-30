@@ -244,6 +244,20 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 		return nil, fmt.Errorf("kafka brokers cannot be empty")
 	}
 
+	// ⭐ 分区流水线配置（§4.3/§4.4，P3 单一派生）：校验 + 启动可观测共用同一 effective。
+	// 顺序不变量：必须在任何 sarama 建连（:372 sarama.NewClient）之前——错误路径不触网、单测零 broker。
+	effective := applyPipelineDefaults(cfg.Consumer.Pipeline)
+	logger.Info("kafka consumer pipeline config",
+		"pipelineEnabled", effective.Enabled,
+		"pipelineWindowSize", effective.WindowSize) // 生效值（0→16 已补全），D3=A——on/off 都打
+	if effective.Enabled {
+		if err := effective.validate(cfg.Consumer.SessionTimeout); err != nil {
+			return nil, fmt.Errorf("invalid kafka consumer pipeline config: %w", err)
+		}
+		logger.Warn("kafka consumer pipeline ENABLED — partition-pipeline + DLQ seam is LIVE; " +
+			"ensure idempotent handlers, DLQ wiring, partition sizing, and assignor are ready")
+	}
+
 	// 创建Sarama配置
 	saramaConfig := sarama.NewConfig()
 

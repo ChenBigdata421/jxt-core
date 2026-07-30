@@ -747,3 +747,27 @@ func TestConvertUserConfig_PipelineDefaultOff(t *testing.T) {
 	assert.False(t, internal.Consumer.Pipeline.Enabled, "absent pipeline must stay disabled (no-op default)")
 	assert.Equal(t, 0, internal.Consumer.Pipeline.WindowSize, "WindowSize 0 (runtime defaults to 16)")
 }
+
+// TestNewKafkaEventBus_PipelineValidationBeforeDial 钉死 §4.3 顺序不变量：
+// Enabled=true + 非法 timing（SessionTimeout=8s → /2=4s，默认 FlushTimeout=4s 不满足 <）
+// 必须在 sarama.NewClient 之前 return validation error。命中字符串（D4=A）——
+// 仅断言 err!=nil 无法区分「校验先跑」与「校验被错排在 NewClient 之后、返回拨号错误」。
+// 用例传非空 bogus broker（localhost:1 = 端口拒绝，快速）绕过 :243 守卫；校验先 return，永不到达拨号。
+func TestNewKafkaEventBus_PipelineValidationBeforeDial(t *testing.T) {
+	cfg := &KafkaConfig{
+		Brokers: []string{"localhost:1"},
+		Consumer: ConsumerConfig{
+			SessionTimeout: 8 * time.Second, // 8/2=4s；默认 FlushTimeout=4s，4<4 不成立 → validate 报错
+			Pipeline:       PipelineConfig{Enabled: true},
+		},
+	}
+
+	bus, err := NewKafkaEventBus(cfg)
+
+	require.Error(t, err, "invalid pipeline config must fail construction")
+	assert.Nil(t, bus, "bus must not be returned on validation failure")
+	assert.Contains(t, err.Error(), "pipeline",
+		"error must come from pipeline validation, not a sarama dial (proves validation runs before NewClient)")
+	assert.Contains(t, err.Error(), "invalid kafka consumer pipeline config",
+		"error must carry the wrapped prefix")
+}
