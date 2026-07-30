@@ -709,3 +709,41 @@ func TestConfigLayeringSeparation(t *testing.T) {
 		t.Logf("Enterprise config is available in programmer layer")
 	}
 }
+
+// TestConvertUserConfig_PipelinePassthrough 钉死 §4.1+§4.2：用户层 pipeline.{enabled,windowSize}
+// 经 convertUserConfigToInternalKafkaConfig 端到端贯通到内部 Consumer.Pipeline。
+// timing 字段（FlushTimeout 等）转换层不补，留运行期 applyPipelineDefaults（windowSize=0 同理）。
+func TestConvertUserConfig_PipelinePassthrough(t *testing.T) {
+	user := &config.KafkaConfig{
+		Brokers: []string{"localhost:9092"},
+		Consumer: config.ConsumerConfig{
+			GroupID:        "g1",
+			SessionTimeout: 10 * time.Second,
+			Pipeline: config.PipelineUserConfig{
+				Enabled:    true,
+				WindowSize: 4,
+			},
+		},
+	}
+
+	internal := convertUserConfigToInternalKafkaConfig(user)
+
+	assert.True(t, internal.Consumer.Pipeline.Enabled, "Enabled must propagate")
+	assert.Equal(t, 4, internal.Consumer.Pipeline.WindowSize, "WindowSize must propagate")
+	// 转换层不补 timing——留运行期 applyPipelineDefaults
+	assert.Equal(t, time.Duration(0), internal.Consumer.Pipeline.FlushTimeout,
+		"FlushTimeout must NOT be defaulted in the convert layer (runtime applyPipelineDefaults owns it)")
+}
+
+// TestConvertUserConfig_PipelineDefaultOff 缺省 pipeline 段 → 内部 Enabled=false、WindowSize=0（非破坏）。
+func TestConvertUserConfig_PipelineDefaultOff(t *testing.T) {
+	user := &config.KafkaConfig{
+		Brokers:  []string{"localhost:9092"},
+		Consumer: config.ConsumerConfig{GroupID: "g2"}, // 无 Pipeline 段
+	}
+
+	internal := convertUserConfigToInternalKafkaConfig(user)
+
+	assert.False(t, internal.Consumer.Pipeline.Enabled, "absent pipeline must stay disabled (no-op default)")
+	assert.Equal(t, 0, internal.Consumer.Pipeline.WindowSize, "WindowSize 0 (runtime defaults to 16)")
+}

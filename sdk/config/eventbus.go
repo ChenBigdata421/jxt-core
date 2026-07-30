@@ -183,12 +183,21 @@ type ProducerConfig struct {
 // ConsumerConfig 消费者配置 - 用户配置层（简化）
 // 只包含用户需要关心的核心配置字段
 type ConsumerConfig struct {
-	GroupID           string        `mapstructure:"groupId"`           // 消费者组ID
-	AutoOffsetReset   string        `mapstructure:"autoOffsetReset"`   // 偏移量重置策略 (earliest, latest, none)
-	SessionTimeout    time.Duration `mapstructure:"sessionTimeout"`    // 会话超时时间
-	HeartbeatInterval time.Duration `mapstructure:"heartbeatInterval"` // 心跳间隔
+	GroupID           string             `mapstructure:"groupId"`           // 消费者组ID
+	AutoOffsetReset   string             `mapstructure:"autoOffsetReset"`   // 偏移量重置策略 (earliest, latest, none)
+	SessionTimeout    time.Duration      `mapstructure:"sessionTimeout"`    // 会话超时时间
+	HeartbeatInterval time.Duration      `mapstructure:"heartbeatInterval"` // 心跳间隔
+	Pipeline          PipelineUserConfig `mapstructure:"pipeline"`          // 分区内消费流水线开关（默认关闭，灰度显式开启）
 	// 移除了程序员应该控制的字段: MaxProcessingTime, FetchMinBytes, FetchMaxBytes, FetchMaxWait,
 	// RebalanceStrategy, IsolationLevel, MaxPollRecords, EnableAutoCommit, AutoCommitInterval
+}
+
+// PipelineUserConfig 用户层流水线配置。仅暴露开关与并发旋钮；
+// timing 类安全不变量（flushTimeout/dlqTimeout/stallWarnInterval）留内部默认，
+// 由 applyPipelineDefaults 兜底——避免用户误配违反 FlushTimeout < sessionTimeout/2 而 panic。
+type PipelineUserConfig struct {
+	Enabled    bool `mapstructure:"enabled"`              // 功能开关，默认 false
+	WindowSize int  `mapstructure:"windowSize,omitempty"` // 灰度并发旋钮；0 → 内部默认 16
 }
 
 // SecurityConfig 安全配置

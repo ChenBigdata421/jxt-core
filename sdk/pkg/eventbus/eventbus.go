@@ -1263,6 +1263,11 @@ func convertUserConfigToInternalKafkaConfig(userConfig *config.KafkaConfig) *Kaf
 			AutoOffsetReset:   userConfig.Consumer.AutoOffsetReset,
 			SessionTimeout:    userConfig.Consumer.SessionTimeout,
 			HeartbeatInterval: userConfig.Consumer.HeartbeatInterval,
+			Pipeline: PipelineConfig{
+				Enabled:    userConfig.Consumer.Pipeline.Enabled,
+				WindowSize: userConfig.Consumer.Pipeline.WindowSize,
+				// FlushTimeout/DLQTimeout/StallWarnInterval 留零值，运行期由 applyPipelineDefaults 补
+			},
 
 			// 程序员设定的默认值 (用户不需要关心的技术细节)
 			MaxProcessingTime: 30 * time.Second,       // 30s最大处理时间
