@@ -491,6 +491,47 @@ func (r *GormOutboxRepository) MarkBatchAsPublished(ctx context.Context, events 
 		}).Error
 }
 
+// MarkAsDeadLettered CAS: max_retry → dead_lettered（C1 step1）。只转一次，已是终态则幂等返回 nil。
+func (r *GormOutboxRepository) MarkAsDeadLettered(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	return r.db.WithContext(ctx).
+		Model(&OutboxEventModel{}).
+		Where("id = ? AND status = ?", id, outbox.EventStatusMaxRetry).
+		Updates(map[string]interface{}{
+			"status":           string(outbox.EventStatusDeadLettered),
+			"dead_lettered_at": now,
+			"updated_at":       now,
+		}).Error
+}
+
+// FindUnnotifiedDeadLettered 扫描 status=dead_lettered 且未通知的行（C1 step2）。
+func (r *GormOutboxRepository) FindUnnotifiedDeadLettered(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
+	var models []*OutboxEventModel
+	query := r.db.WithContext(ctx).
+		Where("status = ? AND dlq_notified_at IS NULL", outbox.EventStatusDeadLettered).
+		Order("id ASC").
+		Limit(limit)
+	if tenantID != 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+	if err := query.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return ToEntities(models), nil
+}
+
+// MarkDeadLetterNotified CAS: 标记通知成功（C1 step3）。并发/重复调用安全。
+func (r *GormOutboxRepository) MarkDeadLetterNotified(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	return r.db.WithContext(ctx).
+		Model(&OutboxEventModel{}).
+		Where("id = ? AND status = ? AND dlq_notified_at IS NULL", id, outbox.EventStatusDeadLettered).
+		Updates(map[string]interface{}{
+			"dlq_notified_at": now,
+			"updated_at":      now,
+		}).Error
+}
+
 // Ensure GormOutboxRepository implements the interfaces
 var (
 	_ outbox.OutboxRepository        = (*GormOutboxRepository)(nil)

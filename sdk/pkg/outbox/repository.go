@@ -153,6 +153,16 @@ type OutboxRepository interface {
 	// 返回：事件列表
 	FindMaxRetryEvents(ctx context.Context, limit int, tenantID int) ([]*OutboxEvent, error)
 
+	// MarkAsDeadLettered CAS: max_retry → dead_lettered（C1 step1）。
+	// 只转一次；已是终态则命中 0 行、返回 nil（幂等）。
+	MarkAsDeadLettered(ctx context.Context, id string) error
+
+	// FindUnnotifiedDeadLettered 扫描 status=dead_lettered 且 dlq_notified_at IS NULL 的行（C1 step2）。
+	FindUnnotifiedDeadLettered(ctx context.Context, limit int, tenantID int) ([]*OutboxEvent, error)
+
+	// MarkDeadLetterNotified CAS: 标记通知成功（C1 step3）。并发/重复调用安全。
+	MarkDeadLetterNotified(ctx context.Context, id string) error
+
 	// MarkBatchAsPublished transitions a batch of events from Pending to Published
 	// using a single UPDATE statement (status='published', published_at=now,
 	// updated_at=now WHERE id IN (?) AND status='pending').

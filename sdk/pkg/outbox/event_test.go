@@ -311,6 +311,42 @@ func TestOutboxEvent_Clone(t *testing.T) {
 	}
 }
 
+// TestOutboxEvent_CloneDeepCopiesDeadLetterTimestamps 钉住 DeadLetteredAt/DlqNotifiedAt 的深拷贝。
+// 它们是 C1 新增的 *time.Time 指针字段；Clone 若漏拷贝，clone 会与原对象共享指针，
+// 修改 clone 会反向污染原对象（快照/测试隔离失效）。
+func TestOutboxEvent_CloneDeepCopiesDeadLetterTimestamps(t *testing.T) {
+	now := time.Now().UTC()
+	event := &OutboxEvent{
+		ID:             "dl-clone-1",
+		DeadLetteredAt: &now,
+		DlqNotifiedAt:  &now,
+	}
+
+	clone := event.Clone()
+
+	if clone.DeadLetteredAt == nil || clone.DlqNotifiedAt == nil {
+		t.Fatalf("clone missing dead-letter timestamps: DeadLetteredAt=%v DlqNotifiedAt=%v",
+			clone.DeadLetteredAt, clone.DlqNotifiedAt)
+	}
+	// 必须是不同的指针（深拷贝，非别名）
+	if clone.DeadLetteredAt == event.DeadLetteredAt {
+		t.Error("DeadLetteredAt must be a distinct pointer (deep copy), not aliased with original")
+	}
+	if clone.DlqNotifiedAt == event.DlqNotifiedAt {
+		t.Error("DlqNotifiedAt must be a distinct pointer (deep copy), not aliased with original")
+	}
+	// 修改 clone 不得污染原对象
+	later := now.Add(time.Second)
+	*clone.DeadLetteredAt = later
+	*clone.DlqNotifiedAt = later
+	if *event.DeadLetteredAt != now {
+		t.Errorf("mutating clone polluted orig.DeadLetteredAt: got %v want %v", *event.DeadLetteredAt, now)
+	}
+	if *event.DlqNotifiedAt != now {
+		t.Errorf("mutating clone polluted orig.DlqNotifiedAt: got %v want %v", *event.DlqNotifiedAt, now)
+	}
+}
+
 // testError 测试用错误类型
 type testError struct {
 	msg string

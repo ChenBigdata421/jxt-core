@@ -11,7 +11,9 @@ import (
 // 包含 GORM 标签，用于数据库映射
 type OutboxEventModel struct {
 	// ID 事件唯一标识（UUID）
-	ID string `gorm:"type:char(36);primary_key;comment:事件ID"`
+	// idx_outbox_dlq_notify 复合索引第 3 列（priority:3）——须与 migration 003 的
+	// (status, dlq_notified_at, id) 列序一致，否则 AutoMigrate 与 SQL 产物分叉。
+	ID string `gorm:"type:char(36);primary_key;index:idx_outbox_dlq_notify,priority:3;comment:事件ID"`
 
 	// TenantID 租户 ID
 	TenantID int `gorm:"type:int;not null;index:idx_tenant_status;default:0;comment:租户ID"`
@@ -29,7 +31,9 @@ type OutboxEventModel struct {
 	Payload jxtjson.RawMessage `gorm:"type:json;comment:事件负载"`
 
 	// Status 事件状态
-	Status string `gorm:"type:varchar(20);not null;index:idx_tenant_status;index:idx_status;comment:事件状态"`
+	// idx_outbox_dlq_notify 复合索引首列（priority:1）——FindUnnotifiedDeadLettered 的
+	// WHERE status='dead_lettered' 需要它做前导列；DeadLetteredAt 不在该索引里（见 DlqNotifiedAt 注释）。
+	Status string `gorm:"type:varchar(20);not null;index:idx_tenant_status;index:idx_status;index:idx_outbox_dlq_notify,priority:1;comment:事件状态"`
 
 	// RetryCount 重试次数
 	RetryCount int `gorm:"type:int;not null;default:0;comment:重试次数"`
@@ -67,6 +71,17 @@ type OutboxEventModel struct {
 	// IdempotencyKey 幂等性键（用于防止重复发布）
 	// 唯一索引确保同一个幂等性键只能发布一次
 	IdempotencyKey string `gorm:"type:varchar(512);uniqueIndex:idx_idempotency_key;comment:幂等性键"`
+
+	// DeadLetteredAt 发布侧死信终态时间（C1/M2）
+	// 不参与 idx_outbox_dlq_notify：该索引服务 FindUnnotifiedDeadLettered 的
+	// (status, dlq_notified_at) 谓词，dead_lettered_at 从不被该查询过滤，放进索引只会让
+	// AutoMigrate 产物与 migration 003 分叉（C1 review P1 修复）。
+	DeadLetteredAt *time.Time `gorm:"comment:死信终态时间"`
+
+	// DlqNotifiedAt 死信通知成功时间；NULL=待补发（C1：通知与终态拆分）
+	// idx_outbox_dlq_notify 复合索引第 2 列（priority:2）；与 Status(1)、ID(3) 合成
+	// (status, dlq_notified_at, id)，与 migration 003 完全一致。
+	DlqNotifiedAt *time.Time `gorm:"index:idx_outbox_dlq_notify,priority:2;comment:死信通知时间"`
 }
 
 // TableName 指定表名
@@ -96,6 +111,8 @@ func (m *OutboxEventModel) ToEntity() *outbox.OutboxEvent {
 		TraceID:        m.TraceID,
 		CorrelationID:  m.CorrelationID,
 		IdempotencyKey: m.IdempotencyKey,
+		DeadLetteredAt: m.DeadLetteredAt,
+		DlqNotifiedAt:  m.DlqNotifiedAt,
 	}
 }
 
@@ -121,6 +138,8 @@ func FromEntity(e *outbox.OutboxEvent) *OutboxEventModel {
 		TraceID:        e.TraceID,
 		CorrelationID:  e.CorrelationID,
 		IdempotencyKey: e.IdempotencyKey,
+		DeadLetteredAt: e.DeadLetteredAt,
+		DlqNotifiedAt:  e.DlqNotifiedAt,
 	}
 }
 

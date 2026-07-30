@@ -312,16 +312,50 @@ In-Memory Queue
 | 方法 | 聚合ID | 路由策略 | 处理顺序 | 并发能力 | 失败处理 | 语义 |
 |------|-------|--------|--------|--------|--------|------|
 | **`SubscribeEnvelope()`** | ✅ 必需 | 一致性哈希 | ✅ 顺序 | ❌ 无 | Nak（重投） | At-Least-Once |
+| **`SubscribeEnvelopeDeliveryWithOptions()`** ⭐（仅 Kafka，M15） | ✅ 必需 | 一致性哈希 | ✅ 顺序 | ❌ 无 | handler error 原样透传 | At-Least-Once |
 | **`Subscribe()`** | ❌ 无需 | Round-Robin | ❌ 无序 | ✅ 高 | Ack（不重投） | At-Most-Once |
 
 **处理机制**：
-- 两种方法都通过 **Hollywood Actor Pool（256 个 Actor）** 处理消息
+- 三种方法都通过 **Hollywood Actor Pool（256 个 Actor）** 处理消息
 - **SubscribeEnvelope**: 使用聚合ID进行一致性哈希路由，同一聚合的消息路由到固定 Actor，保证顺序处理
 - **Subscribe**: 使用 Round-Robin 轮询路由，消息分散到不同 Actor，实现高并发处理
+- **SubscribeEnvelopeDeliveryWithOptions**: 与 SubscribeEnvelope 同路由（一致性哈希、同聚合顺序），区别是 handler 收到的是 `EnvelopeDelivery`（解码后的 `Envelope` + 原始 record 指纹 `RawMeta`），而非裸 `[]byte`
 
 **选择建议**：
 - 🎯 **需要顺序保证的业务**：使用 `SubscribeEnvelope()`（如订单状态变更）
+- 🛡️ **可靠消费 / 需要原始 record 完整性指纹**：使用 `SubscribeEnvelopeDeliveryWithOptions()`（PR-2 reliable kernel 的 handler 形态；见下文「EnvelopeDelivery 契约」）
 - 📢 **无需顺序的并发处理**：使用 `Subscribe()`（如缓存失效、通知）
+
+##### EnvelopeDelivery 契约（M15，可靠消费基础）
+
+`SubscribeEnvelopeDeliveryWithOptions` 是 PR-1 新增的可选能力接口（`EnvelopeDeliveryOptionsSubscriber`），把**解码后的 Envelope** 与**消费端原始 record 的完整性指纹**一起交付给 handler——为 PR-2 的 reliable kernel（重试 / DLQ / 幂等）铺路。核心类型（`sdk/pkg/eventbus/delivery.go`）：
+
+```go
+// RawMeta 记录消费端实际收到的原始 broker record 指纹（Kafka 填满全部字段）。
+type RawMeta struct {
+    RawValue    []byte          // 原始 ConsumerMessage.Value，未经解码
+    RawKey      []byte
+    Headers     []MessageHeader // 有序、允许重复 key（不是 map）
+    Topic       string
+    Partition   int32
+    Offset      int64
+    Timestamp   time.Time
+    PayloadHash string          // sha256(RawValue) 十六进制
+}
+
+type EnvelopeDelivery struct {
+    Envelope *Envelope  // 解码后的领域事件
+    Raw      RawMeta    // 原始 record 指纹
+}
+
+type EnvelopeDeliveryHandler func(context.Context, EnvelopeDelivery) error
+```
+
+**契约要点**：
+- ⚠️ **仅 Kafka 分区流水线实现**。`memoryEventBus` / `natsEventBus` **不实现**该接口（C4 fail-fast 契约）：reliable 订阅靠类型断言失败即报错，**不静默降级**为裸 `[]byte`。
+- **不使用 context key**（M14）：`RawMeta` 经 `AggregateMessage.Raw` / `DeliveryHandler` 显式结构体字段透传到 actor pool。
+- **错误语义分岔**：Envelope 解码失败返回包装的 `errInvalidEnvelope`（消息本身坏，进 DLQ）；业务 handler 自己返回的 error **原样透传、不包装**（处理失败，可重试）。PR-2 reliable kernel 据此分岔。
+- `PoisonMessage.Headers` 同期改为保真 `[]MessageHeader`（C6：原 `map[string]string` 丢序 + 合并重复 key），与 `RawMeta.Headers` 共用同一类型。
 
 ### 基础使用示例
 
@@ -9955,7 +9989,7 @@ CREATE TABLE outbox_events (
     event_version BIGINT NOT NULL,
     payload JSONB NOT NULL,
     topic VARCHAR(255) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending, published, failed
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending, published, failed, max_retry, dead_lettered
     error_message TEXT,
     retry_count INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),

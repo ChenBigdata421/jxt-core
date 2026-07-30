@@ -32,7 +32,7 @@ jobs:
   race:
     name: go test -race
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -81,3 +81,31 @@ jobs:
           go test -race -timeout 5m -run \
             'TestKafka(SendResult|UnregisterTenant|Close|RegisterTenant|Reinitialize)|TestMemory(SendResult|UnregisterTenant|Close|Registry)|TestClose_(StableTerminalError|IdempotentSecondCall)|TestRegisterTenant_RejectedAfterClose|TestUnregisterTenant_(NoSendOnClosedPanic|RejectedAfterClose)|TestSendResult_(NoFallbackNoDropWhenFull|FrozenAfterClose)|TestNATSRegisterTenant' \
             ./sdk/pkg/eventbus
+
+      # reliable kernel (PR-2): broker-free AND DB-free unit tests + the TestGate_* CI gates
+      # (J2 kernel-zero-deps / M14 no-context-key / §3.3 TryClaim-no-*gorm.DB / D9 no-placeholder
+      # / SelfCheck). Excludes store/repotest (needs Docker testcontainers — see conformance step
+      # below). -race is high-value here: scheduler.processOne (gate defer + panic recover),
+      # lease.Runner, and the TryClaim bounded-retry loop are concurrent Go paths. store/repotest
+      # is DB-serialized so -race adds little there — it runs without -race below.
+      - name: go test -race (reliable kernel, broker/DB-free)
+        run: |
+          go test -race -timeout 8m \
+            ./sdk/pkg/reliable \
+            ./sdk/pkg/reliable/store/gormshared \
+            ./sdk/pkg/reliable/store/mysql \
+            ./sdk/pkg/reliable/store/postgres \
+            ./sdk/pkg/reliable/lease \
+            ./sdk/pkg/reliable/replay \
+            ./sdk/pkg/reliable/internal/crosspackage
+
+      # reliable dual-dialect DB conformance (PR-2): testcontainers brings its own MySQL 8 +
+      # PostgreSQL 16 (no docker-compose broker needed; ubuntu-latest ships Docker). Runs the full
+      # RunConformance suite (state machine / claim-token fencing / CAS / §3.3 bidirectional /
+      # quarantine / EXPLAIN gate / ClaimForReplay-concurrency / cross-tenant isolation /
+      # aggregate-gate two-step) on BOTH dialects. Not under -race (DB-serialized; the Go-concurrency
+      # -race value is covered by the broker-free step above). The connect-retry in
+      # repotest/setup.go absorbs the postgres:16-alpine readiness-vs-accept race.
+      - name: reliable DB conformance (testcontainers MySQL + PostgreSQL)
+        run: |
+          go test -timeout 15m ./sdk/pkg/reliable/store/repotest/...

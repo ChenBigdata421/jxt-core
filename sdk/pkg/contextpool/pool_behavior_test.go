@@ -18,9 +18,7 @@ func TestPoolBehaviorUnderLoad(t *testing.T) {
 	testPool := sync.Pool{
 		New: func() interface{} {
 			atomic.AddInt64(&createCount, 1)
-			return &Context{
-				data: make(map[string]interface{}, 8),
-			}
+			return &Context{}
 		},
 	}
 	
@@ -91,9 +89,7 @@ func TestPoolNeverBlocks(t *testing.T) {
 		New: func() interface{} {
 			// 模拟慢速创建
 			time.Sleep(100 * time.Millisecond)
-			return &Context{
-				data: make(map[string]interface{}, 8),
-			}
+			return &Context{}
 		},
 	}
 	
@@ -133,7 +129,7 @@ func TestPoolAutoScaling(t *testing.T) {
 	
 	testPool := sync.Pool{
 		New: func() interface{} {
-			count := atomic.AddInt64(&createCount, 1)
+			atomic.AddInt64(&createCount, 1)
 			current := atomic.AddInt64(&currentConcurrent, 1)
 			
 			// 记录最大并发数
@@ -144,9 +140,7 @@ func TestPoolAutoScaling(t *testing.T) {
 				}
 			}
 			
-			return &Context{
-				data: make(map[string]interface{}, 8),
-			}
+			return &Context{}
 		},
 	}
 	
@@ -187,9 +181,7 @@ func TestPoolAutoScaling(t *testing.T) {
 func BenchmarkPoolUnderDifferentLoad(b *testing.B) {
 	testPool := sync.Pool{
 		New: func() interface{} {
-			return &Context{
-				data: make(map[string]interface{}, 8),
-			}
+			return &Context{}
 		},
 	}
 	
@@ -214,9 +206,7 @@ func BenchmarkPoolUnderDifferentLoad(b *testing.B) {
 		// 触发 GC，清空池
 		testPool = sync.Pool{
 			New: func() interface{} {
-				return &Context{
-					data: make(map[string]interface{}, 8),
-				}
+				return &Context{}
 			},
 		}
 		
@@ -239,7 +229,6 @@ func TestPoolWithRealWorldPattern(t *testing.T) {
 			atomic.AddInt64(&createCount, 1)
 			return &Context{
 				Context: context.Background(),
-				data:    make(map[string]interface{}, 8),
 			}
 		},
 	}
@@ -250,36 +239,36 @@ func TestPoolWithRealWorldPattern(t *testing.T) {
 		
 		// 阶段 1: 启动阶段（低流量）
 		fmt.Println("\n=== 阶段 1: 启动阶段 ===")
-		simulateTraffic(testPool, 10, 100*time.Millisecond)
+		simulateTraffic(&testPool, 10, 100*time.Millisecond)
 		fmt.Printf("创建对象数: %d\n", createCount)
 		
 		// 阶段 2: 流量上升
 		fmt.Println("\n=== 阶段 2: 流量上升 ===")
 		beforeCount := createCount
-		simulateTraffic(testPool, 100, 100*time.Millisecond)
+		simulateTraffic(&testPool, 100, 100*time.Millisecond)
 		fmt.Printf("新创建对象数: %d\n", createCount-beforeCount)
 		
 		// 阶段 3: 流量高峰
 		fmt.Println("\n=== 阶段 3: 流量高峰 ===")
 		beforeCount = createCount
-		simulateTraffic(testPool, 1000, 100*time.Millisecond)
+		simulateTraffic(&testPool, 1000, 100*time.Millisecond)
 		fmt.Printf("新创建对象数: %d\n", createCount-beforeCount)
 		
 		// 阶段 4: 流量回落
 		fmt.Println("\n=== 阶段 4: 流量回落 ===")
 		beforeCount = createCount
-		simulateTraffic(testPool, 50, 100*time.Millisecond)
+		simulateTraffic(&testPool, 50, 100*time.Millisecond)
 		fmt.Printf("新创建对象数: %d (应该很少)\n", createCount-beforeCount)
 		
 		// 阶段 5: 再次高峰
 		fmt.Println("\n=== 阶段 5: 再次高峰 ===")
 		beforeCount = createCount
-		simulateTraffic(testPool, 1000, 100*time.Millisecond)
+		simulateTraffic(&testPool, 1000, 100*time.Millisecond)
 		fmt.Printf("新创建对象数: %d (应该很少，复用之前的)\n", createCount-beforeCount)
 	})
 }
 
-func simulateTraffic(pool sync.Pool, concurrency int, duration time.Duration) {
+func simulateTraffic(pool *sync.Pool, concurrency int, duration time.Duration) {
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)

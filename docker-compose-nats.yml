@@ -76,6 +76,27 @@ services:
     networks:
       - benchmark-network
 
+  # MySQL 8 — outbox system tests (Tier 1: DLQ lifecycle + idempotency against a real DB).
+  # System tests t.Skip if this is unreachable; not required by the default `go test ./...` gate.
+  mysql:
+    image: mysql:8.0
+    container_name: benchmark-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: test
+      MYSQL_DATABASE: outbox_system_test
+    ports:
+      - "13306:3306"
+    command: ["--default-authentication-plugin=mysql_native_password", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -ptest || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - benchmark-network
+
 volumes:
   benchmark_nats_data:
     driver: local

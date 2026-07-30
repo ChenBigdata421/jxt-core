@@ -221,6 +221,21 @@ func (a *OutboxRepositoryAdapter) FindMaxRetryEvents(ctx context.Context, limit 
 	return a.repo.FindMaxRetryEvents(ctx, limit, tenantID)
 }
 
+// MarkAsDeadLettered delegates to the underlying jxt-core repository (C1 step1).
+func (a *OutboxRepositoryAdapter) MarkAsDeadLettered(ctx context.Context, id string) error {
+	return a.repo.MarkAsDeadLettered(ctx, id)
+}
+
+// FindUnnotifiedDeadLettered delegates to the underlying jxt-core repository (C1 step2).
+func (a *OutboxRepositoryAdapter) FindUnnotifiedDeadLettered(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
+	return a.repo.FindUnnotifiedDeadLettered(ctx, limit, tenantID)
+}
+
+// MarkDeadLetterNotified delegates to the underlying jxt-core repository (C1 step3).
+func (a *OutboxRepositoryAdapter) MarkDeadLetterNotified(ctx context.Context, id string) error {
+	return a.repo.MarkDeadLetterNotified(ctx, id)
+}
+
 // DeletePublishedBefore 删除指定时间之前已发布的事件
 func (a *OutboxRepositoryAdapter) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	return a.repo.DeletePublishedBefore(ctx, before, tenantID)

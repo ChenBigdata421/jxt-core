@@ -74,14 +74,6 @@ func (f DLQAlertHandlerFunc) Alert(ctx context.Context, event *OutboxEvent) erro
 	return f(ctx, event)
 }
 
-// NoOpDLQHandler 空操作 DLQHandler（默认实现）
-type NoOpDLQHandler struct{}
-
-// Handle 实现 DLQHandler 接口（什么都不做）
-func (n *NoOpDLQHandler) Handle(ctx context.Context, event *OutboxEvent) error {
-	return nil
-}
-
 // NoOpDLQAlertHandler 空操作 DLQAlertHandler（默认实现）
 type NoOpDLQAlertHandler struct{}
 
@@ -134,8 +126,8 @@ type SchedulerConfig struct {
 	// DLQInterval 死信队列处理间隔
 	DLQInterval time.Duration
 
-	// DLQHandler 死信队列处理器（可选）
-	// 用于处理超过最大重试次数的失败事件
+	// DLQHandler 死信队列处理器（EnableDLQ=true 时必填；C3 起 Validate 拒绝 nil）
+	// 仅作用于 status=dead_lettered 的终态事件（见 processDLQ step2）
 	DLQHandler DLQHandler
 
 	// DLQAlertHandler 死信队列告警处理器（可选）
@@ -227,13 +219,16 @@ func (c *SchedulerConfig) Validate() error {
 		}
 	}
 
-	// 验证 DLQInterval
+	// 验证 DLQ 配置（C3：EnableDLQ 必须配 DLQHandler）
 	if c.EnableDLQ {
 		if c.DLQInterval <= 0 {
 			return fmt.Errorf("DLQInterval must be > 0 when DLQ is enabled, got %v", c.DLQInterval)
 		}
 		if c.DLQInterval < 1*time.Second {
 			return fmt.Errorf("DLQInterval is too small (min 1 second), got %v", c.DLQInterval)
+		}
+		if c.DLQHandler == nil {
+			return fmt.Errorf("DLQHandler must not be nil when EnableDLQ is true (NoOpDLQHandler was removed; silent swallow is a bug, not a default)")
 		}
 	}
 
@@ -263,9 +258,9 @@ func DefaultSchedulerConfig() *SchedulerConfig {
 		EnableRetry:         true,
 		RetryInterval:       30 * time.Second,
 		MaxRetries:          3,
-		EnableDLQ:           true,
+		EnableDLQ:           false, // C3: DLQ 改为 opt-in；启用须显式提供 DLQHandler
 		DLQInterval:         5 * time.Minute,
-		DLQHandler:          &NoOpDLQHandler{},
+		DLQHandler:          nil, // C3: 不再默认注入 NoOp（静默吞是 bug 不是默认）
 		DLQAlertHandler:     &NoOpDLQAlertHandler{},
 		ShutdownTimeout:     30 * time.Second,
 	}
@@ -707,58 +702,162 @@ func (s *OutboxScheduler) dlqLoop(ctx context.Context) {
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
-			s.processDLQ(ctx)
+			s.runDLQWithRecover(ctx)
 		}
 	}
 }
 
-// processDLQ 处理死信队列
+// runDLQWithRecover 在 dlqLoop goroutine 顶层兜 panic。processOneDLQ 的 defer-recover 只覆盖
+// Handle/Alert/MarkDeadLetterNotified（用户代码 + 通知标记），不覆盖 step1/扫描里的
+// FindMaxRetryEvents/MarkAsDeadLettered/FindUnnotifiedDeadLettered（仓储调用）。该 goroutine 无
+// supervisor，仓储层（或自定义 OutboxRepository 实现）panic 会杀死整个死信通知循环、wg.Done 不触发。
+// 顶层 recover 让本 tick 失败、记 LastError、下一 tick 继续——比 loop 死亡可观测、可恢复。
+func (s *OutboxScheduler) runDLQWithRecover(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			if s.metrics != nil {
+				s.metrics.LastError.Store(fmt.Errorf("processDLQ top-level panic: %v", r))
+			}
+		}
+	}()
+	s.processDLQ(ctx)
+}
+
+// processDLQ 处理死信队列（C1 重写：CAS 推进终态 + 独立通知补发）。
+//
+// 两步拆分（spec §2.2）：
+//  1. 先把 max_retry CAS 成 dead_lettered（只转一次，幂等）——「发布已彻底失败」的事实。
+//  2. 再扫描 dead_lettered 且 dlq_notified_at IS NULL 的行，调用 Handle + Alert；成功才标记通知。
+//
+// 不引入 dead_lettering 中间态：原方案的 claim 只匹配 max_retry，一旦 Handle 失败或进程崩溃，
+// dead_lettering 永远不会被下一轮重新认领。拆成两个独立事实后，crash 在通知步骤 → 下一轮补发。
+//
+// ⚠️ 多实例限制（OV#6）：step1 的 MarkAsDeadLettered 是 CAS（多实例安全）；但 step2 的
+// FindUnnotifiedDeadLettered 无 claim/lease——两个 scheduler 实例会同时取到同一批未通知行、同时
+// 调 Handle（double Handle）。PR-1 不引入 SELECT FOR UPDATE SKIP LOCKED（属 PR-2 durable claim
+// 范围，见 TODOS 'file-storage Outbox ACK batching' / 'Outbox durable DB claim/lease'）。
+// 故本方法仅保证【单实例】下 Handle 恰一次；多实例场景依赖 Handle/Alert 按 EventID 幂等
+// （PR-2 的 OutboxRecordingHandler 落地该保证）。运行多实例前须先确认 Handle 幂等。
 func (s *OutboxScheduler) processDLQ(ctx context.Context) {
-	// 增加 WaitGroup 计数（优雅关闭支持）
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	// 查找超过最大重试次数的失败事件
-	events, err := s.repo.FindMaxRetryEvents(ctx, s.config.BatchSize, s.config.TenantID)
+	// step 1: 终结 max_retry → dead_lettered（CAS，只转一次）
+	maxRetryEvents, err := s.repo.FindMaxRetryEvents(ctx, s.config.BatchSize, s.config.TenantID)
 	if err != nil {
 		if s.metrics != nil {
 			s.metrics.LastError.Store(err)
 		}
 		return
 	}
+	for _, ev := range maxRetryEvents {
+		if ctx.Err() != nil { // P5：优雅关闭不卡满整批 MarkAsDeadLettered
+			return
+		}
+		if err := s.repo.MarkAsDeadLettered(ctx, ev.ID); err != nil {
+			if s.metrics != nil {
+				s.metrics.LastError.Store(err)
+			}
+			continue // 单条失败不阻断；下一轮再试
+		}
+	}
 
-	// 如果没有死信事件，直接返回
-	if len(events) == 0 {
+	if ctx.Err() != nil { // P5：进 step2 前再确认未取消
 		return
 	}
 
-	// 处理每个死信事件
-	for _, event := range events {
-		// 1. 调用 DLQ 处理器
-		if s.config.DLQHandler != nil {
-			if err := s.config.DLQHandler.Handle(ctx, event); err != nil {
-				if s.metrics != nil {
-					s.metrics.LastError.Store(err)
-				}
-				// 继续处理其他事件
-				continue
-			}
+	// step 2: 扫描尚未通知的终态事实（与 step1 解耦：Handle 失败/kill 后下一轮继续补发）
+	unnotified, err := s.repo.FindUnnotifiedDeadLettered(ctx, s.config.BatchSize, s.config.TenantID)
+	if err != nil {
+		if s.metrics != nil {
+			s.metrics.LastError.Store(err)
 		}
-
-		// 2. 发送告警
-		if s.config.DLQAlertHandler != nil {
-			if err := s.config.DLQAlertHandler.Alert(ctx, event); err != nil {
-				if s.metrics != nil {
-					s.metrics.LastError.Store(err)
-				}
-				// 告警失败不影响后续处理
-			}
-		}
-
-		// 3. 可选：删除已处理的死信事件（根据业务需求）
-		// 注意：默认不删除，保留用于审计和分析
-		// 如果需要删除，可以在配置中添加 DeleteDLQAfterHandle 选项
+		return
 	}
+	if len(unnotified) == 0 {
+		return
+	}
+
+	for _, ev := range unnotified {
+		if ctx.Err() != nil { // P5：批次内逐条确认取消，避免慢 Handle 拖住关闭
+			return
+		}
+		s.processOneDLQ(ctx, ev)
+	}
+}
+
+// processOneDLQ 通知单个死信事件（C1 step2/step3）。
+//
+// 防护层级（C2 + P4 + ADV-A/D）：
+//   - invokeDLQHandle 把 user-supplied DLQHandler.Handle 的 panic 兜在内部、不冒泡——
+//     否则单层 defer-recover 覆盖整个函数体时，Handle panic 会跳过下方 Alert，违反 C2
+//     「Handle 失败/panic 也 Alert」（ADV-A）。
+//   - 外层 defer-recover 兜 Alert / MarkDeadLetterNotified 的 panic，保证 dlqLoop goroutine
+//     不死（P4）。panic 当作通知失败：notifyOK=false → 不标记通知 → 下一轮补发。
+//   - evID 提前捕获：ev==nil（自定义仓储返回 nil）时 recover 闭包里访问 ev.ID 会二次 panic、
+//     破坏单条隔离（ADV-D）。
+//
+// 返回 notifyOK 仅供测试断言。
+func (s *OutboxScheduler) processOneDLQ(ctx context.Context, ev *OutboxEvent) (notifyOK bool) {
+	notifyOK = true
+	evID := ""
+	if ev != nil {
+		evID = ev.ID
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			notifyOK = false
+			if s.metrics != nil {
+				s.metrics.LastError.Store(fmt.Errorf("DLQ notify panic for event %s: %v", evID, r))
+			}
+		}
+	}()
+
+	// Handle 单独兜 panic（C2）：Handle panic 不会跳过下方的 Alert。
+	if !s.invokeDLQHandle(ctx, ev) {
+		notifyOK = false
+	}
+	// Alert：C2 保证——Handle 失败/panic 也照常调用（invokeDLQHandle 已兜 panic，不会冒泡到这里）。
+	if s.config.DLQAlertHandler != nil {
+		if err := s.config.DLQAlertHandler.Alert(ctx, ev); err != nil {
+			notifyOK = false
+			if s.metrics != nil {
+				s.metrics.LastError.Store(err)
+			}
+		}
+	}
+
+	// step 3: 通知成功后条件标记（CAS：只标记未通知的）
+	if notifyOK {
+		if err := s.repo.MarkDeadLetterNotified(ctx, ev.ID); err != nil {
+			if s.metrics != nil {
+				s.metrics.LastError.Store(err)
+			}
+		}
+	}
+	return notifyOK
+}
+
+// invokeDLQHandle 调用 DLQHandler.Handle 并兜 panic；返回 false 表示 Handle 未成功
+// （返回 error 或 panic）。panic 不冒泡，保证调用方继续执行 Alert（C2：Handle 失败也 Alert）。
+func (s *OutboxScheduler) invokeDLQHandle(ctx context.Context, ev *OutboxEvent) (ok bool) {
+	if s.config.DLQHandler == nil {
+		return true
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if s.metrics != nil {
+				s.metrics.LastError.Store(fmt.Errorf("DLQ Handle panic: %v", r))
+			}
+		}
+	}()
+	if err := s.config.DLQHandler.Handle(ctx, ev); err != nil {
+		if s.metrics != nil {
+			s.metrics.LastError.Store(err)
+		}
+		return false
+	}
+	return true
 }
 
 // SchedulerMetricsSnapshot 调度器指标快照（用于读取）

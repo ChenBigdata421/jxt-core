@@ -22,6 +22,8 @@ const (
 	EventStatusFailed EventStatus = "failed"
 	// EventStatusMaxRetry 超过最大重试次数
 	EventStatusMaxRetry EventStatus = "max_retry"
+	// EventStatusDeadLettered 发布侧死信终态（C1/M2）
+	EventStatusDeadLettered EventStatus = "dead_lettered"
 )
 
 // OutboxEvent Outbox 事件领域模型
@@ -90,6 +92,13 @@ type OutboxEvent struct {
 	// 或者使用业务自定义的唯一标识
 	// 用于在发布前检查是否已经发布过相同的事件
 	IdempotencyKey string
+
+	// DeadLetteredAt 发布侧死信终态时间（C1/M2：status=dead_lettered 时填充）
+	DeadLetteredAt *time.Time
+
+	// DlqNotifiedAt 死信通知（DLQHandler.Handle + DLQAlertHandler.Alert）成功时间。
+	// NULL=待补发；C1 把「终态事实」与「通知是否已发」拆成两个独立事实。
+	DlqNotifiedAt *time.Time
 }
 
 // NewOutboxEvent 创建新的 Outbox 事件
@@ -262,6 +271,17 @@ func (e *OutboxEvent) Clone() *OutboxEvent {
 	if e.LastRetryAt != nil {
 		lastRetryAt := *e.LastRetryAt
 		clone.LastRetryAt = &lastRetryAt
+	}
+	// DeadLetteredAt / DlqNotifiedAt 是 C1 新增的 *time.Time 指针字段；必须与
+	// PublishedAt/ScheduledAt/LastRetryAt 同样深拷贝，否则 clone 与原对象共享指针，
+	// 修改一方会反向污染另一方（快照/测试隔离失效）。
+	if e.DeadLetteredAt != nil {
+		v := *e.DeadLetteredAt
+		clone.DeadLetteredAt = &v
+	}
+	if e.DlqNotifiedAt != nil {
+		v := *e.DlqNotifiedAt
+		clone.DlqNotifiedAt = &v
 	}
 	return &clone
 }

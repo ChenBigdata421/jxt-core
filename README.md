@@ -18,6 +18,7 @@ jxt-core 是一个基于 Go 语言的企业级微服务基础框架，提供了�
 - [x] **分布式锁** - 基于 Redis 的分布式锁实现
 - [x] **EventBus 事件总线** - 支持 Kafka、NATS JetStream、Memory 三种实现，统一 API ⭐ **核心组件**
 - [x] **Outbox 模式** - 保证业务操作与事件发布的原子性和最终一致性；同步/异步发布器标记分流 + 批量标记（v2.0.0）、异步 ACK 攒批（v1.1.59）⭐
+- [x] **可靠消费内核 (reliable)** - 五状态机 + fencing token 幂等去重 + 死信 + 重投调度（一张 event_consumption 表三者合一）；at-least-once + 租约自愈 + aggregate gate 保序；双方言（MySQL/PostgreSQL）Store + 重放调度器 + 租约孤儿观测 ⭐ **核心组件（v1.1.68）**
 - [x] **多租户 Provider** - 基于 ETCD 的多租户配置管理，支持实时监听、租户识别配置缓存 ⭐ **核心组件**
 
 ### 🔧 服务治理
@@ -313,6 +314,14 @@ jxt-core/
 │   └── pkg/                  # 核心组件包
 │       ├── eventbus/         # 事件总线（Kafka/NATS/Memory）⭐
 │       ├── outbox/           # Outbox 模式实现 ⭐
+│       ├── reliable/         # 可靠消费内核（状态机 + 死信 + 重投 + 隔离区）⭐
+│       │   ├── store/        # Store 接口 + Row/QuarantineRow 模型
+│       │   │   ├── gormshared/  # MySQL/PostgreSQL 共享 GORM 实现
+│       │   │   ├── mysql/       # MySQL 方言（migration + classifier）
+│       │   │   ├── postgres/    # PostgreSQL 方言（migration + classifier）
+│       │   │   └── repotest/    # 双方言 conformance 测试套件
+│       │   ├── replay/       # eligible-head 重放调度器
+│       │   └── lease/        # 租约孤儿观测 runner
 │       ├── domain/           # 领域事件模型 ⭐
 │       ├── tenant/           # 多租户组件（ETCD Provider + 配置缓存）⭐
 │       │   ├── provider/     # ETCD 配置 Provider
@@ -362,6 +371,7 @@ jxt-core/
 - [EventBus 文档](sdk/pkg/eventbus/README.md) - 事件总线使用指南
 - [Outbox 模式快速开始](docs/outbox-pattern-quick-start.md) ⭐ - 5 分钟快速上手
 - [Outbox 模式完整设计](docs/outbox-pattern-design.md) - 完整的架构设计和使用指南
+- [可靠消费内核 (reliable)](sdk/pkg/reliable/README.md) ⭐ - 五状态机 + 死信 + 重投调度 + 双方言 Store
 
 ## 贡献
 
@@ -514,6 +524,15 @@ dbConfig, ok := p.GetServiceDatabaseConfig(tenantID, "security-management")
 
 ## 版本历史
 
+- v1.1.68 - 新增可靠消费内核 (reliable)：五状态机（PROCESSING/SUCCEEDED/RETRY_SCHEDULED/DEAD_LETTER/DISCARDED）+ fencing token 幂等去重 + 死信 + 重投调度（一张 event_consumption 表三者合一，M1）；HandlerID/Key/Meta/ClaimInput/ClaimToken/Decision 身份契约；两阶段错误分类（ErrRetryLater vs 终态结算）；attempt/backoff oracle（指数退避 1s→24h，含属性测试）；Store 接口（TryClaim/MarkSucceeded/MarkFailed/AdvanceDue/MoveToDeadLetter）+ QuarantineStore（不可解码坏消息隔离）；双方言 Store（MySQL + PostgreSQL）via gormshared + repotest conformance 套件（含 §2.4 不变量 + quarantine + EXPLAIN gate）；eligible-head 重放调度器（ClaimForReplay + 三种 ReplaySafety）；aggregate gate 保序（非幂等 handler 串行执行）；租约孤儿观测 runner（ObserveExpiredLeases）；CI 门禁（J2 零第三方依赖/M14 显式 *gorm.DB/§3.3 TryClaim 独立 session/D9 claim_id 校验）；contextpool 测试编译修复
+- v1.1.67 - 文档 release：补登 v1.1.60–v1.1.66 版本历史（根 README 版本历史自 v1.1.59 后断档 7 个版本未登记）；无代码变更；将 v1.1.60 标记为废弃（sumdb 锁定，被 v1.1.61 替代）
+- v1.1.66 - PR-1 投递契约（delivery contract，破坏性变更）：EventBus 新增 `EnvelopeDelivery`/`RawMeta`/`MessageHeader` 契约 + `EnvelopeDeliveryOptionsSubscriber` 能力接口，Kafka `SubscribeEnvelopeDeliveryWithOptions` 填充 raw key/value、保序去重保留 headers、topic/partition/offset/timestamp、sha256 payload hash，actor pool 显式线程化 `Raw`+`DeliveryHandler`（无 context key，M14）；C6 `PoisonMessage.Headers` 由 `map[string]string` 改为 `[]MessageHeader`（保序+重复键）并加 `Timestamp`，Key/Value 防御性拷贝；C4 仅 `kafkaEventBus` 实现 delivery 订阅，memory/nats fail-fast；Outbox 发布侧死信终态（C1）：`EventStatusDeadLettered` 状态 + `dead_lettered_at`/`dlq_notified_at` 列 + 迁移 003，`OutboxRepository` 新增 `MarkAsDeadLettered`(CAS)/`FindUnnotifiedDeadLettered`/`MarkDeadLetterNotified`(CAS)，`processDLQ` 重写为 CAS 终态 + 通知拆分（crash 可下一轮补发、无孤儿中间态）；C2 Alert 不再被 Handle 失败吞；C3 删 `NoOpDLQHandler`、`EnableDLQ=false` 默认、`Validate` 拒绝 `EnableDLQ=true`+nil handler；reconnect 重建 consumer-group + restoreSubscriptions 闭包恢复；新增 Tier-1 系统测试（真 MySQL：DLQ + 幂等端到端）。破坏性：`OutboxRepository` 接口 +3 方法、`PoisonMessage.Headers` 类型变更，消费方需跟随
+- v1.1.65 - EventBus 分区流水线 stall 加固：hoist stall-elapsed 局部变量、补 partition-stall metric 测试缺口；新增 partition-stall 注入 seam（core 命名 + service 侧实现）；文档化 stall-counter 灵敏度权衡
+- v1.1.64 - EventBus `ensureKafkaTopicIdempotent` 修复：检查 `metadata[0].Err`，防止 topic 不存在时被误判为已存在（与 `GetTopicPartitions` 同一 sarama DescribeTopics 坑；仍被 RedPanda auto-create 掩盖，naive 修复会破坏启动故保留）
+- v1.1.63 - PR-2 后续加固：提交 `go.sum`（此前被 gitignore，全新 checkout 无法构建，2026-07-17 修复）；3 处并发修复——adapter tenant-loop spawn vs Close 的 WaitGroup panic、InProcess publisher close-vs-send 数据竞争、三驱动 RegisterTenant-vs-Close TOCTOU；ACK-drop 日志对齐（kafka/nats）；新增 broker-free `-race` 并发测试（kafka/nats/memory byte-parallel）+ 2 个 CI workflow（test-race、test-regression via docker-compose-nats）
+- v1.1.62 - PR-2 Outbox ACK 生命周期契约：无损 ACK 准入（admission）+ 稳定终态错误 Close + Kafka producerResultWg（sender WG）+ adapter join + default-off/checked 构造器 + createdStreams 缓存修复
+- v1.1.61 - jwtauth 新增 `GetPoliceName` getter（读 policename claim）、弃用 dormant `GetOrgId`（错误 key 'orgid'，0 调用方，v1.3 移除）；作为 v1.1.60 的干净替换发布（2026-07-12）
+- v1.1.60 - ⚠️ 废弃：tag 内容含 `GetPoliceName`+弃用 `GetOrgId`，但 sumdb 锁定在 pre-GetPoliceName 内容，消费者拉取不到目标代码，不可用，已被 v1.1.61 替代，请勿引用
 - v1.1.59 - Outbox 异步 ACK 批量化（ackMarkerBatcher）：成功 ACK 攒满 50 条或每 200ms flush 一次 MarkBatchAsPublished，解开生产端 commit-bound；配套加固——flushFunc panic recover、防 onError 自死锁（异步+recover）、监听器 Done-ch 快照防竞争、连续失败计数节流、关停冲刷剩余 + 回归测试
 - v1.1.58 - Outbox v2.0.0：SyncSemanticsPublisher 同步/异步标记分流；FindPublishedByIdempotencyKeys 批量幂等检查；BatchUpdate 更名为 MarkBatchAsPublished（单条 UPDATE 状态迁移，幂等 WHERE status='pending'）；filterPublishedEvents 批量化（破坏性接口变更）
 - v1.1.57 - EventBus 新增 TopicPartitionInfo 可选接口（分区查询）；修复 create_or_update 未扩已有 topic 分区

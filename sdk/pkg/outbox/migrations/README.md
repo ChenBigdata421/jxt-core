@@ -7,6 +7,8 @@
 | 版本 | 文件 | 说明 | 日期 |
 |------|------|------|------|
 | 001 | `001_add_trace_fields.sql` | 添加 TraceID 和 CorrelationID 字段 | 2025-10-20 |
+| 002 | `002_add_idempotency_key.sql` | 添加 idempotency_key 字段 + 唯一索引（发布幂等） | 2025-10-22 |
+| 003 | `003_add_dead_lettered.sql` | 添加 dead_lettered_at / dlq_notified_at + idx_outbox_dlq_notify（DLQ 终态） | 2026-07-27 |
 
 ---
 
@@ -14,14 +16,21 @@
 
 ### 方法 1：手动执行（推荐用于生产环境）
 
+⚠️ **必须按顺序执行 001 → 002 → 003，不能跳号。** 跳过 003 会让数据库缺少
+`dead_lettered_at` / `dlq_notified_at` 列；一旦启用 DLQ（`EnableDLQ=true`），
+`FindUnnotifiedDeadLettered` / `MarkDeadLetterNotified` 会在每个 DLQ tick 因列不存在而失败，
+死信永远无法通知。
+
 ```bash
 # 连接到数据库
 mysql -u username -p database_name
 
-# 执行迁移脚本
+# 按版本顺序执行
 source /path/to/jxt-core/sdk/pkg/outbox/migrations/001_add_trace_fields.sql
+source /path/to/jxt-core/sdk/pkg/outbox/migrations/002_add_idempotency_key.sql
+source /path/to/jxt-core/sdk/pkg/outbox/migrations/003_add_dead_lettered.sql
 
-# 验证迁移
+# 验证迁移（含 003 的死信列与索引）
 DESCRIBE outbox_events;
 SHOW INDEX FROM outbox_events;
 ```
@@ -105,6 +114,48 @@ DROP COLUMN correlation_id;
 ALTER TABLE outbox_events 
 MODIFY COLUMN version INT NOT NULL DEFAULT 1 COMMENT '事件版本';
 ```
+
+---
+
+### 002_add_idempotency_key.sql
+
+**目的**：发布幂等——同一事件重复发布不会产生多行。
+
+**变更内容**：新增 `idempotency_key VARCHAR(512) DEFAULT ''` + 唯一索引 `idx_idempotency_key`。
+
+**影响**：✅ 向后兼容（默认空串）；唯一索引是发布幂等的硬保证（`Save`/`SaveBatch` 重键由索引拒绝）。
+
+---
+
+### 003_add_dead_lettered.sql
+
+**目的**：发布侧死信终态（C1）。把「发布已彻底失败」与「死信通知是否已发」拆成两个独立事实，
+避免引入会孤儿化的 `dead_lettering` 中间态——crash 在通知步骤，下一轮 DLQ tick 补发。
+
+**变更内容**：
+1. **新增字段**（均可空）：
+   - `dead_lettered_at DATETIME(3)` — 死信终态时间（`status='dead_lettered'` 时填充）
+   - `dlq_notified_at DATETIME(3)` — 死信通知成功时间；`NULL` = 待补发
+2. **新增复合索引**：`idx_outbox_dlq_notify (status, dlq_notified_at, id)` — 服务
+   `FindUnnotifiedDeadLettered` 的 `WHERE status='dead_lettered' AND dlq_notified_at IS NULL ORDER BY id`。
+
+**影响**：✅ 纯增量（可空列 + 索引），无需回填，部署窗口安全。
+
+**⚠️ 前置条件**：启用 DLQ（`SchedulerConfig.EnableDLQ=true`）前**必须**已执行本迁移，否则
+DLQ 扫描每 tick 报列不存在。
+
+**验证**（必做）：
+```sql
+-- 字段存在且可空
+SHOW COLUMNS FROM outbox_events WHERE Field IN ('dead_lettered_at','dlq_notified_at');
+-- 复合索引列序 = (status, dlq_notified_at, id)
+SHOW INDEX FROM outbox_events WHERE Key_name='idx_outbox_dlq_notify';
+-- 无孤儿：终态行必须有 dead_lettered_at
+SELECT COUNT(*) FROM outbox_events
+  WHERE status='dead_lettered' AND dead_lettered_at IS NULL;  -- 期望 0
+```
+
+**回滚**：见 `003_add_dead_lettered.sql` 末尾的注释块（DROP INDEX + DROP COLUMN）。
 
 ---
 
@@ -260,6 +311,6 @@ SHOW COLUMNS FROM outbox_events LIKE 'trace_id';
 
 ---
 
-**版本**：v1.0  
-**最后更新**：2025-10-20
+**版本**：v1.1
+**最后更新**：2026-07-27
 

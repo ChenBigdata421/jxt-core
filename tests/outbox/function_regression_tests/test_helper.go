@@ -415,6 +415,49 @@ func (m *MockRepository) FindMaxRetryEvents(ctx context.Context, limit int, tena
 	return maxRetry, nil
 }
 
+// MarkAsDeadLettered C1 step1：max_retry → dead_lettered（mock 维护内存状态）。
+func (m *MockRepository) MarkAsDeadLettered(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if event, ok := m.events[id]; ok && event.Status == outbox.EventStatusMaxRetry {
+		now := time.Now().UTC()
+		event.Status = outbox.EventStatusDeadLettered
+		event.DeadLetteredAt = &now
+		event.UpdatedAt = now
+	}
+	return nil
+}
+
+// FindUnnotifiedDeadLettered C1 step2：扫描 dead_lettered 且未通知的事件。
+func (m *MockRepository) FindUnnotifiedDeadLettered(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*outbox.OutboxEvent
+	for _, event := range m.events {
+		if event.Status == outbox.EventStatusDeadLettered && event.DlqNotifiedAt == nil {
+			if tenantID == 0 || event.TenantID == tenantID {
+				result = append(result, event)
+				if len(result) >= limit {
+					break
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
+// MarkDeadLetterNotified C1 step3：标记死信通知成功（mock 维护内存状态）。
+func (m *MockRepository) MarkDeadLetterNotified(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if event, ok := m.events[id]; ok && event.Status == outbox.EventStatusDeadLettered && event.DlqNotifiedAt == nil {
+		now := time.Now().UTC()
+		event.DlqNotifiedAt = &now
+		event.UpdatedAt = now
+	}
+	return nil
+}
+
 // FindScheduledEvents 查找计划发布的事件
 func (m *MockRepository) FindScheduledEvents(ctx context.Context, limit int, tenantID int) ([]*outbox.OutboxEvent, error) {
 	var scheduled []*outbox.OutboxEvent
