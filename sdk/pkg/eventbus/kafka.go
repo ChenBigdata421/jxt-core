@@ -3276,11 +3276,12 @@ func (k *kafkaEventBus) ConfigureTopic(ctx context.Context, topic string, option
 	case shouldCreate:
 		// 创建模式：创建新配置
 		action = "created"
-		// create_or_update 时，已存在的 Kafka 主题也必须 reconcile（含分区扩容）：
+		// create_or_update 时，已存在的 Kafka 主题也必须 reconcile（配置收敛，不含分区扩容）：
 		// 进程重启后本地 topicConfigs 缓存为空 → exists=false → 误走"仅新建"分支，
-		// 导致存量低分区主题永远无法回填（正是被报告的 bug 场景）。
-		// ensureKafkaTopicIdempotent 本身幂等（不存在则建、存在则按需更新），
+		// 导致存量主题的 retention/compression 配置无法回填。
+		// ensureKafkaTopicIdempotent 本身幂等（不存在则建、存在则按需更新配置），
 		// 故对 update 策略放宽 allowUpdate；create_only 仍保持 false 不触碰已存在主题。
+		// 注意：方案改动5 已移除分区扩容（CreatePartitions），分区由 infra bootstrap 独占收敛。
 		allowUpdateOnCreate := k.topicConfigStrategy == StrategyCreateOrUpdate
 		err = k.ensureKafkaTopicIdempotent(ctx, topic, options, allowUpdateOnCreate)
 

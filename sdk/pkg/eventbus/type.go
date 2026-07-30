@@ -243,16 +243,22 @@ type EventBus interface {
 
 // TopicPartitionInfo 可选能力接口：查询主题的实际分区数。
 // 仅 Kafka 这类有"分区"概念的实现支持；memory/nats 不实现。
-// 调用方通过类型断言判断是否可用，不可用时跳过分区相关断言：
+// 调用方通过类型断言判断是否可用，不可用时跳过相关断言：
 //
 //	if q, ok := bus.(TopicPartitionInfo); ok {
 //	    got, err := q.GetTopicPartitions(ctx, topic)
 //	    ...
 //	}
 //
-// 典型用途：preCreateTopics 之后做启动断言——实际分区 != 预期则 fail-fast，
-// 防止服务静默跑在错误分区上。与 create_or_update 的自动扩容互补：
-// 自愈层默默修，本接口让"配置与实际不一致"暴露成可 fail-fast 的错误。
+// 典型用途（redpanda 主题拓扑优化方案 v2/v4/v5）：
+//   - WaitForTopologyReady：查询哨兵 topic jxt.topology.ready 是否存在（metadata 只读），
+//     证「最近一次 bootstrap 成功收敛」。
+//   - WaitForTopicsExist：逐 topic 查询是否存在（metadata 只读），证「代码订阅集 ↔ manifest
+//     TOPICS 无跨语言漂移」。
+//
+// 注意：本接口仅用于存在性查询，不用于分区数断言——分区正确性由 infra bootstrap
+// 双遍断言 + redpanda healthcheck (CHECK_ONLY) 独占收敛，jxt-core 退化为「不创建、
+// 不扩容、不断言分区数」。
 type TopicPartitionInfo interface {
 	// GetTopicPartitions 返回主题当前的实际分区数。
 	// 主题不存在、admin 不可用或实现不支持分区概念时返回 error。

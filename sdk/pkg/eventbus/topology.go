@@ -54,6 +54,35 @@ func WaitForTopologyReady(ctx context.Context, bus EventBus) error {
 	return nil
 }
 
+// WaitForTopicsExist 对给定 topics 做启动期存在性断言（方案 v4 §七）：任一在 redpanda 中
+// 不存在即返回指名道姓的 error，提示补进 topics-manifest.sh 的 TOPICS 并重跑 bootstrap。
+//
+// 走 metadata 只读查询（GetTopicPartitions），禁止 produce/consume 触发式探测——
+// auto_create 若意外开启，触发式探测会把 topic 自建出来（方案 E3）。
+//
+// 返回 nil 表示全部存在，或总线非 Kafka（memory/NATS，未实现 TopicPartitionInfo，
+// 自动放行，避免影响单测 / NATS 部署）；返回非 nil error 表示存在缺失，调用方应 fail-fast。
+//
+// 与 WaitForTopologyReady 互补：后者证「最近一次 bootstrap 成功」（全局就绪），
+// 本函数证「我要订阅的 topic 都在」（应用层自检，针对 manifest TOPICS ↔ 代码订阅集的
+// 跨语言残留）。两者叠加使用。原 4 服务 waitTopologyReady 内重复的断言循环已收敛至此。
+func WaitForTopicsExist(ctx context.Context, bus EventBus, topics []string) error {
+	querier, ok := bus.(TopicPartitionInfo)
+	if !ok {
+		return nil // 非 Kafka 总线（memory/NATS）无 topic 存在性概念，自动放行。
+	}
+	var missing []string
+	for _, t := range topics {
+		if _, err := querier.GetTopicPartitions(ctx, t); err != nil {
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("以下 topic 在 redpanda 中不存在，请补进 infrastructure/redpanda/topics-manifest.sh 的 TOPICS 并重跑 bootstrap: %v", missing)
+	}
+	return nil
+}
+
 // autoCreateTopicsEnabled 读取 AUTO_CREATE_TOPICS 开关（方案改动5）。
 //
 // 默认 false（生产路径不建 topic，由 infra bootstrap 独占建新）；仅本地开发/单测/CI

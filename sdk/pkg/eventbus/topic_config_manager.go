@@ -238,21 +238,22 @@ func compareTopicOptions(topic string, expected, actual TopicOptions) []TopicCon
 		})
 	}
 
-	// 比较分区数（Kafka特有）
+	// 比较分区数（Kafka特有）——仅报告差异，不自动修复。
+	// 方案改动5：jxt-core 不再对已存在主题做分区 reconcile（CreatePartitions 已移除），
+	// 分区正确性由 infra bootstrap 双遍断言 + redpanda healthcheck (CHECK_ONLY) 独占收敛。
+	// 此处仅作 informational 告警，CanAutoFix 恒为 false。
 	if expected.Partitions > 0 && actual.Partitions > 0 && expected.Partitions != actual.Partitions {
-		// 分区数只能增加，不能减少
-		canIncrease := expected.Partitions > actual.Partitions
 		mismatches = append(mismatches, TopicConfigMismatch{
 			Topic:         topic,
 			Field:         "Partitions",
 			ExpectedValue: expected.Partitions,
 			ActualValue:   actual.Partitions,
-			CanAutoFix:    canIncrease,
+			CanAutoFix:    false,
 			Recommendation: func() string {
-				if canIncrease {
-					return "Partitions can be increased. Set strategy to 'create_or_update' to auto-fix."
+				if expected.Partitions > actual.Partitions {
+					return "Partitions are managed by infra bootstrap; re-run bootstrap to reconcile (jxt-core no longer auto-expands partitions)."
 				}
-				return "Partitions cannot be decreased. Consider creating a new topic or accepting current partition count."
+				return "Partitions cannot be decreased (Kafka limitation). Consider creating a new topic or accepting current partition count."
 			}(),
 		})
 	}
