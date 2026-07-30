@@ -186,6 +186,11 @@ func TestConfigureTopic_ValidationIntegration(t *testing.T) {
 	helper := NewTestHelper(t)
 	ctx := context.Background()
 
+	// v1.1.69 改动5：jxt-core 生产路径默认不建 topic（AUTO_CREATE_TOPICS 门禁，kafka.go:3415）。
+	// 本用例只校验 topic 名，合法名那条 happy-path 需 topic 能被建出来；测试环境显式开启开发开关
+	// （仅 Kafka 子用例读取该 env；Memory/NATS 无感）。
+	t.Setenv("AUTO_CREATE_TOPICS", "1")
+
 	// 测试所有 EventBus 类型
 	testCases := []struct {
 		name      string
@@ -272,6 +277,10 @@ func TestConfigureTopic_ValidationIntegration(t *testing.T) {
 func TestSetTopicPersistence_ValidationIntegration(t *testing.T) {
 	helper := NewTestHelper(t)
 	ctx := context.Background()
+
+	// v1.1.69 改动5：同 TestConfigureTopic_ValidationIntegration——SetTopicPersistence 经 ConfigureTopic
+	// 走同一个 createKafkaTopic 门禁（kafka.go:3415）；测试环境显式开启开发开关。
+	t.Setenv("AUTO_CREATE_TOPICS", "1")
 
 	testCases := []struct {
 		name      string
