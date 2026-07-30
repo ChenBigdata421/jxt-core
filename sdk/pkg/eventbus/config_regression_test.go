@@ -771,3 +771,23 @@ func TestNewKafkaEventBus_PipelineValidationBeforeDial(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid kafka consumer pipeline config",
 		"error must carry the wrapped prefix")
 }
+
+// TestNewKafkaEventBus_PipelineWindowSizeUpperBound 钉死 #3 上界防御：Enabled=true + windowSize=1025
+// 必须在拨号前被 validate 拒绝（applyPipelineDefaults 只补 ==0 的字段，1025 原样保留 → 触发 >1024）。
+// 防止病态 windowSize（× 分区数 → make(chan, N) ×2 + inflight map）在任何消息到来前 OOM。
+func TestNewKafkaEventBus_PipelineWindowSizeUpperBound(t *testing.T) {
+	cfg := &KafkaConfig{
+		Brokers: []string{"localhost:1"},
+		Consumer: ConsumerConfig{
+			SessionTimeout: 30 * time.Second, // 30/2=15s > 默认 FlushTimeout=4s，timing 合法
+			Pipeline:       PipelineConfig{Enabled: true, WindowSize: 1025},
+		},
+	}
+
+	bus, err := NewKafkaEventBus(cfg)
+
+	require.Error(t, err, "oversized windowSize must fail construction before dial")
+	assert.Nil(t, bus, "bus must not be returned on validation failure")
+	assert.Contains(t, err.Error(), "windowSize must be <= 1024",
+		"upper-bound check must fire before any sarama dial")
+}

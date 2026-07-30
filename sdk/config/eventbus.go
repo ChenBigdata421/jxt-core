@@ -196,8 +196,8 @@ type ConsumerConfig struct {
 // timing 类安全不变量（flushTimeout/dlqTimeout/stallWarnInterval）留内部默认，
 // 由 applyPipelineDefaults 兜底——避免用户误配违反 FlushTimeout < sessionTimeout/2 而 panic。
 type PipelineUserConfig struct {
-	Enabled    bool `mapstructure:"enabled"`              // 功能开关，默认 false
-	WindowSize int  `mapstructure:"windowSize,omitempty"` // 灰度并发旋钮；0 → 内部默认 16
+	Enabled    bool `mapstructure:"enabled"`    // 功能开关，默认 false（开启前必须接好 DLQSender：终态失败信封在未配 DLQ 时按策略 A 阻塞分区前沿，见 partition_pipeline.go）
+	WindowSize int  `mapstructure:"windowSize"` // 灰度并发旋钮；0 → 内部默认 16
 }
 
 // SecurityConfig 安全配置

@@ -1263,6 +1263,9 @@ func convertUserConfigToInternalKafkaConfig(userConfig *config.KafkaConfig) *Kaf
 			AutoOffsetReset:   userConfig.Consumer.AutoOffsetReset,
 			SessionTimeout:    userConfig.Consumer.SessionTimeout,
 			HeartbeatInterval: userConfig.Consumer.HeartbeatInterval,
+			// ⚠️ 漂移陷阱（死开关同款）：在 config.PipelineUserConfig 新增用户可见字段时，
+			// 必须在此加对应映射行——否则该字段经 bare v.Unmarshal 静默丢弃（config.go:56 无 ErrorUnused），
+			// 且无编译错误。timing 字段刻意不映射（留运行期 applyPipelineDefaults 兜底）。
 			Pipeline: PipelineConfig{
 				Enabled:    userConfig.Consumer.Pipeline.Enabled,
 				WindowSize: userConfig.Consumer.Pipeline.WindowSize,

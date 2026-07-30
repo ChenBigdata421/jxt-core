@@ -644,6 +644,12 @@ func (c PipelineConfig) validate(sessionTimeout time.Duration) error {
 	if c.WindowSize < 1 {
 		return fmt.Errorf("pipeline.windowSize must be >= 1, got %d", c.WindowSize)
 	}
+	// 上界防御：WindowSize 是每分区在飞上限，作为两个 buffered chan 的容量 + inflight map 大小
+	// （见 partition_pipeline.go:131-132 的 make(chan, WindowSize) ×2）。× 分区数后放大分配——
+	// 病态值（如 5000000）会在任何消息到来前 OOM。1024 对单分区高吞吐仍宽裕。
+	if c.WindowSize > 1024 {
+		return fmt.Errorf("pipeline.windowSize must be <= 1024 (per-partition in-flight cap, multiplied by partition count), got %d", c.WindowSize)
+	}
 	if c.FlushTimeout <= 0 {
 		return fmt.Errorf("pipeline.flushTimeout must be > 0")
 	}
