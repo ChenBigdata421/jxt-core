@@ -4879,7 +4879,7 @@ healthCheck:
 - **跨服务配对**：订阅端监控其他服务的健康检查主题
 - **环境隔离**：使用 `health-check-{service}-{env}` 格式，避免环境间干扰
 
-这些主题会自动创建和管理，业务代码无需关心具体实现。
+**v1.1.69**：生产环境中主题由 infra bootstrap（`topics-bootstrap.sh`）预创建，不再由 jxt-core 自动创建。开发/测试环境可设 `AUTO_CREATE_TOPICS=1` 启用自动创建。
 
 #### 2.5 订阅端健康检查监控
 
@@ -8635,23 +8635,31 @@ logger.SetLevel(logger.DebugLevel)
 
 ---
 
-Kafka EventBus 现在支持**基于主题的智能持久化管理和 Topic 级别压缩配置**，可以在同一个 EventBus 实例中动态创建和配置不同持久化策略和压缩算法的主题，提供企业级的消息处理能力。
+Kafka EventBus 支持**基于主题的智能持久化管理和 Topic 级别压缩配置**，为不同持久化策略和压缩算法的主题提供企业级消息处理能力。
+
+> **v1.1.69 topic 创建职责分离**：
+>
+> | 环境 | Topic 创建方式 | 说明 |
+> |------|-------------|------|
+> | **生产环境** | infra bootstrap（`topics-bootstrap.sh`）独占创建 | jxt-core **不自动建 topic**，启动期通过 `WaitForTopologyReady` + `WaitForTopicsExist` 做只读存在性断言 |
+> | **开发/测试/CI** | jxt-core 自动创建 | 设置 `AUTO_CREATE_TOPICS=1` 后，`ConfigureTopic` / `TopicBuilder.Build()` 自动建 topic（无需跑 bootstrap） |
+>
+> 无论哪种环境，**topic 已存在后的 reconcile 仅作用于 retention/compression**，分区数/副本数由 infra bootstrap 管理（jxt-core 不再扩容或断言分区数）。详见「主题拓扑与启动期断言」节。
 
 ### 核心特性
 
 - **🎯 主题级控制**：每个主题可以独立配置持久化策略、保留时间和压缩算法
-- **🔄 动态主题管理**：使用 Kafka Admin API 动态创建和配置主题
-- **🚀 智能配置**：根据业务需求自动设置主题参数（分区、副本、保留策略、压缩算法）
+- **🔧 配置 reconcile**：`ConfigureTopic` / `TopicBuilder` 对已存在 topic 自动回填 retention/compression 配置（不碰分区）
 - **📦 Topic 级别压缩**：每个 topic 可以独立配置压缩算法（snappy/gzip/zstd/lz4/none）
 - **⚡ 性能优化**：持久化主题使用长期保留，非持久化主题使用短期保留
 - **🔧 统一接口**：单一 EventBus 实例处理多种持久化需求
 
 ### 智能主题管理机制
 
-EventBus 会根据主题的持久化配置自动创建和配置 Kafka 主题：
+`ConfigureTopic` / `TopicBuilder.Build()` 根据持久化配置 reconcile Kafka 主题的 retention 和 compression（分区/副本由 infra bootstrap 管理）：
 
-- **持久化主题** → 长期保留策略（如7天、多副本、大存储限制）+ Topic 级别压缩配置
-- **非持久化主题** → 短期保留策略（如1分钟、单副本、小存储限制）+ Topic 级别压缩配置
+- **持久化主题** → 长期保留策略（如 7 天）+ Topic 级别压缩配置
+- **非持久化主题** → 短期保留策略（如 1 小时）+ Topic 级别压缩配置
 - **自动模式** → 根据全局配置决定保留策略
 - **压缩配置** → 通过 `TopicBuilder` 为每个 topic 独立配置（不再使用 Producer 级别的全局压缩）
 
@@ -8899,7 +8907,10 @@ func main() {
     // 3. 创建业务服务
     service := NewBusinessService(bus)
 
-    // 4. 启动订阅（EventBus 会根据主题配置自动创建 Kafka 主题）
+    // 4. 启动订阅
+    // 注意：v1.1.69 起，生产环境中主题须由 infra bootstrap 预创建。
+    // 本例假设已设置 AUTO_CREATE_TOPICS=1（开发/测试环境），ConfigureTopic 会自动建 topic。
+    // 生产环境需先跑 topics-bootstrap.sh，再用 WaitForTopologyReady + WaitForTopicsExist 做启动断言。
     fmt.Println("\n🚀 启动智能订阅...")
 
     if err := service.SubscribeToOrderEvents(ctx); err != nil {
@@ -8914,18 +8925,18 @@ func main() {
         log.Printf("Failed to subscribe to metrics: %v", err)
     }
 
-    time.Sleep(3 * time.Second) // 等待订阅建立和主题创建
+    time.Sleep(3 * time.Second) // 等待订阅建立
 
     // 5. 演示智能主题管理
     fmt.Println("📨 开始发布消息，演示智能主题管理...\n")
 
-    // 发布到持久化主题（自动创建长期保留主题）
-    fmt.Println("--- 订单事件（自动创建长期保留主题） ---")
+    // 发布到持久化主题
+    fmt.Println("--- 订单事件（持久化主题，长期保留） ---")
     service.CreateOrder(ctx, "order-12345", "customer-67890", 299.99)
     time.Sleep(1 * time.Second)
 
-    // 发布到非持久化主题（自动创建短期保留主题）
-    fmt.Println("--- 通知消息（自动创建短期保留主题） ---")
+    // 发布到非持久化主题
+    fmt.Println("--- 通知消息（非持久化主题，短期保留） ---")
     service.SendNotification(ctx, "user-123", "订单确认", "您的订单 order-12345 已创建成功")
     time.Sleep(1 * time.Second)
 
@@ -8944,8 +8955,8 @@ func main() {
     // 查看特定主题配置
     config, err := bus.GetTopicConfig("business.orders")
     if err == nil {
-        fmt.Printf("📊 订单主题配置: 模式=%s, 保留时间=%v, 最大大小=%d, 副本数=%d\n",
-            config.PersistenceMode, config.RetentionTime, config.MaxSize, config.Replicas)
+        fmt.Printf("📊 订单主题配置: 模式=%s, 保留时间=%v, 最大大小=%d\n",
+            config.PersistenceMode, config.RetentionTime, config.MaxSize)
     }
 
     // 动态修改主题配置
@@ -8965,7 +8976,7 @@ func main() {
     fmt.Println("\n=== Kafka 主题持久化管理演示完成 ===")
     fmt.Println("✅ 核心特性验证:")
     fmt.Println("  🎯 主题级持久化控制 - 不同主题使用不同保留策略")
-    fmt.Println("  🚀 智能主题管理 - 自动创建和配置 Kafka 主题")
+    fmt.Println("  🔧 配置 reconcile - 对已存在 topic 自动回填 retention/compression")
     fmt.Println("  🔄 动态配置管理 - 运行时修改主题配置")
     fmt.Println("  ⚡ 性能优化 - 长期和短期保留策略并存")
     fmt.Println("  🔧 统一接口 - 单一 EventBus 实例处理多种需求")
@@ -9033,11 +9044,11 @@ docker-compose up -d kafka
 go run examples/kafka_topic_persistence_example.go
 
 # 3. 观察输出，验证智能主题管理功能
-# - 订单事件自动创建长期保留主题
-# - 通知消息自动创建短期保留主题
-# - 动态配置管理功能
+# 注意：v1.1.69 起，以下行为因环境而异：
+#   - 开发/测试环境（AUTO_CREATE_TOPICS=1）：ConfigureTopic 自动建 topic
+#   - 生产环境（默认）：topic 须由 infra bootstrap 预创建，jxt-core 仅 reconcile retention/compression
 
-# 4. 验证 Kafka 主题创建
+# 4. 验证 Kafka 主题配置
 # 使用 Kafka 工具查看创建的主题和配置
 kafka-topics.sh --bootstrap-server localhost:29092 --list
 kafka-configs.sh --bootstrap-server localhost:29092 --describe --entity-type topics
@@ -9045,13 +9056,13 @@ kafka-configs.sh --bootstrap-server localhost:29092 --describe --entity-type top
 
 ### 核心优势
 
-1. **🎯 主题级控制**：每个主题可以独立配置保留策略、副本数、存储限制
-2. **🚀 智能主题管理**：使用 Kafka Admin API 自动创建和配置主题
+1. **🎯 主题级控制**：每个主题可以独立配置保留策略和压缩算法（分区/副本由 infra bootstrap 管理）
+2. **🔧 智能配置 reconcile**：`ConfigureTopic` / `TopicBuilder` 自动回填已存在 topic 的 retention/compression 配置
 3. **⚡ 性能优化**：长期和短期保留策略并存，各取所长
 4. **🔄 动态配置**：运行时可以修改主题配置，自动应用到 Kafka
 5. **🔧 统一接口**：单一 EventBus 实例处理多种需求，简化架构
 6. **📊 完整监控**：提供主题配置查询和管理接口
-7. **🛡️ 企业级特性**：支持多副本、大容量存储、长期保留
+7. **🛡️ 职责分离**：topic 创建与分区管理由 infra bootstrap 独占收敛，jxt-core 仅负责配置与收发（v1.1.69）
 8. **🎛️ 渐进式采用**：可以逐步为不同主题配置不同策略
 
 ## NATS JetStream 使用举例
