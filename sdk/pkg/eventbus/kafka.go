@@ -245,7 +245,7 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	}
 
 	// ⭐ 分区流水线配置（§4.3/§4.4，P3 单一派生）：校验 + 启动可观测共用同一 effective。
-	// 顺序不变量：必须在任何 sarama 建连（:372 sarama.NewClient）之前——错误路径不触网、单测零 broker。
+	// 顺序不变量：必须在首次 sarama 建连（sarama.NewClient）之前——错误路径不触网、单测零 broker。
 	effective := applyPipelineDefaults(cfg.Consumer.Pipeline)
 	logger.Info("kafka consumer pipeline config",
 		"pipelineEnabled", effective.Enabled,
