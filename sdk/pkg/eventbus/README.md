@@ -617,7 +617,9 @@ Kafka EventBus 采用统一Consumer Group架构 + Hollywood Actor Pool，提供�
   - **SubscribeEnvelope**: 使用聚合ID进行一致性哈希路由，保证顺序处理
   - **Subscribe**: 使用 Round-Robin 路由，实现并发处理
 
-⚠️ **重要提示**：Kafka 的 `ClientID` 和 `topic` 名称**必须只使用 ASCII 字符**，避免使用中文或其他 Unicode 字符，否则会导致消息无法正常接收！
+⚠️ **重要提示**：
+- Kafka 的 `ClientID` 和 `topic` 名称**必须只使用 ASCII 字符**，避免使用中文或其他 Unicode 字符，否则会导致消息无法正常接收！
+- **v1.1.69 起，生产环境不再自动创建 topic**。主题由 infra bootstrap（`topics-bootstrap.sh`）独占收敛。启动期须用 `WaitForTopologyReady` + `WaitForTopicsExist` 做存在性断言。详见「主题拓扑与启动期断言」节。
 
 ```yaml
 eventbus:
@@ -660,6 +662,10 @@ eventbus:
 # ⚠️ Topic 命名规范（Kafka）
 # ✅ 正确：business.orders, user.events, audit.logs
 # ❌ 错误：业务.订单, 用户.事件, 审计.日志
+
+# ⚠️ v1.1.69：jxt-core 生产路径默认不自动创建 topic。
+# 主题由 infra bootstrap（topics-bootstrap.sh）独占收敛。
+# 开发/单测/CI 环境可设 AUTO_CREATE_TOPICS=1 启用自动创建。
 ```
 
 ### Kafka Topic 预订阅优化（企业级生产环境）
@@ -2726,7 +2732,9 @@ err = bus.SetTopicPersistence(ctx, "user.events", true)  // 持久化
 
 ### TopicBuilder - 优雅的主题配置方式
 
-TopicBuilder 提供了一种更加优雅和类型安全的方式来配置 Kafka 主题，支持分区、副本、压缩、持久化等企业级特性。
+TopicBuilder 提供了一种类型安全的方式来配置 Kafka 主题的**留存期与压缩策略**（retention/compression），支持分区、副本、压缩、持久化等企业级特性。
+
+> **v1.1.69 重要变更**：jxt-core eventbus 退化为「不创建、不扩容、不断言分区数」。Topic 存在性与分区数由 infra bootstrap（`redpanda topics-bootstrap.sh`）独占收敛。**TopicBuilder 的 `WithPartitions()` / `WithReplication()` 仍可设置，但分区数差异仅作 informational 告警，不会触发 CreatePartitions 扩容**（运行时扩容会引发消费组再平衡，属于方案硬约束红线）。`Build()` 在新 topic 不存在且未设 `AUTO_CREATE_TOPICS=1` 时会 fail-fast，提示走 infra bootstrap 收敛。启动期采用 `WaitForTopologyReady` + `WaitForTopicsExist` 做只读存在性断言，详见「主题拓扑与启动期断言」节。
 
 #### 🎯 核心特性
 
@@ -2734,9 +2742,9 @@ TopicBuilder 提供了一种更加优雅和类型安全的方式来配置 Kafka 
 - **🔧 类型安全**：编译时检查，避免配置错误
 - **📦 压缩支持**：支持 5 种压缩算法（none, lz4, snappy, gzip, zstd），**Topic 级别配置**
 - **💾 持久化配置**：支持 persistent/ephemeral/auto 三种持久化模式
-- **⚙️ 分区配置**：灵活配置分区数和副本数
+- **⚙️ 留存期配置**：配置 retention 时间和 max size（分区/副本由 infra bootstrap 管理）
 - **✅ 自动验证**：自动验证配置参数的合法性
-- **📋 预设配置**：提供高/中/低吞吐量预设配置
+- **📋 预设配置**：提供高/中/低吞吐量预设配置（分区/副本为参考值，非强制）
 
 #### 📊 支持的压缩算法（Topic 级别）
 
@@ -2789,10 +2797,10 @@ func main() {
 
     ctx := context.Background()
 
-    // 🔧 使用 TopicBuilder 创建主题（推荐方式）
+    // 🔧 使用 TopicBuilder 配置主题（retention/compression；分区由 infra bootstrap 管理）
     err = eventbus.NewTopicBuilder("business.orders").
-        WithPartitions(3).                    // 3 个分区
-        WithReplication(2).                   // 2 个副本
+        WithPartitions(3).                    // 3 个分区（参考值，不强制；分区由 infra bootstrap 管理）
+        WithReplication(2).                   // 2 个副本（参考值）
         SnappyCompression().                  // Snappy 压缩（推荐）
         WithRetention(7*24*time.Hour).        // 保留 7 天
         WithMaxSize(1*1024*1024*1024).        // 1GB
@@ -2803,7 +2811,7 @@ func main() {
         log.Fatal(err)
     }
 
-    log.Println("✅ 主题创建成功！")
+    log.Println("✅ 主题配置成功！")
 }
 ```
 
@@ -2832,15 +2840,17 @@ builder.ZstdCompressionLevel(10)       // Zstd 高压缩（level 10）
 
 ```go
 // 示例 1: 高吞吐量主题（使用预设配置）
+// 注意：分区/副本为参考值，实际由 infra bootstrap 管理；TopicBuilder 仅应用 retention/compression
 err := eventbus.NewTopicBuilder("high.throughput.topic").
-    UsePreset(eventbus.HighThroughputTopicOptions()).  // 10 分区 + snappy 压缩
+    UsePreset(eventbus.HighThroughputTopicOptions()).  // 参考配置：10 分区 + snappy 压缩
     WithDescription("高吞吐量业务主题").
     Build(ctx, bus)
 
 // 示例 2: 自定义配置（完整参数）
+// 注意：分区/副本为参考值，实际由 infra bootstrap 管理
 err = eventbus.NewTopicBuilder("custom.topic").
-    WithPartitions(5).                    // 5 个分区
-    WithReplication(3).                   // 3 个副本（高可用）
+    WithPartitions(5).                    // 5 个分区（参考值）
+    WithReplication(3).                   // 3 个副本（参考值）
     SnappyCompression().                  // Snappy 压缩
     WithRetention(30*24*time.Hour).       // 保留 30 天
     WithMaxSize(10*1024*1024*1024).       // 10GB
@@ -2850,8 +2860,8 @@ err = eventbus.NewTopicBuilder("custom.topic").
 
 // 示例 3: 极致压缩（网络带宽受限场景）
 err = eventbus.NewTopicBuilder("compressed.topic").
-    WithPartitions(3).
-    WithReplication(2).
+    WithPartitions(3).                    // 参考值
+    WithReplication(2).                   // 参考值
     ZstdCompressionLevel(10).             // Zstd 高压缩级别
     WithRetention(7*24*time.Hour).
     WithDescription("高压缩比主题").
@@ -2859,8 +2869,8 @@ err = eventbus.NewTopicBuilder("compressed.topic").
 
 // 示例 4: 低延迟主题（无压缩）
 err = eventbus.NewTopicBuilder("low.latency.topic").
-    WithPartitions(10).
-    WithReplication(2).
+    WithPartitions(10).                   // 参考值
+    WithReplication(2).                   // 参考值
     NoCompression().                      // 无压缩，最低延迟
     WithRetention(24*time.Hour).
     WithDescription("低延迟主题").
@@ -2869,29 +2879,29 @@ err = eventbus.NewTopicBuilder("low.latency.topic").
 
 #### 预设配置
 
-TopicBuilder 提供了 3 种预设配置，适用于不同的业务场景：
+TopicBuilder 提供了 3 种预设配置，适用于不同的业务场景。**分区数和副本数仅为参考值，不强制**——分区正确性由 infra bootstrap 独占收敛：
 
 ```go
 // 1. 高吞吐量配置（推荐用于核心业务）
 eventbus.HighThroughputTopicOptions()
-// - 10 个分区
-// - 3 个副本
+// - 10 个分区（参考值，不强制）
+// - 3 个副本（参考值，不强制）
 // - Snappy 压缩（level 6）
 // - 保留 7 天
 // - 最大 1GB
 
 // 2. 中等吞吐量配置（推荐用于一般业务）
 eventbus.MediumThroughputTopicOptions()
-// - 5 个分区
-// - 2 个副本
+// - 5 个分区（参考值，不强制）
+// - 2 个副本（参考值，不强制）
 // - Snappy 压缩（level 6）
 // - 保留 3 天
 // - 最大 500MB
 
 // 3. 低吞吐量配置（推荐用于辅助业务）
 eventbus.LowThroughputTopicOptions()
-// - 3 个分区
-// - 1 个副本
+// - 3 个分区（参考值，不强制）
+// - 1 个副本（参考值，不强制）
 // - Snappy 压缩（level 6）
 // - 保留 1 天
 // - 最大 100MB
@@ -2935,21 +2945,25 @@ err = eventbus.NewTopicBuilder("test.topic").
 | **参数验证** | ✅ 自动验证 | ⚠️ 手动验证 |
 | **压缩配置** | ✅ 10 个便捷方法 | ⚠️ 手动设置字段 |
 | **预设配置** | ✅ 3 种预设 | ❌ 无预设 |
+| **分区/副本** | 参考值（不强制，infra bootstrap 管理） | 同左 |
 | **代码行数** | 更少（链式调用） | 更多（结构体初始化） |
 
 **推荐使用 TopicBuilder**，特别是在以下场景：
-- ✅ 需要配置 Kafka 分区和压缩
+- ✅ 需要配置 Kafka 压缩策略
 - ✅ 需要类型安全和参数验证
 - ✅ 希望代码更优雅易读
 - ✅ 使用预设配置快速开始
+
+> **注意**：v1.1.69 起，分区数/副本数由 infra bootstrap 独占管理。TopicBuilder 和 ConfigureTopic 的 `Partitions` / `Replicas` 字段仅作参考值，差异不会触发自动修复（`CanAutoFix` 恒为 false）。主题存在性通过 `WaitForTopicsExist` 做启动期断言。
 
 #### 实际应用场景
 
 ```go
 // 场景 1: 订单服务（高吞吐量 + 高可用）
+// 分区/副本由 infra bootstrap 管理；TopicBuilder 仅配置 retention/compression
 err := eventbus.NewTopicBuilder("business.orders").
-    WithPartitions(10).              // 10 分区支持高并发
-    WithReplication(3).              // 3 副本保证高可用
+    WithPartitions(10).              // 参考值：期望 10 分区
+    WithReplication(3).              // 参考值：期望 3 副本
     SnappyCompression().             // Snappy 压缩节省带宽
     WithRetention(30*24*time.Hour).  // 保留 30 天用于审计
     WithMaxSize(10*1024*1024*1024).  // 10GB 存储空间
@@ -2958,8 +2972,8 @@ err := eventbus.NewTopicBuilder("business.orders").
 
 // 场景 2: 日志收集（高压缩比）
 err = eventbus.NewTopicBuilder("system.logs").
-    WithPartitions(5).
-    WithReplication(2).
+    WithPartitions(5).               // 参考值
+    WithReplication(2).              // 参考值
     ZstdCompressionLevel(10).        // Zstd 高压缩，节省存储
     WithRetention(90*24*time.Hour).  // 保留 90 天
     WithMaxSize(50*1024*1024*1024).  // 50GB
@@ -2968,8 +2982,8 @@ err = eventbus.NewTopicBuilder("system.logs").
 
 // 场景 3: 实时通知（低延迟）
 err = eventbus.NewTopicBuilder("realtime.notifications").
-    WithPartitions(20).              // 20 分区支持高并发
-    WithReplication(2).
+    WithPartitions(20).              // 参考值：期望 20 分区
+    WithReplication(2).              // 参考值
     NoCompression().                 // 无压缩，最低延迟
     WithRetention(24*time.Hour).     // 仅保留 24 小时
     WithMaxSize(1*1024*1024*1024).   // 1GB
@@ -2978,8 +2992,8 @@ err = eventbus.NewTopicBuilder("realtime.notifications").
 
 // 场景 4: 数据分析（平衡性能和存储）
 err = eventbus.NewTopicBuilder("analytics.events").
-    WithPartitions(8).
-    WithReplication(2).
+    WithPartitions(8).               // 参考值
+    WithReplication(2).              // 参考值
     GzipCompressionLevel(6).         // GZIP 中等压缩
     WithRetention(7*24*time.Hour).
     WithMaxSize(5*1024*1024*1024).   // 5GB
@@ -3011,6 +3025,89 @@ err = eventbus.NewTopicBuilder("analytics.events").
 - **完整实现文档**: [TOPIC_BUILDER_IMPLEMENTATION.md](./TOPIC_BUILDER_IMPLEMENTATION.md)
 - **功能总结**: [COMPRESSION_FEATURE_SUMMARY.md](./COMPRESSION_FEATURE_SUMMARY.md)
 - **压缩重构总结**: [COMPRESSION_REFACTORING_SUMMARY.md](./COMPRESSION_REFACTORING_SUMMARY.md)
+
+
+### 主题拓扑与启动期断言（v1.1.69）
+
+v1.1.69 起，jxt-core eventbus 退化为「**不创建、不扩容、不断言分区数**」。Topic 的存在性与分区正确性由 **infra bootstrap**（`infrastructure/redpanda/topics-bootstrap.sh`）独占收敛。jxt-core 仅负责「连上去、应用留存期/压缩配置、收发」。
+
+#### 核心原则
+
+| 职责 | 归属 | 说明 |
+|------|------|------|
+| **Topic 创建** | infra bootstrap | `topics-bootstrap.sh` 双遍断言后创建，jxt-core **不再自动建 topic** |
+| **分区扩容** | infra bootstrap | `CreatePartitions` 已移除（运行时扩容触发消费组再平衡，方案硬约束红线） |
+| **分区数断言** | infra bootstrap | jxt-core 的 `compareTopicOptions` 分区差异仅作 informational 告警，`CanAutoFix` 恒为 false |
+| **留存期/压缩** | jxt-core | `retention.ms` / `compression.type` 等配置仍由 `ConfigureTopic` / `TopicBuilder` 管理 |
+
+#### AUTO_CREATE_TOPICS 门禁
+
+jxt-core 生产路径默认**不自动建 topic**。仅显式 `AUTO_CREATE_TOPICS=1`（本地开发 / 单测 / CI 等不起 bootstrap 的场景）才放行建新，消除服务启动副作用重新引入 auto-create 抢跑竞态。
+
+```bash
+# 开发环境 / 单测 / CI（不起 infra bootstrap）
+export AUTO_CREATE_TOPICS=1
+
+# 生产环境（默认 —— 不设或设为 0）
+# 主题由 infra bootstrap 负责创建，jxt-core 仅在启动期做只读存在性断言
+```
+
+`createKafkaTopic` 内部通过 `autoCreateTopicsEnabled()` 检查。非法值（含空）统一按 false 处理 —— fail-safe，宁可拒建也不意外建。
+
+#### WaitForTopologyReady —— 全局就绪哨兵
+
+`WaitForTopologyReady(ctx, bus)` 在服务启动早期做 **metadata 只读查询**，判断哨兵 topic `jxt.topology.ready` 是否存在。该 topic 由 `topics-bootstrap.sh` 在双遍断言通过后创建（1 分区），语义为「最近一次 bootstrap 成功收敛」。
+
+```go
+import "github.com/ChenBigdata421/jxt-core/sdk/pkg/eventbus"
+
+func main() {
+    // ... 初始化 EventBus ...
+
+    // 启动闸门：bootstrap 没跑完就不启动
+    if err := eventbus.WaitForTopologyReady(ctx, bus); err != nil {
+        log.Fatalf("Redpanda topology not ready: %v", err)
+    }
+
+    // ... 继续订阅 / 启动服务 ...
+}
+```
+
+- 非 Kafka 总线（memory/NATS）自动放行，不影响单测 / NATS 部署
+- 不在内部循环重试 —— 重试由 orchestrator（Docker restart: on-failure 自带指数退避）负责
+- 禁止 produce/consume 触发式探测 —— auto_create 若意外开启，触发式探测会把标志 topic 自建出来，使服务「自己骗自己」
+
+#### WaitForTopicsExist —— 应用层存在性自检
+
+`WaitForTopicsExist(ctx, bus, topics)` 逐 topic 做 metadata 只读存在性断言：任一缺失即 **fail-fast** 并指名缺失列表，提示补进 `topics-manifest.sh` 的 `TOPICS` 并重跑 bootstrap。
+
+```go
+topics := []string{
+    "domain.media.created",
+    "domain.archive.created",
+    "domain.evidence.updated",
+}
+if err := eventbus.WaitForTopicsExist(ctx, bus, topics); err != nil {
+    log.Fatalf("Topics missing: %v", err)
+}
+```
+
+- 与 `WaitForTopologyReady` 互补：后者证「最近一次 bootstrap 成功」，前者证「我要订阅的 topic 都在」
+- 收敛原 4 个应用服务（evidence command/query、file-storage、security）内重复的启动断言循环
+- 非 Kafka 总线自动放行
+
+#### 推荐启动顺序
+
+```
+服务启动
+  ├─ 1. 初始化 EventBus
+  ├─ 2. WaitForTopologyReady(ctx, bus)     ← 全局就绪
+  ├─ 3. WaitForTopicsExist(ctx, bus, topics) ← 应用层自检
+  ├─ 4. ConfigureTopic / TopicBuilder.Build() ← retention/compression 配置
+  └─ 5. Subscribe / 启动业务逻辑
+```
+
+步骤 2-3 任一步失败即 fail-fast（exit 1），重试由 orchestrator 负责。
 
 
 ## 六、特性
@@ -3644,9 +3741,12 @@ func main() {
     // }
 
     // 3. 使用统一接口发布和订阅
-    // EventBus 会自动根据主题配置创建和管理 Kafka 主题
+    // 注意：v1.1.69 起 jxt-core 退化为「不创建、不扩容、不断言分区数」，
+    // 主题存在性与分区数由 infra bootstrap（redpanda topics-bootstrap.sh）独占收敛。
+    // 服务启动前须用 WaitForTopologyReady + WaitForTopicsExist 做存在性断言，
+    // 详见「主题拓扑与启动期断言」节。
 
-    // 订阅（自动创建主题）
+    // 订阅（主题须已由 infra bootstrap 创建；AUTO_CREATE_TOPICS=1 仅用于开发/单测）
     err := bus.Subscribe(ctx, "business.orders", func(ctx context.Context, message []byte) error {
         fmt.Printf("📦 [Kafka长期保留] 处理订单: %s\n", string(message))
         return nil
@@ -7452,10 +7552,12 @@ func main() {
 
 **模式4：配置治理和验证**
 
-企业级配置治理，确保所有主题配置符合组织规范：
+企业级配置治理，确保所有主题配置符合组织规范。
+
+> **v1.1.69 注意**：`compareTopicOptions` 的 `CanAutoFix` 恒为 false，`ConfigureTopic` 的 reconcile 收敛为「仅 retention/compression」——jxt-core 不再自动修复分区差异。分区数治理由 infra bootstrap 的 `topics-bootstrap.sh` + `redpanda healthcheck (CHECK_ONLY)` 负责。以下治理模式适用于 **retention / compression / persistence** 层面的组织规范校验。
 
 ```go
-// 企业级配置治理
+// 企业级配置治理（v1.1.69：作用于 retention/compression/persistence，分区数由 infra bootstrap 治理）
 type TopicGovernance struct {
     eventBus eventbus.EventBus
     rules    []GovernanceRule
@@ -7463,7 +7565,7 @@ type TopicGovernance struct {
 
 type GovernanceRule struct {
     Pattern      string                           // 主题名称模式（支持通配符）
-    MinReplicas  int                              // 最小副本数
+    MinReplicas  int                              // 最小副本数（参考值；由 infra bootstrap 强制）
     MaxRetention time.Duration                    // 最大保留时间
     RequiredMode eventbus.TopicPersistenceMode    // 必需的持久化模式
 }
@@ -7471,12 +7573,6 @@ type GovernanceRule struct {
 func (g *TopicGovernance) ValidateTopicConfig(topic string, options eventbus.TopicOptions) error {
     for _, rule := range g.rules {
         if matched, _ := filepath.Match(rule.Pattern, topic); matched {
-            // 验证副本数
-            if options.Replicas < rule.MinReplicas {
-                return fmt.Errorf("topic %s requires at least %d replicas, got %d",
-                    topic, rule.MinReplicas, options.Replicas)
-            }
-
             // 验证保留时间
             if rule.MaxRetention > 0 && options.RetentionTime > rule.MaxRetention {
                 return fmt.Errorf("topic %s retention time exceeds maximum %v, got %v",
@@ -7493,7 +7589,7 @@ func (g *TopicGovernance) ValidateTopicConfig(topic string, options eventbus.Top
     return nil
 }
 
-// 自动应用治理规则
+// 自动应用治理规则（v1.1.69：仅可修复 retention/compression/persistence；分区数不在修复范围内）
 func (g *TopicGovernance) ApplyGovernanceRules(ctx context.Context) error {
     topics := g.eventBus.ListConfiguredTopics()
 
@@ -7508,7 +7604,7 @@ func (g *TopicGovernance) ApplyGovernanceRules(ctx context.Context) error {
             // 记录违规
             log.Printf("⚠️  Governance violation for topic %s: %v", topic, err)
 
-            // 自动修复（可选）
+            // 自动修复（仅 retention/compression/persistence；分区数不在此层管理）
             if fixedConfig := g.autoFixConfig(topic, config); fixedConfig != nil {
                 log.Printf("🔧 Auto-fixing topic %s configuration", topic)
                 if err := g.eventBus.ConfigureTopic(ctx, topic, *fixedConfig); err != nil {
@@ -7520,17 +7616,12 @@ func (g *TopicGovernance) ApplyGovernanceRules(ctx context.Context) error {
     return nil
 }
 
-// 自动修复配置（根据治理规则）
+// 自动修复配置（根据治理规则；v1.1.69 仅修复 retention/compression/persistence）
 func (g *TopicGovernance) autoFixConfig(topic string, current eventbus.TopicOptions) *eventbus.TopicOptions {
     fixed := current
 
     for _, rule := range g.rules {
         if matched, _ := filepath.Match(rule.Pattern, topic); matched {
-            // 修复副本数
-            if current.Replicas < rule.MinReplicas {
-                fixed.Replicas = rule.MinReplicas
-            }
-
             // 修复保留时间
             if rule.MaxRetention > 0 && current.RetentionTime > rule.MaxRetention {
                 fixed.RetentionTime = rule.MaxRetention
@@ -7553,31 +7644,27 @@ func main() {
     bus := eventbus.GetGlobal()
     ctx := context.Background()
 
-    // 定义治理规则
+    // 定义治理规则（v1.1.69：副本数/MaxSize 由 infra bootstrap 管理）
     governance := &TopicGovernance{
         eventBus: bus,
         rules: []GovernanceRule{
             {
                 Pattern:      "business.*",
-                MinReplicas:  3,
                 MaxRetention: 30 * 24 * time.Hour,
                 RequiredMode: eventbus.TopicPersistent,
             },
             {
                 Pattern:      "audit.*",
-                MinReplicas:  5,
                 MaxRetention: 90 * 24 * time.Hour,
                 RequiredMode: eventbus.TopicPersistent,
             },
             {
                 Pattern:      "system.*",
-                MinReplicas:  1,
                 MaxRetention: 24 * time.Hour,
                 RequiredMode: eventbus.TopicEphemeral,
             },
             {
                 Pattern:      "temp.*",
-                MinReplicas:  1,
                 MaxRetention: 1 * time.Hour,
                 RequiredMode: eventbus.TopicEphemeral,
             },
@@ -7588,14 +7675,13 @@ func main() {
     orderConfig := eventbus.TopicOptions{
         PersistenceMode: eventbus.TopicPersistent,
         RetentionTime:   7 * 24 * time.Hour,
-        Replicas:        3,
     }
 
     if err := governance.ValidateTopicConfig("business.orders", orderConfig); err != nil {
         log.Fatalf("❌ Configuration validation failed: %v", err)
     }
 
-    // 验证通过，应用配置
+    // 验证通过，应用配置（仅 retention/compression；分区/副本由 infra bootstrap 管理）
     bus.ConfigureTopic(ctx, "business.orders", orderConfig)
 
     // 定期检查并修复违规配置
@@ -7611,19 +7697,22 @@ func main() {
 **治理规则最佳实践**：
 
 1. **明确的规则定义**：
-   - 为不同类型的主题定义清晰的治理规则
+   - 为不同类型的主题定义清晰的治理规则（retention/compression/persistence）
    - 使用通配符模式简化规则管理
+   - **分区数/副本数治理由 infra bootstrap 负责**（`topics-manifest.sh` + `redpanda healthcheck CHECK_ONLY`）
 
 2. **验证优先于修复**：
    - 在配置主题前先验证配置是否符合规则
    - 避免配置后再修复带来的不一致性
+   - jxt-core 的 `CanAutoFix` 恒为 false——修复归 infra bootstrap
 
 3. **审计和告警**：
    - 记录所有违规配置
    - 对关键违规发送告警通知
 
 4. **渐进式修复**：
-   - 自动修复应该谨慎使用
+   - 自动修复应仅作用于 retention/compression/persistence
+   - 分区变更应由 infra bootstrap 在受控窗口内执行
    - 对于关键主题，建议人工审核后再修复
 
 ---
