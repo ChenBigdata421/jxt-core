@@ -137,11 +137,6 @@ type kafkaEventBus struct {
 	preSubscriptionEnabled bool
 	maxTopicsPerGroup      int
 
-	// 优化4：预热状态监控
-	warmupCompleted bool
-	warmupStartTime time.Time
-	warmupMu        sync.RWMutex
-
 	// 异步发布结果通道（用于Outbox模式）
 	publishResultChan chan *PublishResult
 
@@ -1448,49 +1443,9 @@ func (k *kafkaEventBus) startPreSubscriptionConsumer(ctx context.Context) error 
 	k.logger.Info("Pre-subscription consumer system started",
 		zap.Int("topicCount", len(topics)))
 
-	// 优化1&4：添加3秒Consumer预热机制 + 状态监控
-	k.warmupMu.Lock()
-	k.warmupStartTime = time.Now()
-	k.warmupCompleted = false
-	k.warmupMu.Unlock()
-
-	k.logger.Info("Consumer warming up for 3 seconds...",
-		zap.Time("warmupStartTime", k.warmupStartTime))
-	time.Sleep(3 * time.Second)
-
-	k.warmupMu.Lock()
-	k.warmupCompleted = true
-	warmupDuration := time.Since(k.warmupStartTime)
-	k.warmupMu.Unlock()
-
-	k.logger.Info("Consumer warmup completed, ready for optimal performance",
-		zap.Duration("warmupDuration", warmupDuration),
-		zap.Bool("warmupCompleted", true))
-
+	// review D6：原 3s warmup sleep 已移除——它在持有 consumerMu 时阻塞，
+	// 既是 dispatch-drain 竞态窗口本身，又造成后续 Subscribe 调用的锁 convoy。
 	return nil
-}
-
-// 优化4：IsWarmupCompleted 检查预热状态
-func (k *kafkaEventBus) IsWarmupCompleted() bool {
-	k.warmupMu.RLock()
-	defer k.warmupMu.RUnlock()
-	return k.warmupCompleted
-}
-
-// 优化4：GetWarmupInfo 获取预热信息
-func (k *kafkaEventBus) GetWarmupInfo() (completed bool, duration time.Duration) {
-	k.warmupMu.RLock()
-	defer k.warmupMu.RUnlock()
-
-	completed = k.warmupCompleted
-	if !k.warmupStartTime.IsZero() {
-		if completed {
-			duration = 3 * time.Second // 预热完成，返回固定时长
-		} else {
-			duration = time.Since(k.warmupStartTime) // 预热中，返回已用时长
-		}
-	}
-	return
 }
 
 // activateTopicHandler 激活topic处理器（预订阅模式）
