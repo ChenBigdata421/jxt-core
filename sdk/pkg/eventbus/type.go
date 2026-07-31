@@ -696,7 +696,7 @@ func applyPipelineDefaults(cfg PipelineConfig) PipelineConfig {
 	if cfg.StallWarnInterval == 0 {
 		cfg.StallWarnInterval = d.StallWarnInterval // 0=未配置→默认；负值原样保留（run 内 >0 判定为关闭）
 	}
-	if cfg.HoldBackoff == 0 {
+	if cfg.HoldBackoff <= 0 {
 		cfg.HoldBackoff = 100 * time.Millisecond
 	}
 	return cfg

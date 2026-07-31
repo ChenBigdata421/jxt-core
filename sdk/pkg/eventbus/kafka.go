@@ -1042,7 +1042,7 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 					return err // ctx canceled (session end)
 				}
 				// D3' (round-2 review): a nil re-check here means a concurrent deactivateTopicHandler
-				// (kafka.go:1536) raced the wake — LOOP BACK TO HOLD. Never skip the in-hand message:
+				// (concurrent deactivateTopicHandler raced the wake) — LOOP BACK TO HOLD. Never skip the in-hand message:
 				// skip + later MarkMessage of subsequent offsets would commit past it (silent loss).
 				wrapperAny, exists = h.eventBus.activeTopicHandlers.Load(message.Topic)
 			}

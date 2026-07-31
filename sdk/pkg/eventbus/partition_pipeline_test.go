@@ -91,6 +91,11 @@ func TestApplyPipelineDefaults(t *testing.T) {
 		cfg := applyPipelineDefaults(PipelineConfig{Enabled: true, StallWarnInterval: -1 * time.Second})
 		assert.Equal(t, -1*time.Second, cfg.StallWarnInterval, "负值须原样保留作为「关闭」哨兵（run 内 >0 判定；0 在配置层会被补成默认）")
 	})
+
+	t.Run("负值 HoldBackoff 被钳为默认（防御 legacy 路径 time.NewTimer 负值热转）", func(t *testing.T) {
+		cfg := applyPipelineDefaults(PipelineConfig{Enabled: false, HoldBackoff: -1 * time.Millisecond})
+		assert.Equal(t, 100*time.Millisecond, cfg.HoldBackoff, "负值 HoldBackoff 必须钳为 100ms 默认（review 防御：legacy 路径不经 validate，负值会 time.NewTimer 热转）")
+	})
 }
 
 // TestDecideCommitable 验证三分支提交判定（无网络，纯逻辑）
