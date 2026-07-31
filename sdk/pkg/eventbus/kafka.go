@@ -991,6 +991,31 @@ func (h *preSubscriptionConsumerHandler) Cleanup(sarama.ConsumerGroupSession) er
 	return nil
 }
 
+// holdUntilActivated blocks until topic's handler activates or ctx is canceled. Shared by the
+// legacy path (Task 2, pass message.Topic) and the pipeline path (Task 3, pass claim.Topic()).
+// It does NOT MarkMessage and does NOT read claim.Messages() — trailing messages stay buffered
+// in sarama's channel (backpressure, 0 loss); anything already read but unprocessed stays
+// uncommitted and is redelivered next session (at-least-once). On ctx cancel it returns
+// promptly so sarama's session release (`waitGroup.Wait()`, consumer_group.go:867-891) does not
+// block to Rebalance.Timeout (60s) — review P2#9.
+func (h *preSubscriptionConsumerHandler) holdUntilActivated(
+	ctx context.Context, topic string, backoff time.Duration,
+) error {
+	t := time.NewTimer(backoff)
+	defer t.Stop()
+	for {
+		if _, exists := h.eventBus.activeTopicHandlers.Load(topic); exists {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			t.Reset(backoff)
+		}
+	}
+}
+
 // ConsumeClaim 预订阅消费消息 - 根据topic路由到激活的handler
 func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	ctx := session.Context()
@@ -1009,10 +1034,17 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 
 			// 🔥 P0修复：无锁读取 handler（使用 sync.Map）
 			wrapperAny, exists := h.eventBus.activeTopicHandlers.Load(message.Topic)
-			if !exists {
-				// 未激活的 topic，跳过
-				session.MarkMessage(message, "")
-				continue
+			for !exists {
+				// Hold the already-read `message`; poll activation WITHOUT touching claim.Messages()
+				// so sarama backpressures (trailing msgs stay buffered, 0 loss). On ctx cancel (session
+				// end) return — `message` is uncommitted → redelivered next session (at-least-once).
+				if err := h.holdUntilActivated(ctx, message.Topic, h.eventBus.pipelineConfig().HoldBackoff); err != nil {
+					return err // ctx canceled (session end)
+				}
+				// D3' (round-2 review): a nil re-check here means a concurrent deactivateTopicHandler
+				// (kafka.go:1536) raced the wake — LOOP BACK TO HOLD. Never skip the in-hand message:
+				// skip + later MarkMessage of subsequent offsets would commit past it (silent loss).
+				wrapperAny, exists = h.eventBus.activeTopicHandlers.Load(message.Topic)
 			}
 			wrapper := wrapperAny.(*handlerWrapper)
 

@@ -50,6 +50,11 @@ func TestPipelineConfig_Defaults(t *testing.T) {
 		cfg := PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 0, DLQTimeout: 30 * time.Second}
 		assert.Error(t, cfg.validate(10*time.Second), "flushTimeout 必须 > 0（0 会让 flush 近乎不冲刷）")
 	})
+
+	t.Run("holdBackoff <=0 应报错", func(t *testing.T) {
+		cfg := PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 4 * time.Second, DLQTimeout: 30 * time.Second, HoldBackoff: 0}
+		assert.Error(t, cfg.validate(10*time.Second), "holdBackoff 必须 > 0（0/负值会让 hold 循环热转 time.NewTimer(0)）")
+	})
 }
 
 // TestApplyPipelineDefaults 字段级默认：仅 enabled:true 的部分配置必须补全默认、通过 validate（不 panic）。
@@ -62,17 +67,19 @@ func TestApplyPipelineDefaults(t *testing.T) {
 		assert.Equal(t, 4*time.Second, cfg.FlushTimeout)
 		assert.Equal(t, 30*time.Second, cfg.DLQTimeout)
 		assert.True(t, cfg.StallWarnInterval > 0)
+		assert.Equal(t, 100*time.Millisecond, cfg.HoldBackoff, "HoldBackoff 零值须补默认 100ms（spec §5 A 的 hold 轮询间隔）")
 		assert.NoError(t, cfg.validate(10*time.Second), "补全后必须通过 validate（旧路径 WindowSize=0 会 panic）")
 	})
 
 	t.Run("显式值不被默认覆盖", func(t *testing.T) {
 		cfg := applyPipelineDefaults(PipelineConfig{
-			Enabled: true, WindowSize: 8, FlushTimeout: 2 * time.Second, DLQTimeout: 10 * time.Second, StallWarnInterval: 5 * time.Second,
+			Enabled: true, WindowSize: 8, FlushTimeout: 2 * time.Second, DLQTimeout: 10 * time.Second, StallWarnInterval: 5 * time.Second, HoldBackoff: 7 * time.Millisecond,
 		})
 		assert.Equal(t, 8, cfg.WindowSize)
 		assert.Equal(t, 2*time.Second, cfg.FlushTimeout)
 		assert.Equal(t, 10*time.Second, cfg.DLQTimeout)
 		assert.Equal(t, 5*time.Second, cfg.StallWarnInterval)
+		assert.Equal(t, 7*time.Millisecond, cfg.HoldBackoff, "显式 HoldBackoff 须原样保留")
 	})
 
 	t.Run("零值 Enabled 保持 false（默认关闭）", func(t *testing.T) {

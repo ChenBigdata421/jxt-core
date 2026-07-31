@@ -630,6 +630,11 @@ type PipelineConfig struct {
 	FlushTimeout      time.Duration `mapstructure:"flushTimeout"`      // ctx.Done 后限时冲刷，必须 < sessionTimeout/2
 	DLQTimeout        time.Duration `mapstructure:"dlqTimeout"`        // 异步 DLQ 投递超时（独立于 session ctx）
 	StallWarnInterval time.Duration `mapstructure:"stallWarnInterval"` // 慢 handler 停滞告警间隔：窗口满且前沿停滞超此时长 → warn（仅观测、无副作用；未配置=默认 10s，负值如 -1s=显式关闭）
+	// HoldBackoff is the poll interval while an in-hand message's handler is not yet activated.
+	// The message is held (not committed) until activation; see dispatch-drop rootfix spec §5 A.
+	// Timing field — internal-only by repo convention (config/eventbus.go:195-197: timing safety
+	// invariants stay out of PipelineUserConfig; eventbus.go:1266 drift-trap warning applies).
+	HoldBackoff time.Duration
 }
 
 // defaultPipelineConfig 返回安全的默认配置（关闭）。
@@ -641,7 +646,8 @@ func defaultPipelineConfig() PipelineConfig {
 		WindowSize:        16,
 		FlushTimeout:      4 * time.Second,
 		DLQTimeout:        30 * time.Second,
-		StallWarnInterval: 10 * time.Second, // 默认开（纯观测、无副作用）；灰度盯「前沿停滞」以区分慢 handler 与毒消息
+		StallWarnInterval: 10 * time.Second,  // 默认开（纯观测、无副作用）；灰度盯「前沿停滞」以区分慢 handler 与毒消息
+		HoldBackoff:       100 * time.Millisecond, // 未激活 topic 的 hold 轮询间隔（spec §5 A；与 applyPipelineDefaults 同源同值）
 	}
 }
 
@@ -666,6 +672,9 @@ func (c PipelineConfig) validate(sessionTimeout time.Duration) error {
 	if c.DLQTimeout <= 0 {
 		return fmt.Errorf("pipeline.dlqTimeout must be > 0")
 	}
+	if c.HoldBackoff <= 0 {
+		return fmt.Errorf("pipeline.holdBackoff must be > 0")
+	}
 	return nil
 }
 
@@ -686,6 +695,9 @@ func applyPipelineDefaults(cfg PipelineConfig) PipelineConfig {
 	}
 	if cfg.StallWarnInterval == 0 {
 		cfg.StallWarnInterval = d.StallWarnInterval // 0=未配置→默认；负值原样保留（run 内 >0 判定为关闭）
+	}
+	if cfg.HoldBackoff == 0 {
+		cfg.HoldBackoff = 100 * time.Millisecond
 	}
 	return cfg
 }
