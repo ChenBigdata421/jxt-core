@@ -157,7 +157,7 @@ func TestAdvanceFrontier_T1(t *testing.T) {
 // TestNewPartitionPipeline_BufferInvariant buffer 必须 >= windowSize 且运行期强制
 func TestNewPartitionPipeline_BufferInvariant(t *testing.T) {
 	t.Run("channel 容量 == windowSize", func(t *testing.T) {
-		cfg := PipelineConfig{Enabled: true, WindowSize: 32, FlushTimeout: 4 * time.Second, DLQTimeout: 30 * time.Second}
+		cfg := applyPipelineDefaults(PipelineConfig{Enabled: true, WindowSize: 32, FlushTimeout: 4 * time.Second, DLQTimeout: 30 * time.Second})
 		p, compCh, dlqDoneCh := newPartitionPipeline(cfg, 10*time.Second)
 		assert.Equal(t, 32, cap(compCh))
 		assert.Equal(t, 32, cap(dlqDoneCh))
@@ -357,7 +357,7 @@ func (f *fakePool) ProcessMessage(_ context.Context, msg *AggregateMessage) erro
 }
 
 func newPipelineForTest(windowSize int) (*partitionPipeline, chan completion, chan dlqResult) {
-	cfg := PipelineConfig{Enabled: true, WindowSize: windowSize, FlushTimeout: 100 * time.Millisecond, DLQTimeout: 200 * time.Millisecond}
+	cfg := applyPipelineDefaults(PipelineConfig{Enabled: true, WindowSize: windowSize, FlushTimeout: 100 * time.Millisecond, DLQTimeout: 200 * time.Millisecond})
 	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, 10*time.Second)
 	p.pool = &fakePool{}
 	p.buildAggMsg = func(m *sarama.ConsumerMessage) *AggregateMessage {
@@ -505,7 +505,7 @@ func TestRun_T5(t *testing.T) {
 		return nil
 	}
 
-	cfg := PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 100 * time.Millisecond, DLQTimeout: 200 * time.Millisecond}
+	cfg := applyPipelineDefaults(PipelineConfig{Enabled: true, WindowSize: 8, FlushTimeout: 100 * time.Millisecond, DLQTimeout: 200 * time.Millisecond})
 	p, compCh, dlqDoneCh := newPartitionPipeline(cfg, 10*time.Second)
 	p.pool = pool
 	p.buildAggMsg = func(m *sarama.ConsumerMessage) *AggregateMessage {
