@@ -1,0 +1,40 @@
+# 单模块门禁：强制 jxt-core 永远只作为单一 Go 模块发布，禁止 sdk/ 等子目录独立发布。
+#
+# Why: 本仓库自 go-admin-core fork 继承过一条错误 tag 线（v0.1、v1.0.2、v1.2.0–v1.6.5 +
+# sdk/* + plugins/logger/zap/*），其 go.mod 声明的是 matchstalk / go-admin-team 的路径，
+# 版本号高于正规线，导致未 pin 的 `go mod tidy` 误选坏 tag 而硬失败。v1.7.0 已清理；
+# 本 workflow 让这类回归被自动拦下。规则见 scripts/single_module_gate.sh，README 版本历史 v1.7.0。
+#
+# 三道检查：① 全树仅一个 go.mod；② 无含 `/` 的嵌套模块 tag；③ 每个 tag 根 go.mod 声明
+# github.com/ChenBigdata421/jxt-core。纯 git/find/grep/awk，无需 Go 工具链，故不跑 setup-go。
+#
+# 覆盖范围：push 到 master、任意 tag push（让坏 tag 一经推送即被抓）、PR 到 master。
+# 注意：CI 在 push/tag 之后跑，只能「事后红 + 阻断后续合并」；要硬阻止坏 tag 上远端，
+# 需 GitHub 的 tag 保护规则（Settings → Branches/Tags protection），那不在 CI 能力内。
+name: module-hygiene
+
+on:
+  push:
+    branches: [master]
+    tags: ['**']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: module-hygiene-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  single-module:
+    name: single-module gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # 需要全量 tag 才能检查「每个 tag 的 module path」与「无嵌套模块 tag」。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: single-module gate
+        run: bash scripts/single_module_gate.sh
