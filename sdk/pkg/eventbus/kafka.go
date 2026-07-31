@@ -1213,29 +1213,30 @@ func (h *preSubscriptionConsumerHandler) resolveWrapper(claim sarama.ConsumerGro
 
 // consumeWithPipeline 用 partitionPipeline 消费一个 claim（claim 单 topic，故 wrapper 一次性解析）。
 //
-// ⭐ P1-1（已对源码核实）：未激活 topic **绝不进流水线**。
-// 若合成占位 AggregateMessage，其 AggregateID 为空 → ProcessMessage 直接返回 error、不入队 →
-// Done 永不被写 → bridge 阻塞 → inflight 不 settle → frontier 卡在首条 → 队头阻塞其后的所有真消息。
-// 故镜像 legacy（ConsumeClaim 中未激活 topic 分支）直接 drain + MarkMessage。
+// ⭐ 未激活 topic 的 hold（spec §5 A；review D5a）：claim 开始时若 wrapper 为 nil（topic 未激活），
+// **在 p.run 之外 hold 整个 claim**（背压：不读 claim.Messages()、不 MarkMessage、不推进 frontier），
+// 复用 legacy 路径同一个 holdUntilActivated（轮询 activeTopicHandlers.Load(topic) + ctx.Done + timer）。
+// 激活后一次性解析 wrapper 并进 p.run。head 消息始终缓冲在 sarama 通道（未拉取）→ 0 丢失。
+//
+// ⚠️ P1-1（已对源码核实）：nil wrapper **绝不进 p.run**——若合成占位 AggregateMessage，其 AggregateID 为空 →
+// ProcessMessage 直接返回 error、不入队 → Done 永不被写 → bridge 阻塞 → inflight 不 settle →
+// frontier 卡在首条 → 队头阻塞其后的所有真消息。故必须在 p.run 之外 hold 到激活，而非带 nil 进 p.run。
 func (h *preSubscriptionConsumerHandler) consumeWithPipeline(
 	ctx context.Context,
 	session sarama.ConsumerGroupSession,
 	claim sarama.ConsumerGroupClaim,
 	cfg PipelineConfig,
 ) error {
+	// hold 在 p.run 之外（review D5a）：claim 开始时若 wrapper 为 nil（未激活 topic），背压 hold 直到激活。
+	// 不读 claim.Messages()（head 消息缓冲在 sarama → 0 丢失）、不 MarkMessage、不推进 frontier。
+	// claim 单 (topic,partition) → wrapper 整 claim 恒定，故一次性 hold+resolve 即可，无需在 p.run 内逐条 resolve。
 	wrapper := h.resolveWrapper(claim) // claim 单 topic：一次性解析；nil = 未激活 topic
-	if wrapper == nil {
-		for {
-			select {
-			case msg := <-claim.Messages():
-				if msg == nil {
-					return nil
-				}
-				session.MarkMessage(msg, "")
-			case <-ctx.Done():
-				return nil
-			}
+	for wrapper == nil {
+		if err := h.holdUntilActivated(ctx, claim.Topic(), cfg.HoldBackoff); err != nil {
+			return err // ctx 取消（session 结束）→ 0 已提交 → 下次 claim 重投递（at-least-once）
 		}
+		// D3' 对称：nil 重解析意味着 deactivate 与唤醒竞态——此时仍 0 读取/0 提交，回到 hold 无代价。
+		wrapper = h.resolveWrapper(claim)
 	}
 
 	// 防御：流水线依赖 actor pool；未初始化时不得进 run——否则 p.run 内 p.pool.ProcessMessage 会空指针 panic
