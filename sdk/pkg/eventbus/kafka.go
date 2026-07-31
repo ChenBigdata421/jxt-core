@@ -1503,6 +1503,13 @@ func (k *kafkaEventBus) deactivateTopicHandler(topic string) {
 		zap.Int("totalActiveTopics", count))
 }
 
+// IsActiveTopic reports whether a handler has been activated for topic (pre-subscription mode).
+// Exposed so consuming services can self-check consumed ⊆ activated at startup (review D2).
+func (k *kafkaEventBus) IsActiveTopic(topic string) bool {
+	_, exists := k.activeTopicHandlers.Load(topic)
+	return exists
+}
+
 // SetPreSubscriptionTopics 设置预订阅topic列表（企业级生产环境API）
 //
 // 业界最佳实践：在调用 Subscribe 之前，先设置所有需要订阅的 topic
