@@ -991,25 +991,53 @@ func (h *preSubscriptionConsumerHandler) Cleanup(sarama.ConsumerGroupSession) er
 	return nil
 }
 
-// holdUntilActivated blocks until topic's handler activates or ctx is canceled. Shared by the
-// legacy path (Task 2, pass message.Topic) and the pipeline path (Task 3, pass claim.Topic()).
-// It does NOT MarkMessage and does NOT read claim.Messages() — trailing messages stay buffered
-// in sarama's channel (backpressure, 0 loss); anything already read but unprocessed stays
-// uncommitted and is redelivered next session (at-least-once). On ctx cancel it returns
-// promptly so sarama's session release (`waitGroup.Wait()`, consumer_group.go:867-891) does not
-// block to Rebalance.Timeout (60s) — review P2#9.
+// holdUntilActivated returns the activated handler wrapper for topic, blocking until
+// activation or ctx cancel. Shared by the legacy path (Task 2, pass message.Topic +
+// message.Partition) and the pipeline path (Task 3, pass claim.Topic()/Partition()).
+// It does NOT MarkMessage and does NOT read claim.Messages() — trailing messages stay
+// buffered in sarama's channel (backpressure, 0 loss); anything already read but
+// unprocessed stays uncommitted and is redelivered next session (at-least-once). On ctx
+// cancel it returns promptly so sarama's session release (`waitGroup.Wait()`,
+// consumer_group.go:867-891) does not block to Rebalance.Timeout (60s) — review P2#9.
+//
+// D3' (round-2 review, review G4 consolidation): the returned wrapper is captured from a
+// Load hit — a concurrent deactivateTopicHandler after return leaves the captured
+// *handlerWrapper valid (map removal only; the handler closure stays usable), so the
+// caller processes with the captured wrapper. Never skip the in-hand message: skip +
+// later MarkMessage of subsequent offsets would commit past it (silent loss). The
+// caller-side re-Load loop (two copies) is folded into this helper — one D3' contract,
+// one implementation.
+//
+// Observability (review G2): the hold state is a partition stall — a never-activated topic
+// freezes the partition while the group stays healthy (heartbeats run elsewhere), so the
+// hold emits: one Warn log on entry (not per poll), a monotonic StallEnterReporter rising
+// edge, and the stall gauge climbing with real elapsed hold seconds every poll. On exit
+// (activation or ctx cancel) the gauge is reset to 0. Label cleanup stays on
+// topic-unsubscribe only (ClearPartitionStall) per review 2026-07-26 — rebalance churn must
+// not blink the gauge below the 60s P1 `for:` clause.
 func (h *preSubscriptionConsumerHandler) holdUntilActivated(
-	ctx context.Context, topic string, backoff time.Duration,
-) error {
+	ctx context.Context, topic string, partition int32, backoff time.Duration,
+) (*handlerWrapper, error) {
 	t := time.NewTimer(backoff)
 	defer t.Stop()
+	entered := false
+	start := time.Now()
 	for {
-		if _, exists := h.eventBus.activeTopicHandlers.Load(topic); exists {
-			return nil
+		if w, exists := h.eventBus.activeTopicHandlers.Load(topic); exists {
+			ReportPartitionStall(topic, partition, 0) // hold 结束（激活）→ gauge 归零
+			return w.(*handlerWrapper), nil
 		}
+		if !entered {
+			entered = true
+			ReportPartitionStallEnter(topic, partition) // monotonic enter 上升沿（镜像 p.run 停滞分支）
+			h.eventBus.logger.Warn("topic consumed but handler not activated; holding partition (backpressure, no commit) until activation or session end",
+				zap.String("topic", topic), zap.Int32("partition", partition))
+		}
+		ReportPartitionStall(topic, partition, time.Since(start).Seconds()) // 每轮上报真实 hold 时长
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			ReportPartitionStall(topic, partition, 0) // 会话结束 → 归零（不清 label，见 doc）
+			return nil, ctx.Err()
 		case <-t.C:
 			t.Reset(backoff)
 		}
@@ -1020,8 +1048,9 @@ func (h *preSubscriptionConsumerHandler) holdUntilActivated(
 func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	ctx := session.Context()
 
+	pipelineCfg := h.eventBus.pipelineConfig()
 	// ⭐ 流水线路径（feature flag 开启时）：分区内 N 在飞 + 连续前缀提交（见 partition_pipeline.go）
-	if pipelineCfg := h.eventBus.pipelineConfig(); pipelineCfg.Enabled {
+	if pipelineCfg.Enabled {
 		return h.consumeWithPipeline(ctx, session, claim, pipelineCfg)
 	}
 
@@ -1032,63 +1061,51 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 				return nil
 			}
 
-			// 🔥 P0修复：无锁读取 handler（使用 sync.Map）
-			wrapperAny, exists := h.eventBus.activeTopicHandlers.Load(message.Topic)
-			for !exists {
-				// Hold the already-read `message`; poll activation WITHOUT touching claim.Messages()
-				// so sarama backpressures (trailing msgs stay buffered, 0 loss). On ctx cancel (session
-				// end) return — `message` is uncommitted → redelivered next session (at-least-once).
-				if err := h.holdUntilActivated(ctx, message.Topic, h.eventBus.pipelineConfig().HoldBackoff); err != nil {
-					return err // ctx canceled (session end)
-				}
-				// D3' (round-2 review): a nil re-check here means a concurrent deactivateTopicHandler
-				// (concurrent deactivateTopicHandler raced the wake) — LOOP BACK TO HOLD. Never skip the in-hand message:
-				// skip + later MarkMessage of subsequent offsets would commit past it (silent loss).
-				wrapperAny, exists = h.eventBus.activeTopicHandlers.Load(message.Topic)
+			// 🔥 P0修复：无锁读取 handler（使用 sync.Map）；未激活 → hold 至激活（D3' 竞态在 helper 内自洽，review G4）
+			wrapper, err := h.holdUntilActivated(ctx, message.Topic, message.Partition, pipelineCfg.HoldBackoff)
+			if err != nil {
+				// 仅 ctx 取消（session 结束）：与外层 select 的 ctx.Done 分支一致返回 nil（review G8）——
+				// 正常关停不是错误，避免 sarama 把每次会话结束记为 claim 错误（handleError 日志噪音）。
+				// `message` 未提交 → 下次会话重投递（at-least-once）。
+				return nil
 			}
-			wrapper := wrapperAny.(*handlerWrapper)
 
-			if true {
-				// 优化：增强消息处理错误处理和监控
-				h.eventBus.logger.Debug("Processing message",
+			// 优化：增强消息处理错误处理和监控
+			h.eventBus.logger.Debug("Processing message",
+				zap.String("topic", message.Topic),
+				zap.Int64("offset", message.Offset),
+				zap.Int32("partition", message.Partition),
+				zap.Bool("isEnvelope", wrapper.isEnvelope))
+
+			// 使用 Hollywood Actor Pool 处理消息（有聚合ID用哈希路由，无聚合ID用轮询路由）
+			if err := h.processMessageWithKeyedPool(ctx, message, wrapper, session); err != nil {
+				h.eventBus.logger.Error("Failed to process message",
 					zap.String("topic", message.Topic),
 					zap.Int64("offset", message.Offset),
-					zap.Int32("partition", message.Partition),
-					zap.Bool("isEnvelope", wrapper.isEnvelope))
+					zap.Error(err))
 
-				// 使用 Hollywood Actor Pool 处理消息（有聚合ID用哈希路由，无聚合ID用轮询路由）
-				if err := h.processMessageWithKeyedPool(ctx, message, wrapper, session); err != nil {
-					h.eventBus.logger.Error("Failed to process message",
+				// ⭐ 关键修复：Envelope消息失败时立即重试
+				if wrapper.isEnvelope {
+					// at-least-once语义：重试处理失败的消息
+					h.eventBus.logger.Warn("Retrying failed Envelope message",
 						zap.String("topic", message.Topic),
-						zap.Int64("offset", message.Offset),
-						zap.Error(err))
+						zap.Int64("offset", message.Offset))
 
-					// ⭐ 关键修复：Envelope消息失败时立即重试
-					if wrapper.isEnvelope {
-						// at-least-once语义：重试处理失败的消息
-						h.eventBus.logger.Warn("Retrying failed Envelope message",
+					// 立即重试一次
+					if retryErr := h.processMessageWithKeyedPool(ctx, message, wrapper, session); retryErr != nil {
+						h.eventBus.logger.Error("Retry failed for Envelope message",
 							zap.String("topic", message.Topic),
-							zap.Int64("offset", message.Offset))
-
-						// 立即重试一次
-						if retryErr := h.processMessageWithKeyedPool(ctx, message, wrapper, session); retryErr != nil {
-							h.eventBus.logger.Error("Retry failed for Envelope message",
-								zap.String("topic", message.Topic),
-								zap.Int64("offset", message.Offset),
-								zap.Error(retryErr))
-							// 重试失败：不MarkMessage，让Kafka在下次poll时重投递
-							// 注意：这可能导致消息被跳过，因为Kafka会继续处理后续消息
-						}
-						// 如果重试成功，消息会在processMessageWithKeyedPool中被MarkMessage
+							zap.Int64("offset", message.Offset),
+							zap.Error(retryErr))
+						// ⭐ GP1（spec M1）：重试失败必须终止 claim——offset N 未 MarkMessage，若继续
+						// 循环，下一条成功消息的 MarkMessage 会借 sarama MarkOffset MAX 语义越过 N，
+						// 在本 session 静默丢失。return err → sarama 结束本 claim，offset 未提交 →
+						// 下个 session 从 N 重投（at-least-once）。
+						return retryErr
 					}
-					// 普通消息：已经在processMessageWithKeyedPool中MarkMessage了
+					// 如果重试成功，消息会在processMessageWithKeyedPool中被MarkMessage
 				}
-			} else {
-				// 未激活的topic，直接标记为已处理（预订阅模式的优势）
-				h.eventBus.logger.Debug("Topic not activated, skipping message",
-					zap.String("topic", message.Topic),
-					zap.Int64("offset", message.Offset))
-				session.MarkMessage(message, "")
+				// 普通消息：已经在processMessageWithKeyedPool中MarkMessage了
 			}
 
 		case <-ctx.Done():
@@ -1201,16 +1218,6 @@ func (h *preSubscriptionConsumerHandler) processMessageWithKeyedPool(ctx context
 	}
 }
 
-// resolveWrapper 一次性解析 claim 对应 topic 的 handler wrapper（nil=未激活）。
-// sarama 一个 ConsumerGroupClaim = 单 (topic, partition)，故整 claim 共用一个 wrapper。
-func (h *preSubscriptionConsumerHandler) resolveWrapper(claim sarama.ConsumerGroupClaim) *handlerWrapper {
-	wrapperAny, exists := h.eventBus.activeTopicHandlers.Load(claim.Topic())
-	if !exists {
-		return nil
-	}
-	return wrapperAny.(*handlerWrapper)
-}
-
 // consumeWithPipeline 用 partitionPipeline 消费一个 claim（claim 单 topic，故 wrapper 一次性解析）。
 //
 // ⭐ 未激活 topic 的 hold（spec §5 A；review D5a）：claim 开始时若 wrapper 为 nil（topic 未激活），
@@ -1230,13 +1237,11 @@ func (h *preSubscriptionConsumerHandler) consumeWithPipeline(
 	// hold 在 p.run 之外（review D5a）：claim 开始时若 wrapper 为 nil（未激活 topic），背压 hold 直到激活。
 	// 不读 claim.Messages()（head 消息缓冲在 sarama → 0 丢失）、不 MarkMessage、不推进 frontier。
 	// claim 单 (topic,partition) → wrapper 整 claim 恒定，故一次性 hold+resolve 即可，无需在 p.run 内逐条 resolve。
-	wrapper := h.resolveWrapper(claim) // claim 单 topic：一次性解析；nil = 未激活 topic
-	for wrapper == nil {
-		if err := h.holdUntilActivated(ctx, claim.Topic(), cfg.HoldBackoff); err != nil {
-			return err // ctx 取消（session 结束）→ 0 已提交 → 下次 claim 重投递（at-least-once）
-		}
-		// D3' 对称：nil 重解析意味着 deactivate 与唤醒竞态——此时仍 0 读取/0 提交，回到 hold 无代价。
-		wrapper = h.resolveWrapper(claim)
+	wrapper, err := h.holdUntilActivated(ctx, claim.Topic(), claim.Partition(), cfg.HoldBackoff)
+	if err != nil {
+		// 仅 ctx 取消（session 结束）：与外层 select / p.run 的 ctx.Done 分支一致返回 nil（review G8）——
+		// 正常关停不是错误。0 已提交 → 下次 claim 重投递（at-least-once）。
+		return nil
 	}
 
 	// 防御：流水线依赖 actor pool；未初始化时不得进 run——否则 p.run 内 p.pool.ProcessMessage 会空指针 panic

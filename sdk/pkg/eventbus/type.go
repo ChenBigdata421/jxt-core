@@ -646,7 +646,7 @@ func defaultPipelineConfig() PipelineConfig {
 		WindowSize:        16,
 		FlushTimeout:      4 * time.Second,
 		DLQTimeout:        30 * time.Second,
-		StallWarnInterval: 10 * time.Second,  // 默认开（纯观测、无副作用）；灰度盯「前沿停滞」以区分慢 handler 与毒消息
+		StallWarnInterval: 10 * time.Second,       // 默认开（纯观测、无副作用）；灰度盯「前沿停滞」以区分慢 handler 与毒消息
 		HoldBackoff:       100 * time.Millisecond, // 未激活 topic 的 hold 轮询间隔（spec §5 A；与 applyPipelineDefaults 同源同值）
 	}
 }
@@ -697,7 +697,7 @@ func applyPipelineDefaults(cfg PipelineConfig) PipelineConfig {
 		cfg.StallWarnInterval = d.StallWarnInterval // 0=未配置→默认；负值原样保留（run 内 >0 判定为关闭）
 	}
 	if cfg.HoldBackoff <= 0 {
-		cfg.HoldBackoff = 100 * time.Millisecond
+		cfg.HoldBackoff = d.HoldBackoff // 同源：默认值单一来源（defaultPipelineConfig）
 	}
 	return cfg
 }

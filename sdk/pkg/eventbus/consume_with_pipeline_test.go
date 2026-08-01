@@ -9,7 +9,6 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // maxInt64 返回切片最大值（pipeline mark-once 不变量校验用：最高提交位 = 最大 offset）。
@@ -21,33 +20,6 @@ func maxInt64(xs []int64) int64 {
 		}
 	}
 	return m
-}
-
-// newPipelineHoldTestEventBus 构造最小可用的 kafkaEventBus 用于 consumeWithPipeline 单测：
-//   - Enabled=true（走 partition pipeline 路径，consumeWithPipeline）
-//   - HoldBackoff 由调用方指定（测试用小值以快速、确定性收尾）
-//   - SessionTimeout=10s（newPartitionPipeline 经 consumerConfig().SessionTimeout 读取；
-//     默认 FlushTimeout=4s < 5s=SessionTimeout/2 满足 validate 不变量）
-//   - 真实 HollywoodActorPool（pipeline 经 p.pool.ProcessMessage 分发；handler 返回 nil →
-//     Done <- nil → commitSuccess → marker.MarkMessage）
-//
-// HoldBackoff/WindowSize/FlushTimeout/DLQTimeout/StallWarnInterval 通过 pipelineConfig()
-// （=applyPipelineDefaults）补默认；Enabled + HoldBackoff 是测试唯一显式设置的项，与生产读取路径一致。
-func newPipelineHoldTestEventBus(t *testing.T, holdBackoff time.Duration) (*kafkaEventBus, *HollywoodActorPool) {
-	t.Helper()
-	pool := NewHollywoodActorPool(HollywoodActorPoolConfig{PoolSize: 8, InboxSize: 100, MaxRestarts: 3}, &NoOpActorPoolMetricsCollector{})
-	eb := &kafkaEventBus{
-		config: &KafkaConfig{
-			Consumer: ConsumerConfig{
-				SessionTimeout: 10 * time.Second,
-				Pipeline:       PipelineConfig{Enabled: true, HoldBackoff: holdBackoff}, // Enabled=true → pipeline 路径
-			},
-		},
-		logger:          zap.NewNop(),
-		globalActorPool: pool,
-		// activeTopicHandlers: 零值 sync.Map，直接可用
-	}
-	return eb, pool
 }
 
 // TestConsumeWithPipeline_NoSessionDrain_OnLateActivation_SingleMember 主回归（spec §5 A；review D1/D4/D5a）：
@@ -62,7 +34,7 @@ func newPipelineHoldTestEventBus(t *testing.T, holdBackoff time.Duration) (*kafk
 func TestConsumeWithPipeline_NoSessionDrain_OnLateActivation_SingleMember(t *testing.T) {
 	const topic = "domain.test.pipeline.late-activation"
 	const holdBackoff = 5 * time.Millisecond
-	eb, pool := newPipelineHoldTestEventBus(t, holdBackoff)
+	eb, pool := newHoldTestEventBus(t, true, holdBackoff)
 	defer pool.Stop()
 	h := &preSubscriptionConsumerHandler{eventBus: eb}
 	cfg := eb.pipelineConfig() // Enabled=true + HoldBackoff=5ms，其余默认
@@ -87,7 +59,7 @@ func TestConsumeWithPipeline_NoSessionDrain_OnLateActivation_SingleMember(t *tes
 	<-time.After(30 * time.Millisecond) // >> holdBackoff，确认 hold 已轮询多轮
 	assert.Empty(t, sess.marked, "hold 期间不得 MarkMessage（drain=静默丢失的根因；review D1/D5a）")
 
-	// 2. 激活 topic → hold 唤醒 → resolveWrapper 一次性返回非 nil → 进 p.run → 按序处理全部 N 条 → mark-once。
+	// 2. 激活 topic → hold 唤醒 → holdUntilActivated 一次性返回非 nil wrapper → 进 p.run → 按序处理全部 N 条 → mark-once。
 	eb.activeTopicHandlers.Store(topic, &handlerWrapper{
 		handler: func(_ context.Context, _ []byte) error {
 			processed.Add(1)
@@ -115,13 +87,13 @@ func TestConsumeWithPipeline_NoSessionDrain_OnLateActivation_SingleMember(t *tes
 }
 
 // TestConsumeWithPipeline_ActivatedTopic_RunsImmediately D6' happy-path 回归（round-2 review）：
-// topic 在 claim 开始前已激活 → 新增的 hold 分支绝不能增加延迟（resolveWrapper 一次性返回非 nil，for 循环零次）。
+// topic 在 claim 开始前已激活 → 新增的 hold 分支绝不能增加延迟（holdUntilActivated 首次 Load 即命中，零轮询）。
 // 守护生产最高频路径：既有 pipeline 测试只覆盖 p.run，未覆盖 consumeWithPipeline 入口的 hold 分支。
 // 断言：N 条处理 + 提交，且 elapsed ≪ HoldBackoff（hold 分支未被触发的正向证据）。
 func TestConsumeWithPipeline_ActivatedTopic_RunsImmediately(t *testing.T) {
 	const topic = "domain.test.pipeline.pre-activated"
 	const holdBackoff = 200 * time.Millisecond // 故意放大：若 hold 被误触发，elapsed ≈ holdBackoff 一眼可辨
-	eb, pool := newPipelineHoldTestEventBus(t, holdBackoff)
+	eb, pool := newHoldTestEventBus(t, true, holdBackoff)
 	defer pool.Stop()
 	h := &preSubscriptionConsumerHandler{eventBus: eb}
 	cfg := eb.pipelineConfig()
@@ -134,7 +106,7 @@ func TestConsumeWithPipeline_ActivatedTopic_RunsImmediately(t *testing.T) {
 	close(msgs)
 
 	var processed atomic.Int32
-	// 激活在 claim 开始之前：resolveWrapper 必须首次即返回非 nil → hold 循环零次
+	// 激活在 claim 开始之前：holdUntilActivated 必须首次 Load 即命中 → hold 循环零次
 	eb.activeTopicHandlers.Store(topic, &handlerWrapper{
 		handler: func(_ context.Context, _ []byte) error {
 			processed.Add(1)
@@ -169,13 +141,14 @@ func TestConsumeWithPipeline_ActivatedTopic_RunsImmediately(t *testing.T) {
 }
 
 // TestConsumeWithPipeline_CtxCancelDuringHold_ReturnsPromptly P2#9 session-release 回归：
-// hold 期间 ctx 取消（session 结束 / claim 关闭）→ consumeWithPipeline 必须迅速返回 ctx.Err()
+// hold 期间 ctx 取消（session 结束 / claim 关闭）→ consumeWithPipeline 必须迅速返回
 // （holdUntilActivated 的 select 有 ctx.Done 分支），绝不阻塞到 Rebalance.Timeout 60s 冻结所有 topic。
-// 断言：返回迅速（< 500ms ≪ 60s）、返回 ctx.Canceled、0 MarkMessage（in-hand 未处理 → 下次会话重投递）。
+// 断言：返回迅速（< 500ms ≪ 60s）、返回 nil（G8：正常关停非错误，与外层 select / p.run 的
+// ctx.Done 分支一致）、0 MarkMessage（in-hand 未处理 → 下次会话重投递）。
 func TestConsumeWithPipeline_CtxCancelDuringHold_ReturnsPromptly(t *testing.T) {
 	const topic = "domain.test.pipeline.ctx-cancel"
 	const holdBackoff = 5 * time.Millisecond
-	eb, pool := newPipelineHoldTestEventBus(t, holdBackoff)
+	eb, pool := newHoldTestEventBus(t, true, holdBackoff)
 	defer pool.Stop()
 	h := &preSubscriptionConsumerHandler{eventBus: eb}
 	cfg := eb.pipelineConfig()
@@ -184,7 +157,7 @@ func TestConsumeWithPipeline_CtxCancelDuringHold_ReturnsPromptly(t *testing.T) {
 	for _, off := range []int64{20, 21, 22} {
 		msgs <- &sarama.ConsumerMessage{Topic: topic, Partition: 0, Offset: off, Value: []byte("payload")}
 	}
-	// 故意不 close(msgs)：只能经 ctx 取消退出，证「hold 返回 ctx.Err，不 drain」
+	// 故意不 close(msgs)：只能经 ctx 取消退出，证「hold 迅速返回，不 drain」
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sess := &fakeSession{ctx: ctx}
@@ -200,7 +173,7 @@ func TestConsumeWithPipeline_CtxCancelDuringHold_ReturnsPromptly(t *testing.T) {
 	cancel()
 	select {
 	case err := <-done:
-		assert.ErrorIs(t, err, context.Canceled, "ctx 取消后 hold 应返回 ctx.Err()")
+		assert.NoError(t, err, "ctx 取消后 consumeWithPipeline 应正常返回 nil（G8：正常关停非错误）")
 	case <-time.After(2 * time.Second):
 		t.Fatal("ctx 取消后 consumeWithPipeline 未及时返回（hold 阻塞到 Rebalance.Timeout 60s？）")
 	}
