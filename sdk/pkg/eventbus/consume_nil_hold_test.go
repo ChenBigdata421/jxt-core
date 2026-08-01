@@ -300,48 +300,7 @@ func TestHoldUntilActivated_EmitsStallSignal(t *testing.T) {
 	mu.Unlock()
 }
 
-// TestLegacyConsumeClaim_EnvelopeRetryFailure_ReturnsErrNoCommitPast GP1 回归（spec M1）：
-// envelope 消息首次处理失败 → 立即重试 → 再失败：必须终止 claim（return err，offset 未提交 →
-// 下个 session 从 N 重投，at-least-once），绝不继续循环。继续循环会让后续成功消息的
-// MarkMessage 借 sarama MarkOffset MAX 语义越过未处理的 offset N——本 session 静默丢失。
-//
-// 判别设计：offset 10（Value="poison"）恒失败（首次+重试），offset 11（Value="ok"）成功。
-// 修复前：循环继续 → 11 被 MarkMessage（marked=[11]）→ 10 被越位提交；返回 nil。
-// 修复后：10 重试失败 → return err → marked 为空。
-func TestLegacyConsumeClaim_EnvelopeRetryFailure_ReturnsErrNoCommitPast(t *testing.T) {
-	const topic = "domain.test.envelope-retry-fail"
-	eb, pool := newHoldTestEventBus(t, false, 5*time.Millisecond)
-	defer pool.Stop()
-	h := &preSubscriptionConsumerHandler{eventBus: eb}
-
-	msgs := make(chan *sarama.ConsumerMessage, 2)
-	msgs <- &sarama.ConsumerMessage{Topic: topic, Partition: 0, Offset: 10, Value: []byte("poison")}
-	msgs <- &sarama.ConsumerMessage{Topic: topic, Partition: 0, Offset: 11, Value: []byte("ok")}
-	close(msgs)
-
-	eb.activeTopicHandlers.Store(topic, &handlerWrapper{
-		handler: func(_ context.Context, v []byte) error {
-			if string(v) == "poison" {
-				return fmt.Errorf("poison message")
-			}
-			return nil
-		},
-		isEnvelope: true,
-	})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sess := &fakeSession{ctx: ctx}
-	claim := &fakeClaim{msgs: msgs, topic: topic}
-
-	done := make(chan error, 1)
-	go func() { done <- h.ConsumeClaim(sess, claim) }()
-
-	select {
-	case err := <-done:
-		assert.Error(t, err, "envelope 重试失败必须终止 claim（return err，不得静默继续循环）")
-	case <-time.After(3 * time.Second):
-		t.Fatal("ConsumeClaim 未返回（重试失败后仍在继续循环？）")
-	}
-	assert.Empty(t, sess.marked, "重试失败后不得提交任何 offset（越位提交 = 静默丢失，spec M1）")
-}
+// 注：GP1（envelope 重试失败终止 claim 防越位）于 2026-08-01 回滚——该方案经集成测试实验证明
+// 有害：sarama 单 claim 语义下终止 claim 会阻断分区后续正常消息（reliability
+// TestKafkaFaultIsolationWithHighLoad 收到 31/1000，baseline 1008/1000）。legacy 路径的重试失败
+// 越位提交是已知限制（见 kafka.go ConsumeClaim 注释），正确解法是 pipeline 路径（DLQ + Strategy A）。

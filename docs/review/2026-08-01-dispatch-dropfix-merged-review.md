@@ -31,14 +31,14 @@
 | F4 | gofmt 注释对齐（StallWarnInterval 尾注对齐到 HoldBackoff 列） | ✅ gofmt -d 干净 |
 | G2 | hold 停滞信号：进入一次性 Warn + monotonic StallEnterReporter 上升沿 + `consumption_partition_stalled_seconds` 实时爬升、退出归零（镜像 p.run 停滞语义，遵守 review 2026-07-26：ClearPartitionStall 仅 topic-unsubscribe 时调用）+ 测试 TestHoldUntilActivated_EmitsStallSignal | ✅ kafka.go:1022-1027 |
 | G6 | 死 `if true/else` drain 分支删除（42→34 行，行为等价，gofmt 干净） | ✅ 残留 0 |
-| GP1 | legacy envelope 重试失败 `return retryErr` 终止 claim（spec M1：不再继续循环导致后续 MarkMessage 借 sarama MarkOffset MAX 语义越位提交未处理 offset）。TDD 红→绿：测试实证修复前 `marked=[11]`（offset 10 被越位提交 = 静默丢失） | ✅ kafka.go:1098 |
+| ~~GP1~~ | **已回滚（2026-08-01 集成测试实验结论）**：envelope 重试失败终止 claim 的"防越位"方案被证明有害——sarama 单 claim 语义下终止 claim 阻断分区后续正常消息（reliability `TestKafkaFaultIsolationWithHighLoad` 收到 31/1000，baseline 1008/1000；在 1e35e66 与 revert 版本上均 PASS）。legacy 路径的重试失败越位提交是**已知限制**（见 kafka.go ConsumeClaim 注释），正确解法是 pipeline 路径（DLQ + Strategy A poison stall，spec M1 方向） | ⚠️ 回滚，注释记录 |
 | G3 | D3' 测试注释诚实化（明确 happy-path 不变量守卫定位；确定性接缝列为待办） | ✅ |
 | G10 | 测试 helper 合并 `newHoldTestEventBus(t, enabled, holdBackoff)`（7 个调用点更新，删未用 import） | ✅ |
 | G4 | hold 循环去重：`holdUntilActivated` 返回 `(*handlerWrapper, error)`，D3' 竞态处理收敛进 helper（Load 命中即捕获；返回后 deactivate 仅移除 map 注册，捕获的 wrapper 仍有效），两调用点各收敛为一行 + err 检查，`resolveWrapper` 删除 | ✅ 签名 1 处、残留 0 |
 | G8 | ctx 取消统一返回 nil：helper 保留 ctx.Err() 精确语义，调用层与外层 select（kafka.go:1094）/p.run 的 ctx.Done 分支对齐——正常关停非错误，消除 sarama claim 错误日志噪音；2 处测试 `ErrorIs(Canceled)`→`NoError`（<500ms 迅速返回 + 0 MarkMessage 核心不变量保留） | ✅ 2 处注释 + 2 处断言 |
 | G1+G9 | README：v1.8.0 版本条目（行为变更 + ⚠️ 5 服务审计门禁 + 回滚只能降版本 + IsActiveTopic/HoldBackoff/停滞信号/GP1 说明）+ EventBus「Kafka 预订阅语义」小节（hold 语义、停滞可观测性、IsActiveTopic 鸭子类型断言示例、HoldBackoff 内部说明） | ✅ README.md |
 
-**验证基线**：`go build ./...` 通过；全部改动文件 gofmt 干净（LF 归一化检查）；hold/stall/config 测试套件 PASS（含 `-race`）；D3' churn 测试单独 0.27s 无退化。
+**验证基线**：`go build ./...` 通过；全部改动文件 gofmt 干净（LF 归一化检查）；hold/stall/config 测试套件 PASS（含 `-race`）；D3' churn 测试单独 0.27s 无退化。**集成测试（tests/eventbus，真实 broker）**：function PASS（358s）、performance PASS（724s）、reliability PASS（GP1 回滚后 22.9s；回滚前因 GP1 失败 31/1000）。
 
 ## ⏳ 剩余待办（用户 owned / 需决策）
 

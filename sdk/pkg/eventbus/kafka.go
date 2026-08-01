@@ -1097,11 +1097,12 @@ func (h *preSubscriptionConsumerHandler) ConsumeClaim(session sarama.ConsumerGro
 							zap.String("topic", message.Topic),
 							zap.Int64("offset", message.Offset),
 							zap.Error(retryErr))
-						// ⭐ GP1（spec M1）：重试失败必须终止 claim——offset N 未 MarkMessage，若继续
-						// 循环，下一条成功消息的 MarkMessage 会借 sarama MarkOffset MAX 语义越过 N，
-						// 在本 session 静默丢失。return err → sarama 结束本 claim，offset 未提交 →
-						// 下个 session 从 N 重投（at-least-once）。
-						return retryErr
+						// ⚠️ 已知限制（2026-08-01 实验结论，GP1 回滚）：重试失败后继续循环 → 后续成功消息的
+						// MarkMessage 借 sarama MarkOffset MAX 语义越位提交本消息（毒消息静默丢失）。曾尝试
+						// 改为终止 claim（return err）防越位，但实验证明有害：sarama 单 claim 语义下分区停止/
+						// 重投循环，阻断后续正常消息（reliability TestKafkaFaultIsolationWithHighLoad 收到
+						// 31/1000，baseline 1008/1000）。越位提交是 legacy 串行路径的已知限制；正确解法是
+						// pipeline 路径（DLQ + Strategy A poison stall，spec M1 方向——legacy inline-retry 应删除）。
 					}
 					// 如果重试成功，消息会在processMessageWithKeyedPool中被MarkMessage
 				}
