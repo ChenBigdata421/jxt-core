@@ -297,6 +297,20 @@ db := app.GetTenantDB(tenantID)              // 映射到 security-management
 | **Avro**        | ↑↑ | ↑↑ | ↑↑ | 模式演进、大数据存储 |
 | **CloudEvents** | 基线 | 基线 | 基线 | 跨平台事件标准封装  |
 
+### Kafka 预订阅语义（v1.8.0 起：未激活 topic 由 drain 改 hold）
+
+- **drain → hold**：Kafka 预订阅消费对"handler 尚未激活的 topic"，从「跳过并提交」（drain，静默丢失）改为「背压 hold」——不读通道、不提交、不推进 frontier，待 handler 激活后按序处理；会话结束仍未激活时，已读未处理消息下个会话重投递（at-least-once）。**任何「故意预订阅但不激活」的 topic 会永久停滞分区**（从静默丢失变为静默卡死），升级前必须完成 consumed ⊆ activated 审计
+- **停滞可观测性**：hold 进入时记录一次性 Warn 日志 + `consumption_partition_stalled_seconds` 指标（monotonic stall-enter 上升沿 + 实时时长爬升、退出归零），配合 `IsActiveTopic` 启动自检
+- **`IsActiveTopic(topic string) bool`**（仅 kafka 驱动 `*kafkaEventBus`）：供服务侧启动时校验 consumed ⊆ activated，鸭子类型断言（NATS/Memory 驱动断言返回 ok=false）：
+
+```go
+if it, ok := bus.(interface{ IsActiveTopic(topic string) bool }); ok && it.IsActiveTopic(topic) {
+    // kafka 驱动：handler 已激活
+}
+```
+
+- **`HoldBackoff`**：内部 timing 字段（默认 100ms，<=0 钳位），非用户配置——timing 安全不变量不进 `PipelineUserConfig`
+
 详见 [EventBus 文档](sdk/pkg/eventbus/README.md)
 
 ## 项目结构
@@ -524,6 +538,7 @@ dbConfig, ok := p.GetServiceDatabaseConfig(tenantID, "security-management")
 
 ## 版本历史
 
+- v1.8.0 - dispatch 静默丢消息根修复（未激活 topic 由 drain 改 hold + 停滞可观测性 + legacy envelope 重试失败不再越位提交）——【行为变更，发布前必须完成 5 服务 consumed⊆activated 审计】Kafka 预订阅消费在 handler 未激活时由「跳过并提交」（drain，静默丢失）改为「背压 hold 至激活」（不读通道、不提交、未处理消息下个会话重投递 at-least-once），legacy ConsumeClaim 与 partition-pipeline consumeWithPipeline 双路径统一（共享 holdUntilActivated，D3' 去激活竞态重入 hold）；移除 3s 预热 sleep（既是竞态窗口又造成 consumerMu 锁 convoy）并随之移除导出方法 IsWarmupCompleted/GetWarmupInfo（无调用方，纯遥测）；新增导出方法 IsActiveTopic(topic) bool（仅 kafka 驱动 *kafkaEventBus，供服务侧启动时 consumed⊆activated 自检；鸭子类型断言 bus.(interface{ IsActiveTopic(topic string) bool })，NATS/Memory 驱动返回 ok=false）；新增内部 HoldBackoff 定时字段（默认 100ms，<=0 钳位，非用户配置——timing 安全不变量不进 PipelineUserConfig）；hold 期间接入停滞可观测性（进入一次性 Warn + monotonic stall-enter + consumption_partition_stalled_seconds 实时爬升、退出归零）；legacy envelope 重试失败终止 claim（GP1/spec M1：不再继续循环导致后续 MarkMessage 借 sarama MarkOffset MAX 语义越位提交未处理 offset——offset 未提交 → 下个 session 重投）。⚠️ 语义变更：任何「故意预订阅但不激活」的 topic 由静默丢失变为永久停滞，发布前必须完成 plan Task 1 的 5 服务 consumed⊆activated 审计（evidence-management command/query、security-management、file-storage-service、tenant-service）；回滚只能降模块版本（无 flag 门禁）。附带清理：legacy ConsumeClaim 死 if true/else drain 分支删除（行为等价）
 - v1.7.0 - 版本治理 release（无功能变更，代码内容同 v1.1.71——master 自 v1.1.71 起无功能提交）：本仓库自 go-admin-core fork 继承了一批错误 tag——其根 `go.mod` 声明的是 `matchstalk/utils`、`matchstalk/go-admin-core`、`go-admin-team/go-admin-core`（另含 `sdk/`、`plugins/logger/zap/` 子模块 tag），既非 `github.com/ChenBigdata421/jxt-core` 的合法发布，版本号（v0.1、v1.0.2、v1.2.0–v1.6.5）又高于正规线且 module path 不匹配，导致未 pin 的 `go mod tidy` 误选坏 tag（如 `sdk@v1.5.2`）而硬失败。本 release 删除全部错误 tag（根 `v*` + `sdk/*` + `plugins/*`），`sdk/` 由父模块统一提供、不再作为独立子模块发布；版本号从 v1.1.71 跨过作废的 v1.2.x–v1.6.x 跳至 v1.7.0，以干净 head 使 `@latest` 正确解析为 v1.7.0。**当前有效最新版本 = v1.7.0**，v1.2.x–v1.6.x 版本号作废、永不复用。消费端 `go get github.com/ChenBigdata421/jxt-core@v1.7.0`（从 v1.1.71 升级）；go.mod 中旧的 `exclude github.com/ChenBigdata421/jxt-core/sdk ...` 行可移除
 - v1.1.71 - 修复 v1.1.69「主题拓扑收敛 改动5」AUTO_CREATE_TOPICS gate（`kafka.go:3415`）引入的 CI 测试回归（仅测试修复，无库行为变更）：生产路径不再自动建 topic 后，`tests/eventbus/topic_name_validation_test.go` 两个既有 Kafka 子测试 `TestConfigureTopic_ValidationIntegration`、`TestSetTopicPersistence_ValidationIntegration`（/Kafka/ValidTopicName 用例）对不存在的 topic 名调用 `ConfigureTopic`/`SetTopicPersistence` 并期望成功，自 `3e39dd8`（v1.1.69）起在 CI 失败；本地此前因 RedPanda 持久卷跨次运行残留旧 topic 而误绿（CI 每次全新 VM + 卷）。修复：这两个 dev/test 上下文的校验测试 opt-in 设计好的开发逃逸口 `AUTO_CREATE_TOPICS=1`（仅 Kafka 子测试读取；Memory/NATS 不受影响）。已在干净（`docker compose down -v`）broker 上复现 red→green，eventbus/function 全套无回归。生产路径 AUTO_CREATE_TOPICS gate 保持不变
 - v1.1.70 - Kafka 消费流水线「死开关」修复 + 启动校验加固（默认关闭，对库为 no-op；v1.1.69 已被主题拓扑收敛方案占用，本组死开关修复顺延为 v1.1.70）：用户层 `ConsumerConfig` 此前无 `pipeline` mapstructure 目标字段，YAML `consumer.pipeline.enabled` 被裸 `v.Unmarshal`（`config.go:56`，无 `ErrorUnused`）静默丢弃 → 除默认关闭外无任何生产路径能开启分区内消费流水线。修复：新增用户层 `PipelineUserConfig{Enabled,WindowSize}` + `convertUserConfigToInternalKafkaConfig` 贯通 + `NewKafkaEventBus` 在首次 `sarama.NewClient` 之前 fail-fast 校验（`FlushTimeout < sessionTimeout/2` 等不变量）+ 启动可观测日志（`Infof` 可 grep）；`windowSize` 加 ≤1024 上界（每分区在飞上限 × 分区数 = chan 缓冲，防误配 OOM）；timing 字段（flushTimeout/dlqTimeout/stallWarnInterval）留内部 `applyPipelineDefaults` 兜底，用户层不暴露。logger 包 `Logger`/`DefaultLogger` 改非空 `zap.NewNop()` 默认（`Setup` 前 nil 裸调用不再 panic）。新增死开关解码回归测试（viper YAML 往返）+ windowSize 上界测试 + logger 非空默认测试，并补进 `test-race.yml` CI。默认关闭 → 对库为 no-op；激活（Task 8 灰度）另有 4 项前置（见 `TODOS.md` F3）

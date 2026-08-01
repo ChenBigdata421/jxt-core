@@ -105,3 +105,35 @@ canary.
   2. The error message tells the operator to raise `sessionTimeout`.
   3. An unknown `pipeline.flushTimeout`/`pipeline.dlqTimeout` key is surfaced
      (warn/error), not silently dropped.
+
+## F4 — Runtime `consumed⊆activated` self-check + partition-stall signal on all 5 consuming services
+
+- **What:** Extend the evidence-management pattern (its dispatch-dropfix plan
+  Task 5 startup self-check + Task 7 freshness metric) to the other 4 consuming
+  services: evidence-management/command, security-management,
+  file-storage-service, tenant-service. Each service asserts at startup that
+  every consumed topic has an activated handler (via the new
+  `IsActiveTopic(topic string) bool` accessor, jxt-core dispatch-dropfix plan
+  Task 1b) and exposes a per-topic processing-freshness / partition-stall
+  signal.
+- **Why:** The nil-hold fix
+  (`docs/superpowers/plans/2026-07-31-dispatch-dropfix-jxt-core.md` Tasks 2–3)
+  converts "silent data loss (drain)" into "silent data freeze (stall)" for any
+  topic that is pre-subscribed but never activated. The stall detector (Layer D
+  freshness probe) ships ONLY on evidence-management — on the other 4 services a
+  stall hides behind the same lag-0/Stable mask the original incident hid
+  behind. Task 1's grep-only audit cannot see runtime DI/wiring failures where a
+  `Subscribe` closure exists in source but never activates at boot.
+- **Context:** Deferred finding from the 2026-08-01 eng review of the
+  dispatch-dropfix plans (jxt-core plan "Deferred / Open Questions" section,
+  P2/adversarial/conf 75; re-confirmed and converted to this TODO in the
+  2026-08-01 round-2 review, decision D7'). Not bundled into the rollout because
+  it spans 4 repos the jxt-core plan does not own. Until done, the rollout
+  (Task 5) relies on per-service canary observation to catch stalls.
+- **Depends on / blocked by:** jxt-core dispatch-dropfix Task 1b
+  (`IsActiveTopic` accessor) must ship first. Should land before or shortly
+  after each service's jxt-core pin bump (plan Task 5 Step 4).
+- **Verify:** per service: (a) boot with one consumed topic deliberately not
+  activated → startup self-check fails loudly (fail-closed or alert); (b) a
+  held/stalled partition raises the freshness/stall metric within its SLO
+  window while consumer lag still reads 0/Stable.
