@@ -131,7 +131,7 @@ func (e *Api) AddError(err error) {
 		e.Errors = err
 	} else if err != nil {
 		e.Logger.Error(err.Error())
-		e.Errors = fmt.Errorf("%v; %w", e.Error, err)
+		e.Errors = fmt.Errorf("%v; %w", e.Errors, err)
 	}
 }
 
