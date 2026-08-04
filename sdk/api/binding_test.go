@@ -38,12 +38,53 @@ func TestResolve(t *testing.T) {
 	// Only pass t into top-level Convey calls
 	Convey("Given some integer with a starting value", t, func() {
 
+		// GetBindingForGin/resolve follow the production Bind() contract: gin's
+		// ShouldBindWith mutates the target, so callers always pass a POINTER. resolve()
+		// calls reflect.TypeOf(d).Elem(), which panics on a non-pointer struct value.
 		d := SysUserSearch{}
 
-		list := constructor.GetBindingForGin(d)
+		list := constructor.GetBindingForGin(&d)
 		for _, binding := range list {
 			fmt.Printf("%v /n",binding)
 		}
 
 	})
+}
+
+// TestResolve_Dive_RecurseIntoNestedStruct locks in the dive contract: a field tagged
+// binding:"dive" (or validate:"dive") must make resolve() recurse into the field's struct
+// type and surface its bindings. Regression for the dive branch, which (a) called
+// reflect.ValueOf(ptr).Field(i) — invalid on a pointer Value — and (b) re-passed a
+// reflect.Value into resolve(), whose .Elem() then panicked on a non-pointer.
+func TestResolve_Dive_RecurseIntoNestedStruct(t *testing.T) {
+	type diveInner struct {
+		JSONField  string `json:"jsonField"`
+		FormField  string `form:"formField"`
+		QueryField string `query:"queryField"`
+	}
+	type diveOuter struct {
+		Inner diveInner `binding:"dive"`
+	}
+
+	list := constructor.GetBindingForGin(&diveOuter{})
+
+	got := map[string]bool{}
+	for _, b := range list {
+		if b != nil {
+			got[b.Name()] = true
+		}
+	}
+	for _, want := range []string{"json", "form", "query"} {
+		if !got[want] {
+			names := make([]string, 0, len(list))
+			for _, b := range list {
+				if b == nil {
+					names = append(names, "<nil>")
+				} else {
+					names = append(names, b.Name())
+				}
+			}
+			t.Errorf("binding:dive must surface inner %q binding; got bindings %v", want, names)
+		}
+	}
 }
