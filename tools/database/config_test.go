@@ -1,10 +1,26 @@
 package database
 
 import (
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
+	"fmt"
+	"sync/atomic"
 	"testing"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	_ "modernc.org/sqlite"
 )
+
+var sqliteOpenCounter atomic.Int64
+
+// sqliteOpen returns a CGO-free in-memory sqlite dialector for Init()'s `open` parameter.
+// The label is folded into a unique in-memory DSN so the main DB, each source, and each
+// replica get isolated pools (cache=shared scopes a DB to its DSN). This lets the test
+// exercise Init()'s resolver/pool orchestration WITHOUT a running MySQL server or a valid
+// DSN — dsn0/dsn1 are now opaque labels, no longer parsed by the mysql driver.
+func sqliteOpen(label string) gorm.Dialector {
+	id := sqliteOpenCounter.Add(1)
+	return sqlite.Dialector{DriverName: "sqlite", DSN: fmt.Sprintf("file:memdb_%s_%d?mode=memory&cache=shared", label, id)}
+}
 
 var dsn0 = "dsn0"
 var dsn1 = "dsn1"
@@ -55,7 +71,7 @@ func TestDBConfig_Init(t *testing.T) {
 			},
 			args{
 				config: &gorm.Config{},
-				open:   mysql.Open,
+				open:   sqliteOpen,
 			},
 			false,
 		},
@@ -71,7 +87,7 @@ func TestDBConfig_Init(t *testing.T) {
 			},
 			args{
 				config: &gorm.Config{},
-				open:   mysql.Open,
+				open:   sqliteOpen,
 			},
 			false,
 		},
