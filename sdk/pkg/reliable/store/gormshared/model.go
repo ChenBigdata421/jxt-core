@@ -14,12 +14,12 @@ import (
 type EventConsumptionModel struct {
 	ID int64 `gorm:"primaryKey;autoIncrement"`
 
-	// B5（本轮评审）：uk_event_handler 列序必须是 (event_id, handler_id, item_key)，与两方言 DDL 逐字一致；
+	// B5（本轮评审）：uk_event_consumption 列序必须是 (event_id, handler_id, item_key)，与两方言 DDL 逐字一致；
 	// idx_aggregate 首列必须是 tenant_id。原稿把 item_key 排在 handler_id 前、且 tenant_id 完全漏标 idx_aggregate，
 	// 与 outbox model.go:15 的告诫（「列序一致，否则 AutoMigrate 与 SQL 产物分叉」）相悖。
-	EventID       string `gorm:"column:event_id;type:varchar(64);not null;uniqueIndex:uk_event_handler,priority:1"`
-	ItemKey       string `gorm:"column:item_key;type:varchar(100);not null;default:'';uniqueIndex:uk_event_handler,priority:3"`
-	HandlerID     string `gorm:"column:handler_id;type:varchar(100);not null;uniqueIndex:uk_event_handler,priority:2;index:idx_handler,priority:1"`
+	EventID       string `gorm:"column:event_id;type:varchar(64);not null;uniqueIndex:uk_event_consumption,priority:1"`
+	ItemKey       string `gorm:"column:item_key;type:varchar(100);not null;default:'';uniqueIndex:uk_event_consumption,priority:3"`
+	HandlerID     string `gorm:"column:handler_id;type:varchar(100);not null;uniqueIndex:uk_event_consumption,priority:2;index:idx_handler,priority:1"`
 	TenantID      int    `gorm:"column:tenant_id;not null;index:idx_ops,priority:1;index:idx_aggregate,priority:1"`
 	EventType     string `gorm:"column:event_type;type:varchar(64)"`
 	AggregateType string `gorm:"column:aggregate_type;type:varchar(64);index:idx_aggregate,priority:2"`

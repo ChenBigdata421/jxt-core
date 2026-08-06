@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   first_seen_at  TIMESTAMP(3) NOT NULL,
   created_at     TIMESTAMP(3) NOT NULL,
   updated_at     TIMESTAMP(3) NOT NULL,
-  CONSTRAINT uk_event_handler UNIQUE (event_id, handler_id, item_key),
+  CONSTRAINT uk_event_consumption UNIQUE (event_id, handler_id, item_key),
   CONSTRAINT chk_consumption_status CHECK (status IN ('PROCESSING','SUCCEEDED','RETRY_SCHEDULED','DEAD_LETTER','DISCARDED')),
   CONSTRAINT chk_consumption_attempt CHECK (attempt >= 1),
   CONSTRAINT chk_processing_owner CHECK (status <> 'PROCESSING' OR (claim_id IS NOT NULL AND claimed_at IS NOT NULL AND lease_expires_at IS NOT NULL)),

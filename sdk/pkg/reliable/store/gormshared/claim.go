@@ -25,7 +25,7 @@ func (s *GormStore) TryClaim(ctx context.Context, in reliable.ClaimInput, lease 
 			return tok, dec, err
 		}
 		// review #14：dup-key 竞态重试前加 jitter 退避。热点 key 上 N 个消费者同时连试会把
-		// uk_event_handler 叶子上的 INSERT 争用放大 maxDupRetry 倍；退避把并发 claimant 错开。
+		// uk_event_consumption 叶子上的 INSERT 争用放大 maxDupRetry 倍；退避把并发 claimant 错开。
 		// 与 PR-7 的 single-RTT 优化正交——这里只是别让重试在争用最烈时硬撞。重试期间尊重 ctx 取消。
 		delay := reliable.Backoff(i+1, 2*time.Millisecond, 50*time.Millisecond, s.jitter())
 		timer := time.NewTimer(delay)

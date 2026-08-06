@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   created_at     DATETIME(3) NOT NULL,
   updated_at     DATETIME(3) NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_event_handler (event_id, handler_id, item_key),
+  UNIQUE KEY uk_event_consumption (event_id, handler_id, item_key),
   KEY idx_due      (status, next_attempt_at),
   KEY idx_lease    (status, lease_expires_at),
   KEY idx_ops      (tenant_id, status, first_seen_at),
