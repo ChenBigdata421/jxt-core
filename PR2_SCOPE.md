@@ -202,3 +202,58 @@ inline in the source file it originates from.
   kernel-only change (state.go + classify.go), not a scheduler change.
 - `ClaimToken` opaque-string contract (`holder:uuid`) is the fencing-token wire format; PR-3's
   adapter does not need to know its internal structure.
+
+## §8.5 upper-layer resolution (PR-2 completion, delivered v1.7.4)
+
+Spec §8.5 lists four upper-layer packages under sdk/pkg/reliable/. Resolution:
+
+- **adapters/eventbus/ (DLQSender bridge) — DELIVERED v1.7.4.** Core `EventBusDLQAdapter`
+  at `sdk/pkg/reliable/adapters/eventbus/` (pkg `eventbusdlq`), sourced from
+  file-storage-service's hardened copy (1 MiB payload cap + P1 retryable-refusal fix —
+  refuses to terminalize a RETRYABLE/ErrRetryLater cause, fail-closed). `TenantStoreResolver`
+  lives in `sdk/pkg/reliable/store` (NOT adapters/eventbus) so opsvc can reuse it without
+  importing sarama. A minimal `LogSink` is injected (nil → no-op; no global logger in core).
+  evidence-management + file-storage-service adopted the core symbol and deleted their local
+  copies (M10). evidence-management GAINED the P1 fix + payload cap (its local copy lacked
+  both); file-storage was pure dedup.
+
+- **opsvc/ (ops service layer + DTOs) — DELIVERED v1.7.4.** `sdk/pkg/reliable/opsvc/`
+  backs spec §10's consumption/quarantine/anomalies API (List/GetDetail/ReplayOne/
+  BatchReplay/Discard/Stats/QuarantineList/QuarantineDetail/QuarantineResolve/Anomalies).
+  Reuses `store.TenantStoreResolver` (one-DB-per-tenant). Decisions applied:
+  - §6.2.1 manual-replay 409 (Q1=A): `ReplayOne` returns ConflictError when
+    `store.HasEarlierUnsolvedSibling` is true (mirrors EligibleHeadsSQL's NOT-EXISTS);
+    check + ScheduleReplay run in one transaction. `BatchReplay` per-row.
+  - Access audit (Q4=A): `NewService` takes a REQUIRED non-nil `AccessAuditor`;
+    includePayload/includeRaw=true invokes it before returning gated data, fail-closed
+    (audit error → withhold data). Caller identity is filled service-side (PR-7) — core
+    never reads identity from context (M14).
+  - Stats uses `store.Count` (F6), not list-then-count.
+
+- **batch/ (M11 HandleBatch decorator) — DEFERRED (YAGNI).** No producer emits per-item
+  sub-event envelopes (media batch = one envelope / atomic-in-tx per the PR-4 completion
+  plan). Trigger to build: a producer that emits (source_event_id, item_key) per-item
+  sub-event envelopes.
+
+- **adapters/outbox/ (OutboxRecordingHandler) — NOT BUILT (§8.3 J3).** Spec §8.3 J3 makes
+  the outbox DLQHandler IMPLEMENTATION service-side ("死信落点是服务基础设施决策"); §8.3 is
+  the authoritative boundary over §8.5's listing. PR-6 delivered per-service handlers.
+  Building would also violate M2 (copying outbox DL into event_consumption = PII
+  double-landing).
+
+- **Store additions:** ListAnomalies + Count + HasEarlierUnsolvedSibling (+ AnomalyFilter/
+  AnomalyRow/CountFilter) added to `store.Store`; GormStore impl in gormshared (anomaly.go
+  + replay.go). HasEarlierUnsolvedSibling mirrors EligibleHeadsSQL's NOT-EXISTS for the
+  §6.2.1 manual-replay gate.
+
+- **Deferred out of v1.7.4 (tracked for PR-7):** `POST /api/v1/quarantine/:id/replay`
+  (needs service-side HandlerRegistry, §8.3 J3, to re-invoke the handler after mapping
+  fixes); `/outbox/dead-lettered` (belongs to the outbox package's own ops).
+
+- **Split to a separate PR (Q5=A):** the kernel `gormshared.sanitizeMsg` delegation +
+  ReDoS fix (Unix-path regex linearization) were intentionally NOT done here — v1.7.4 only
+  ADDS root `SanitizeForLog`/`SanitizeForStorage` for the adapter's use. The kernel
+  delegation + fingerprint-stability regression will land in a focused follow-up PR.
+
+Services NOT bumped for Phase A/B: security-management / process-management / tenant-service
+do not import sdk/pkg/reliable at all → they need no bump until they adopt opsvc (PR-7+).
