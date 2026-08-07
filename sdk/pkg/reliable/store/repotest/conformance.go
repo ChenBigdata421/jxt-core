@@ -40,6 +40,10 @@ func RunConformance(t *testing.T, d *ConformanceDeps) {
 	t.Run("ConcurrentClaimForReplay_SingleRetryRow", func(t *testing.T) { confConcurrentClaimForReplay(t, d) })
 	t.Run("TenantIsolation_ListGetByID_EventAndQuarantine", func(t *testing.T) { confTenantIsolation(t, d) })
 	t.Run("AggregateGate_FreshLiveExpired_And_Concurrent", func(t *testing.T) { confAggregateGate(t, d) })
+	// PR-2 upper-packages（§10 ops API + §6.2.1 manual-replay gate）：ListAnomalies / Count / HasEarlierUnsolvedSibling。
+	t.Run("ListAnomalies_TenantKindTime_OrderedDesc", func(t *testing.T) { confListAnomalies(t, d) })
+	t.Run("Count_PagingFree_TotalMatchesRows", func(t *testing.T) { confCount(t, d) })
+	t.Run("HasEarlierUnsolvedSibling_OrdersAggregateless", func(t *testing.T) { confHasEarlierUnsolvedSibling(t, d) })
 }
 
 func confFirstClaim(t *testing.T, d *ConformanceDeps) {
@@ -471,4 +475,165 @@ func RunErrorPropagationConformance(t *testing.T, d *ConformanceDeps) {
 		assert.True(t, errors.Is(err, context.Canceled),
 			"Discard must propagate the real ctx error, not mask it as ErrConflict")
 	})
+}
+
+// —— PR-2 upper-packages：§10 ops API + §6.2.1 manual-replay gate conformance ——
+//
+// 三组用例覆盖 ListAnomalies / Count / HasEarlierUnsolvedSibling。只跑在真 DB（DB-gated），
+// 与同文件其它 conformance 同条件——验证真实 SQL 在两方言的行为，而非 fake 的 stub 返回值。
+
+// confListAnomalies 覆盖 ListAnomalies 的 tenant / kind / 时间窗 作用域 + DESC 排序 + S3 守卫。
+//
+// 隔离策略（与 confTenantIsolation 同模式）：RunConformance 在单一共享 DB 上顺序跑所有子测，
+// 其它用例（如 confLeaseOrphan）会向 consumption_anomalies 写 LEASE_ORPHAN/CLAIM_TOKEN_MISMATCH。
+// 故本测用一个所有其它用例都不会产的 Kind 标记（"B1_CONF_LISTANOM"）圈定自己的行——Kind 过滤后
+// 看到的就是本测 seed 的全集，断言可精确到行。
+func confListAnomalies(t *testing.T, d *ConformanceDeps) {
+	ctx := context.Background()
+	const kind = "B1_CONF_LISTANOM"
+	// Truncate 到整秒：两方言都把 created_at 存为毫秒精度（DATETIME(3)/TIMESTAMP(3)），而 Go 的
+	// time.Now 带纳秒。若 base 带亚毫秒，base+2s 入库被截到毫秒会略【小于】Go 侧 base+2s 绑定值，
+	// 半开 `created_at >= base+2s` 会误排除落在边界的那条（PG 上已实测 flake）。整秒 base → 所有
+	// 偏移落 .000 ms，存与绑两边逐位相等，`>=` / `<` 行为确定。
+	base := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	// seed：tenant=1 三条（同 kind，created_at 升序），tenant=2 一条（同 kind）。
+	seedAnomalyAt(t, d, 1, kind, "b1-la-1a", "claim-1a", base.Add(1*time.Second))
+	seedAnomalyAt(t, d, 1, kind, "b1-la-1b", "claim-1b", base.Add(2*time.Second))
+	seedAnomalyAt(t, d, 1, kind, "b1-la-1c", "claim-1c", base.Add(3*time.Second))
+	seedAnomalyAt(t, d, 2, kind, "b1-la-2a", "claim-2a", base.Add(4*time.Second))
+
+	// tenant=1 + 本 kind：3 条，且 created_at DESC（最晚的 b1-la-1c 在前）。
+	rows, err := d.Store.ListAnomalies(ctx, store.AnomalyFilter{TenantID: 1, Kind: kind, Limit: 50})
+	require.NoError(t, err)
+	require.Len(t, rows, 3, "tenant=1 has exactly 3 B1_CONF_LISTANOM anomalies; other tests' kinds must not leak")
+	assert.Equal(t, "b1-la-1c", rows[0].EventID, "ORDER BY created_at DESC → newest first")
+	assert.Equal(t, "b1-la-1a", rows[2].EventID, "oldest last")
+
+	// 时间窗 [base+2s, +∞)：b1-la-1b / b1-la-1c（b1-la-1a 落在窗前，验证半开下界）。
+	rowsWin, err := d.Store.ListAnomalies(ctx, store.AnomalyFilter{
+		TenantID: 1, Kind: kind, From: base.Add(2 * time.Second), Limit: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, rowsWin, 2, "From is half-open lower bound (>= base+2s)")
+	for _, r := range rowsWin {
+		assert.NotEqual(t, "b1-la-1a", r.EventID)
+	}
+
+	// To 半开上界：(< base+2s) → 仅 b1-la-1a。
+	rowsTo, err := d.Store.ListAnomalies(ctx, store.AnomalyFilter{
+		TenantID: 1, Kind: kind, To: base.Add(2 * time.Second), Limit: 50,
+	})
+	require.NoError(t, err)
+	require.Len(t, rowsTo, 1, "To is half-open upper bound (< base+2s)")
+	assert.Equal(t, "b1-la-1a", rowsTo[0].EventID)
+
+	// tenant=2 + 本 kind：1 条（多租户隔离）。
+	rowsT2, err := d.Store.ListAnomalies(ctx, store.AnomalyFilter{TenantID: 2, Kind: kind, Limit: 50})
+	require.NoError(t, err)
+	require.Len(t, rowsT2, 1)
+	assert.Equal(t, "b1-la-2a", rowsT2[0].EventID)
+
+	// S3：TenantID==0 拒绝（即便带了 Kind 也拒绝——tenant 守卫优先）。
+	_, err = d.Store.ListAnomalies(ctx, store.AnomalyFilter{TenantID: 0, Kind: kind, Limit: 50})
+	assert.Error(t, err, "S3: TenantID==0 must be rejected (no silent cross-tenant read)")
+
+	// 投影保真：ClaimID（uk_anomaly_once 幂等键之一）/ TenantID / HandlerID 都应回填。
+	assert.Equal(t, "claim-1c", rows[0].ClaimID, "ClaimID projected (uk_anomaly_once key part)")
+	assert.Equal(t, 1, rows[0].TenantID)
+	assert.Equal(t, reliable.HandlerID("test-handler"), rows[0].HandlerID)
+}
+
+// confCount 覆盖 Count 的 paging-free 总量语义（F6）+ 字段过滤 + S3 守卫。
+//
+// 隔离策略：用一个所有其它用例都不会用的 HandlerID（"b1-conf-count"）圈定自己的行——
+// 其它用例都用 "test-handler"。HandlerID 过滤后 Count 看到的就是本测 seed 的全集。
+func confCount(t *testing.T, d *ConformanceDeps) {
+	ctx := context.Background()
+	const handler = reliable.HandlerID("b1-conf-count")
+	now := time.Now().UTC()
+	// seed：tenant=1 4 条（2 DEAD_LETTER / 1 RETRY_SCHEDULED / 1 SUCCEEDED），tenant=2 1 条。
+	mkCount := func(name string, tenantID int, status string) reliable.ClaimInput {
+		t.Helper()
+		in := newClaimInput(t, name)
+		in.TenantID = tenantID
+		in.Key.Handler = handler // 隔离标记
+		switch status {
+		case "RETRY_SCHEDULED":
+			seedRetryRow(t, d, in, 1, now.Add(-time.Minute))
+		default:
+			seedRowWithStatus(t, d, in, status, now)
+		}
+		return in
+	}
+	mkCount("cnt-dl-1", 1, "DEAD_LETTER")
+	mkCount("cnt-dl-2", 1, "DEAD_LETTER")
+	mkCount("cnt-retry", 1, "RETRY_SCHEDULED")
+	mkCount("cnt-ok", 1, "SUCCEEDED")
+	mkCount("cnt-t2", 2, "DEAD_LETTER")
+
+	// 全量 tenant=1 + 本 handler：4 条（不含 tenant-2、不含其它用例行）。
+	n, err := d.Store.Count(ctx, store.CountFilter{TenantID: 1, HandlerID: handler})
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), n, "paging-free total of own 4 rows (F6: no Limit concept)")
+
+	// status 过滤：DEAD_LETTER → 2 条。
+	nDL, err := d.Store.Count(ctx, store.CountFilter{TenantID: 1, HandlerID: handler, Status: reliable.StatusDeadLetter})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), nDL)
+
+	// tenant=2 + 本 handler：1 条（多租户隔离）。
+	nT2, err := d.Store.Count(ctx, store.CountFilter{TenantID: 2, HandlerID: handler})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), nT2)
+
+	// S3：TenantID==0 拒绝。
+	_, err = d.Store.Count(ctx, store.CountFilter{TenantID: 0, HandlerID: handler})
+	assert.Error(t, err, "S3: TenantID==0 must be rejected")
+
+	// F6 隐式保证：CountFilter 无 Limit 字段——本测编译通过即证明类型层面已杜绝「带 Limit 调 Count」的误用路径。
+}
+
+// confHasEarlierUnsolvedSibling 覆盖 §6.2.1 manual-replay gate 的 earlier-than 判定 + aggregate-less 短路。
+func confHasEarlierUnsolvedSibling(t *testing.T, d *ConformanceDeps) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	// 同聚合两行：Created (causal_seq=1) 早于 Changed (causal_seq=2)。两行都 RETRY_SCHEDULED。
+	created := newClaimInput(t, "sib-created")
+	changed := newClaimInput(t, "sib-changed")
+	changed.Meta.AggregateID = created.Meta.AggregateID
+	changed.Meta.AggregateType = created.Meta.AggregateType
+	created.Meta.CausalSeq = ptrI64(1)
+	changed.Meta.CausalSeq = ptrI64(2)
+	seedRetryRow(t, d, created, 1, now.Add(-2*time.Minute))
+	seedRetryRow(t, d, changed, 2, now.Add(-time.Minute))
+	earlierID := mustGetByEvent(t, d, created.Key).ID
+	laterID := mustGetByEvent(t, d, changed.Key).ID
+
+	// 后到行（Changed）→ 存在更早未解决兄弟（Created）→ true（409 门禁触发）。
+	has, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, laterID)
+	require.NoError(t, err)
+	assert.True(t, has, "later row (causal_seq=2) has earlier unsolved sibling (causal_seq=1)")
+
+	// 最早行（Created）→ 无更早兄弟 → false。
+	hasEarly, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, earlierID)
+	require.NoError(t, err)
+	assert.False(t, hasEarly, "earliest row has no earlier unsolved sibling")
+
+	// 把 Created 推进到 SUCCEEDED（已解决）→ Changed 不再被阻塞。
+	require.NoError(t, d.DB.WithContext(ctx).Exec(
+		`UPDATE event_consumption SET status='SUCCEEDED' WHERE id=?`, earlierID).Error)
+	hasAfter, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, laterID)
+	require.NoError(t, err)
+	assert.False(t, hasAfter, "once earlier sibling is SUCCEEDED (resolved), later row is unblocked")
+
+	// aggregate-less 行 → false（通知类，自由并行）。
+	aggLess := newClaimInput(t, "sib-aggregless")
+	aggLess.Meta.AggregateType = ""
+	aggLess.Meta.AggregateID = ""
+	seedRetryRow(t, d, aggLess, 9, now) // causalSeq 仍写，但 aggregate 为空 → 走通知类分支
+	aggLessID := mustGetByEvent(t, d, aggLess.Key).ID
+	hasAggLess, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, aggLessID)
+	require.NoError(t, err)
+	assert.False(t, hasAggLess, "aggregate-less row is never blocked (notification-type, free parallelism)")
 }

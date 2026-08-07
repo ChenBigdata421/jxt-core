@@ -79,6 +79,15 @@ func (f *fakeStore) RecordAnomaly(context.Context, *gorm.DB, int, string, reliab
 func (f *fakeStore) GetByID(context.Context, int, int64) (store.Row, error)      { return store.Row{}, nil }
 func (f *fakeStore) List(context.Context, store.ListFilter) ([]store.Row, error) { return nil, nil }
 
+// §10 ops API 读方法（PR-2 upper-packages）：runner 不调用这些路径，no-op stub 仅满足接口。
+func (f *fakeStore) ListAnomalies(context.Context, store.AnomalyFilter) ([]store.AnomalyRow, error) {
+	return nil, nil
+}
+func (f *fakeStore) Count(context.Context, store.CountFilter) (int64, error) { return 0, nil }
+func (f *fakeStore) HasEarlierUnsolvedSibling(context.Context, *gorm.DB, int64) (bool, error) {
+	return false, nil
+}
+
 func TestRunnerTickObservesOrphans(t *testing.T) {
 	fs := &fakeStore{observed: 3}
 	r := NewRunner(fs, nil, nil, time.Second, func() time.Time { return time.Now().UTC() })

@@ -155,6 +155,17 @@ func (s *schedulerFakeStore) List(context.Context, store.ListFilter) ([]store.Ro
 	return nil, nil
 }
 
+// §10 ops API 读方法（PR-2 upper-packages）：scheduler 不调用这些路径，no-op stub 仅满足接口。
+func (s *schedulerFakeStore) ListAnomalies(context.Context, store.AnomalyFilter) ([]store.AnomalyRow, error) {
+	return nil, nil
+}
+func (s *schedulerFakeStore) Count(context.Context, store.CountFilter) (int64, error) {
+	return 0, nil
+}
+func (s *schedulerFakeStore) HasEarlierUnsolvedSibling(context.Context, *gorm.DB, int64) (bool, error) {
+	return false, nil
+}
+
 func retryHead(id int64) store.Row {
 	return store.Row{ID: id, EventID: "e", HandlerID: "h", Payload: []byte("p"), ReplayMode: "AUTO",
 		AggregateType: "Media", AggregateID: "agg-1", TenantID: 1}

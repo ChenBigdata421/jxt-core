@@ -135,3 +135,33 @@ func assertAnomalyExists(t *testing.T, d *ConformanceDeps, kind string, key reli
 	t.Helper()
 	require.GreaterOrEqual(t, anomalyCount(t, d, kind, key), int64(1), "anomaly %s must be recorded", kind)
 }
+
+// seedAnomalyAt 直接 INSERT 一条 consumption_anomalies（指定 created_at）——conformance 用例
+// 按时间窗 + kind 过滤、按 created_at DESC 排序，需要可控的时间戳。绕过 RecordAnomaly 的 nowUTC()。
+// 放在非 _test 文件里——conformance.go（非测试）调用它。
+func seedAnomalyAt(t *testing.T, d *ConformanceDeps, tenantID int, kind, eventID, claimID string, createdAt time.Time) {
+	t.Helper()
+	require.NoError(t, d.DB.Exec(
+		`INSERT INTO consumption_anomalies (kind, event_id, handler_id, tenant_id, claim_id, detail, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		kind, eventID, "test-handler", tenantID, claimID, "seeded-by-conformance", createdAt,
+	).Error)
+}
+
+// seedRowWithStatus 直接 INSERT 一条 event_consumption 为指定 status——Count conformance 需要跨
+// 状态分布的行（seedRetryRow 只能产 RETRY_SCHEDULED）。
+//
+// 列约束遵循 §2.4：DEAD_LETTER 必须有 payload + error_class（chk_dead_payload）；RETRY_SCHEDULED
+// 还需 next_attempt_at（chk_retry_due）。本 helper 只产 DEAD_LETTER / SUCCEEDED（无 chk 约束的终态）
+// 与不需要 chk 的状态；RETRY_SCHEDULED 走 seedRetryRow。放非 _test 文件——conformance.go 调用。
+func seedRowWithStatus(t *testing.T, d *ConformanceDeps, in reliable.ClaimInput, status string, firstSeen time.Time) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, d.DB.Exec(
+		`INSERT INTO event_consumption (event_id,item_key,handler_id,tenant_id,event_type,aggregate_type,aggregate_id,causal_seq,topic,status,attempt,replay_mode,payload,error_class,first_seen_at,created_at,updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,1,'AUTO',?,?, ?, ?, ?)`,
+		in.Key.EventID, in.Key.ItemKey, string(in.Key.Handler), in.TenantID, in.Meta.EventType,
+		in.Meta.AggregateType, in.Meta.AggregateID, in.Meta.CausalSeq, in.Delivery.Topic,
+		status, []byte("p"), "POISON", firstSeen, now, now,
+	).Error)
+}

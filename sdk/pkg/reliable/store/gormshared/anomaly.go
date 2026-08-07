@@ -2,9 +2,11 @@ package gormshared
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -82,4 +84,77 @@ func (s *GormStore) RecordAnomaly(ctx context.Context, db *gorm.DB, tenantID int
 		Kind: kind, EventID: key.EventID, HandlerID: string(key.Handler),
 		TenantID: tenantID, ClaimID: claimID, Detail: detail, CreatedAt: nowUTC(),
 	}).Error
+}
+
+// —— §10 ops API 读（PR-2 upper-packages：ListAnomalies / Count）——
+//
+// 两个方法都用 store 的 BOUND db（s.markDB，与 List/GetByID 读模式一致）：opsvc 的 §10 handler
+// 拿到的已是按租户绑定的 store 句柄（CLAUDE.md 多租户 DB 模型），S3 在此之上再强制 TenantID!=0，
+// 双重保证无跨租户裸读。From/To 用半开区间 [From, To)——与 List 一致（review #26 同源），便于
+// 链式时间窗口不重叠；BETWEEN 是闭区间，相邻窗口会在边界重复计数。
+
+// ListAnomalies 读 consumption_anomalies（§10 /anomalies 视图）。ORDER BY created_at DESC。
+func (s *GormStore) ListAnomalies(ctx context.Context, f store.AnomalyFilter) ([]store.AnomalyRow, error) {
+	// S3：强制 tenant 作用域（与 List 的守卫对齐）。
+	if f.TenantID == 0 {
+		return nil, fmt.Errorf("reliable: AnomalyFilter.TenantID is required for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
+	}
+	q := s.markDB.WithContext(ctx).Model(&AnomalyModel{}).Where("tenant_id = ?", f.TenantID)
+	if f.Kind != "" {
+		q = q.Where("kind = ?", f.Kind)
+	}
+	if !f.From.IsZero() {
+		q = q.Where("created_at >= ?", f.From)
+	}
+	if !f.To.IsZero() {
+		q = q.Where("created_at < ?", f.To)
+	}
+	if f.Limit <= 0 {
+		f.Limit = 100
+	}
+	var ms []AnomalyModel
+	if err := q.Order("created_at DESC").Limit(f.Limit).Find(&ms).Error; err != nil {
+		return nil, err
+	}
+	out := make([]store.AnomalyRow, len(ms))
+	for i := range ms {
+		out[i] = store.AnomalyRow{
+			ID: ms[i].ID, Kind: ms[i].Kind, EventID: ms[i].EventID,
+			HandlerID: reliable.HandlerID(ms[i].HandlerID), TenantID: ms[i].TenantID,
+			ClaimID: ms[i].ClaimID, Detail: ms[i].Detail, CreatedAt: ms[i].CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+// Count 返回 event_consumption 匹配 filter 的行数（§10 dashboard totals）。
+//
+// F6：用 SQL COUNT(*)（gorm `.Count(&n)` 生成 `SELECT count(*) FROM ...`），**不** list-then-count。
+// CountFilter 删掉 Limit/Offset 正是为杜绝「带 Limit 调 Count」的误用路径（见 store.CountFilter 注释）。
+func (s *GormStore) Count(ctx context.Context, f store.CountFilter) (int64, error) {
+	// S3：强制 tenant 作用域（与 List 的守卫对齐）。
+	if f.TenantID == 0 {
+		return 0, fmt.Errorf("reliable: CountFilter.TenantID is required for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
+	}
+	q := s.markDB.WithContext(ctx).Model(&EventConsumptionModel{}).Where("tenant_id = ?", f.TenantID)
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.ErrorClass != "" {
+		q = q.Where("error_class = ?", f.ErrorClass)
+	}
+	if f.HandlerID != "" {
+		q = q.Where("handler_id = ?", f.HandlerID)
+	}
+	if !f.From.IsZero() {
+		q = q.Where("first_seen_at >= ?", f.From)
+	}
+	if !f.To.IsZero() {
+		q = q.Where("first_seen_at < ?", f.To)
+	}
+	var n int64
+	if err := q.Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
 }

@@ -130,6 +130,37 @@ type Store interface {
 	// payload/headers。运维侧若需全局视图，PR-7 另立 GetByIDGlobal（参考 ListGlobal 的 S3 carry-over）。
 	GetByID(ctx context.Context, tenantID int, id int64) (Row, error)
 	List(ctx context.Context, filter ListFilter) ([]Row, error)
+
+	// —— §10 ops API 读（PR-2 upper-packages：ListAnomalies / Count / §6.2.1 manual-replay gate）——
+
+	// ListAnomalies 读 consumption_anomalies（§10 /anomalies 视图）。S3 强制 tenant 作用域
+	// （TenantID==0 拒绝，与 List 对齐——杜绝跨租户裸读异常明细）。用 store 的 BOUND db（读模式，
+	// 与 List/GetByID 一致）。AnomalyFilter.From/To 约束 created_at；ORDER BY created_at DESC。
+	//
+	// ClaimID 投影不可省（uk_anomaly_once 的幂等键之一，见 RecordAnomaly 注释）：/anomalies 视图
+	// 靠它区分「同一次占位的同类异常（应去重显示）」与「同一 orphan/event 的不同占位异常（应分别显示）」。
+	ListAnomalies(ctx context.Context, filter AnomalyFilter) ([]AnomalyRow, error)
+
+	// Count 返回 event_consumption 匹配 filter 的行数（§10 dashboard totals）。
+	//
+	// F6（本轮评审）：用 SQL COUNT(*)，**禁止** list-then-count——后者会让 caller 把 Limit 截断后的
+	// 列表长度当总量，静默回退 F6 缺陷。CountFilter 故意是 ListFilter 减去 Limit/Offset，杜绝这条
+	// 误用路径。S3 强制 tenant 作用域。From/To 约束 first_seen_at（与 ListFilter 同语义）。
+	Count(ctx context.Context, filter CountFilter) (int64, error)
+
+	// HasEarlierUnsolvedSibling 是 §6.2.1 manual-replay 409 门禁（Q1=A）。
+	//
+	// 自动重放路径（FindEligibleHeads）已通过其 NOT EXISTS 子查询强制「同聚合不得有更早未解决行」；
+	// 人工 ScheduleReplay 不走 FindEligibleHeads，本方法为它补这条门禁——否则人工授权可越次序重放，
+	// 与自动路径的行为不一致（§6.2.1 gap Q1=A）。B2 opsvc.ReplayOne 在 ScheduleReplay 之前调用本方法，
+	// 返回 true → 409 Conflict。
+	//
+	// **显式接收 *gorm.DB（非 BOUND db）**：让 opsvc 把它与紧随其后的 ScheduleReplay 跑在【同一 db/
+	// 同一 tx】上，关闭 check-then-act TOCTOU 窗口（否则两次独立读之间状态可变，门禁可被绕过）。
+	// 镜像 EligibleHeadsSQL 的 NOT EXISTS 谓词（replay.go:40-54，三段式 earlier-than）；
+	// aggregate-less 行（aggregate_type IS NULL OR aggregate_id = ''）→ false（通知类，自由并行，
+	// 与 EligibleHeadsSQL 跳过 NOT EXISTS 同义）。
+	HasEarlierUnsolvedSibling(ctx context.Context, db *gorm.DB, id int64) (bool, error)
 }
 
 // ListFilter 是运维列表查询参数（§10 API）。
@@ -143,6 +174,45 @@ type ListFilter struct {
 	From, To time.Time
 	Limit    int
 	Offset   int
+}
+
+// AnomalyFilter 是 ListAnomalies 的查询参数（§10 /anomalies 视图）。
+// 与 ListFilter 解耦：anomaly 的过滤维度是 kind + created_at（不是 status + first_seen_at），
+// 且无 Offset——anomaly 量级远低于 event_consumption，单表 created_at DESC + Limit 已够。
+type AnomalyFilter struct {
+	TenantID int
+	Kind     string
+	// From/To 约束 created_at（anomaly 的写入时间，与 ListFilter 约束 first_seen_at 的语义不同）。
+	From, To time.Time
+	Limit    int
+}
+
+// AnomalyRow 是 consumption_anomalies 的领域投影（§10 /anomalies 视图）。
+// ClaimID 是 uk_anomaly_once 幂等键的一部分（见 RecordAnomaly 注释）——保留它让视图能区分
+// 「同一次占位的同类异常」与「同一 event 的不同占位异常」，前者应去重、后者应分别展示。
+type AnomalyRow struct {
+	ID        int64
+	Kind      string
+	EventID   string
+	HandlerID reliable.HandlerID
+	TenantID  int
+	ClaimID   string
+	Detail    string
+	CreatedAt time.Time
+}
+
+// CountFilter 是 Count 的查询参数（§10 dashboard totals）。
+//
+// **刻意不复用 ListFilter（F6）**：ListFilter 带 Limit/Offset，COUNT(*) 无 paging 概念；
+// 若复用，调用方传一个带 Limit 的 ListFilter 进 Count 会让人误以为总量被 Limit 截断——
+// 即使实现忽略 Limit，类型层面也保留了那条误用路径。CountFilter 删掉 Limit/Offset，从类型
+// 层面切断 F6 复发的可能。字段语义与 ListFilter 同（From/To 约束 first_seen_at）。
+type CountFilter struct {
+	TenantID   int
+	Status     reliable.Status
+	ErrorClass reliable.ErrorClass
+	HandlerID  reliable.HandlerID
+	From, To   time.Time
 }
 
 // QuarantineStore 是 raw_message_quarantine 的写入/读取接口（§2.3）。落库成功才 ACK。

@@ -72,6 +72,80 @@ func (s *GormStore) FindEligibleHeads(ctx context.Context, now time.Time, limit 
 	return out, nil
 }
 
+// EarlierUnsolvedSiblingSQL 是 §6.2.1 manual-replay 409 门禁的 SQL（HasEarlierUnsolvedSibling）。
+//
+// 它与 EligibleHeadsSQL 的 NOT EXISTS 子查询（replay.go:40-54）**逐字同源**——把那个子查询里的
+// `c.*` 引用从「外层行」具象为「JOIN 进来的、按 id 钉住的目标行 c」，并去掉 NOT（这里要的是
+// EXISTS 语义）。status 同样写字面量而非参数（D22 同源：让两方言稳定命中 partial/普通索引，
+// 避免 PG generic plan 退化）。仅一个绑定参数 ? = id。
+//
+// 镜像对照（行号对应 EligibleHeadsSQL 在本文件的上文）：
+//   - 同聚合：e.tenant_id = c.tenant_id AND e.aggregate_type = c.aggregate_type AND e.aggregate_id = c.aggregate_id
+//   - 未解决：e.status IN ('RETRY_SCHEDULED','PROCESSING','DEAD_LETTER')
+//   - 排除自身：e.id <> c.id（EligibleHeadsSQL 里 c 是外层行天然不会与 e 同 id；这里 c 是 JOIN 进来的，必须显式排除）
+//   - earlier 三段式 OR（causal_seq → (src_partition, src_offset) → first_seen_at）逐字复制自 EligibleHeadsSQL:45-53
+//
+// **不改 EligibleHeadsSQL**（PR-2 additive-only 约束）：本常量是并行的新字符串，两处任何一方
+// 未来若改 earlier-than 谓词，另一方须同步——本文档注释钉住这层耦合。考虑过抽出共享谓词常量让
+// 两者拼接，但那需要把 EligibleHeadsSQL 的字符串拆开（非 additive），与约束冲突，未采纳。
+const EarlierUnsolvedSiblingSQL = `
+SELECT 1 FROM event_consumption e, event_consumption c
+WHERE c.id = ?
+  AND e.tenant_id = c.tenant_id
+  AND e.aggregate_type = c.aggregate_type AND e.aggregate_id = c.aggregate_id
+  AND e.status IN ('RETRY_SCHEDULED','PROCESSING','DEAD_LETTER')
+  AND e.id <> c.id
+  AND (
+    (e.causal_seq IS NOT NULL AND c.causal_seq IS NOT NULL AND e.causal_seq < c.causal_seq)
+    OR (e.causal_seq IS NULL AND c.causal_seq IS NULL
+        AND e.src_partition IS NOT NULL AND c.src_partition IS NOT NULL
+        AND (e.src_partition < c.src_partition OR (e.src_partition = c.src_partition AND e.src_offset < c.src_offset)))
+    OR (e.causal_seq IS NULL AND c.causal_seq IS NULL
+        AND (e.src_partition IS NULL OR c.src_partition IS NULL)
+        AND e.first_seen_at < c.first_seen_at)
+  )
+LIMIT 1`
+
+// HasEarlierUnsolvedSibling 报告 id 所指行是否存在「同聚合 + 未解决 + 更早」的兄弟行（§6.2.1
+// manual-replay 409 门禁）。见 store.HasEarlierUnsolvedSibling 的接口注释了解为何接收显式 *gorm.DB。
+//
+// 实现两步（brief 规定的形态）：
+//  1. 按 id 读行 c（仅取 aggregate_type/aggregate_id，做 aggregate-less 短路）；
+//  2. 若 c 是 aggregate-less（通知类）→ 直接返回 false，与 EligibleHeadsSQL 跳过 NOT EXISTS 同义；
+//     否则跑 EarlierUnsolvedSiblingSQL（c 由 JOIN 钉住，只绑 id 一个参数），返回 (是否命中, err)。
+//
+// aggregate-less 判定用 Go 字符串相等（m.AggregateType == "" || m.AggregateID == ""）：DDL 允许
+// 该列 NULL，GORM 读 NULL 进 string 字段得 ""，故此判定与 EligibleHeadsSQL 的
+// `c.aggregate_type IS NULL OR c.aggregate_id = ''` 在应用层（aggregate_type 与 aggregate_id 同源、
+// 同置位/同留空）行为一致。
+//
+// review #4（同模式）：DB 错误原样上抛；id 不存在 → gorm.ErrRecordNotFound 上抛（调用方应先经
+// GetByID 校验存在，但此处仍把 not-found 当真错误而非 false——避免把「行消失」静默降级为「可重放」）。
+func (s *GormStore) HasEarlierUnsolvedSibling(ctx context.Context, db *gorm.DB, id int64) (bool, error) {
+	// review #12 同源：只读短路判定所需的列，避免把同行的 LONGBLOB payload 拉进堆。
+	var c struct {
+		AggregateType string
+		AggregateID   string
+	}
+	if err := db.WithContext(ctx).Model(&EventConsumptionModel{}).
+		Select("aggregate_type", "aggregate_id").
+		Where("id = ?", id).
+		Take(&c).Error; err != nil {
+		return false, err
+	}
+	// 通知类（无聚合）→ 自由并行，无次序约束。
+	if c.AggregateType == "" || c.AggregateID == "" {
+		return false, nil
+	}
+	var hit []int
+	// SELECT 1 ... LIMIT 1：命中至少一行即存在更早未解决兄弟。Scan 到 []int（两方言都返回整型 1），
+	// 避开 SELECT EXISTS(...) 在 MySQL（返回 0/1 int）与 PG（返回 bool）间 Scan 到 Go bool 的方言分歧。
+	if err := db.WithContext(ctx).Raw(EarlierUnsolvedSiblingSQL, id).Scan(&hit).Error; err != nil {
+		return false, err
+	}
+	return len(hit) > 0, nil
+}
+
 // —— ClaimForReplay（RETRY_SCHEDULED→PROCESSING，attempt+1；含 MANUAL 授权消费）——
 
 func (s *GormStore) ClaimForReplay(ctx context.Context, db *gorm.DB, id int64) (reliable.ClaimToken, store.Row, error) {
