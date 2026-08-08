@@ -1,6 +1,8 @@
 package reliable_test
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,6 +80,47 @@ func TestGate_RootKernelZeroDeps(t *testing.T) {
 	for _, banned := range []string{"gorm.io", "github.com/prometheus", "github.com/gin-gonic", "github.com/IBM/sarama"} {
 		require.NotContainsf(t, string(out), banned, "J2 violation: kernel imports %s", banned)
 	}
+}
+
+// TestGate_RootPackageNoCycleImports 守护 J2/cycle 的精确边：根 reliable 包的**自身**生产 .go 文件
+// 不得直接 import sdk/pkg/reliable/store（store 依赖 reliable，会成环）也不得 import gorm.io/gorm（kernel 纯度）。
+//
+// 与 TestGate_RootKernelZeroDeps 互补：后者用 `go list -deps` 抓 transitive 依赖（广，但粒度粗、
+// 慢、需 go 工具链）；本测试用 go/parser 只解析根包目录下的直接 import，精确锁定「会闭合 cycle 的那条边」。
+// 这正是 Task-1 抽出 gate 子包要防的回归：一旦有人把 store 或 gorm 加回根包任一文件，
+// reliable→store→reliable 的环即刻成型（go build 会拒编，但本测试给出更早、更精确的定位）。
+func TestGate_RootPackageNoCycleImports(t *testing.T) {
+	dir := filepath.Join(repoRoot(t), "sdk", "pkg", "reliable")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err, "read reliable root dir")
+
+	// 任何以 reliable/store 结尾的 import 路径都算违规（不硬编码 module 前缀，迁移 module 时仍生效）；
+	// gorm.io/gorm 是 J2 明令禁止的 kernel 依赖。
+	const bannedStoreSuffix = "sdk/pkg/reliable/store"
+	const bannedGorm = "gorm.io/gorm"
+
+	fset := token.NewFileSet()
+	var hits []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), "_test.go") {
+			continue // 生产不变量：只守非测试文件（_test.go 不进生产 import 图）
+		}
+		path := filepath.Join(dir, e.Name())
+		f, perr := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		require.NoError(t, perr, "parse %s", e.Name())
+		for _, imp := range f.Imports {
+			impPath := strings.Trim(imp.Path.Value, `"`)
+			if impPath == bannedGorm || strings.HasSuffix(impPath, "/"+bannedStoreSuffix) || impPath == bannedStoreSuffix {
+				hits = append(hits, e.Name()+": "+impPath)
+			}
+		}
+	}
+	require.Empty(t, hits,
+		"J2/cycle violation: root reliable package must not import store (cycle) or gorm.io/gorm (purity):\n%s",
+		strings.Join(hits, "\n"))
 }
 
 // TestGate_NoContextKey 守护 M14：reliable/** 不得 context.WithValue。

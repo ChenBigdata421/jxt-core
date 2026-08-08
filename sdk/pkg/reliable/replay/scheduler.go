@@ -7,14 +7,10 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/gate"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"gorm.io/gorm"
 )
-
-// gateReleaseTimeout：释放 aggregate gate 用的独立 ctx 超时。release 是纯清理，**不得继承业务 ctx**——
-// tickTimeout fire / 上层取消时 processOne 的 ctx 已 done，ReleaseAggregateGate 的 DELETE 会随 ctx 失败 →
-// gate 残留到 TTL、卡住同聚合重放（P2）。独立短超时让清理与 tick 生命周期解耦。
-const gateReleaseTimeout = 3 * time.Second
 
 type Scheduler struct {
 	store       store.Store
@@ -150,21 +146,23 @@ func (s *Scheduler) processOne(ctx context.Context, row store.Row) {
 	// aggregate gate（§6.2.1）——**先抢 gate，再 claim**（A3）。
 	// holder 用 row.ID 派生的稳定串（此时还没有 claim token）；Store 内部会加 uuid 后缀
 	// 保证 token 唯一（D18#7），所以不同实例/不同轮次不会互相误删。
+	// acquire/release 机制下沉到 gate 包：helper 拥有 release-ctx 纪律（独立短超时，不继承业务 ctx，
+	// 见 gate.ReleaseTimeout）并把 ReleaseAggregateGate 的错误透传给 release()，供这里告警。
 	if info.RequiresAggregateGate && !aggregateKeyOf(row).Empty() {
-		holder, gerr := s.store.AcquireAggregateGate(ctx, s.db, aggregateKeyOf(row),
+		release, gerr := gate.Acquire(ctx, s.store, s.db, aggregateKeyOf(row),
 			fmt.Sprintf("replay-%d", row.ID), s.gateTTL)
 		if gerr != nil {
 			// 让路：整行不动，attempt 不增，下一周期重试（准入 ⑬）。
+			// gate.IsContention(gerr) == true 表示他人持租约（本 fake/真路径都透传 ErrRetryLater）；
+			// scheduler 对 contention 与真 DB 失败一视同仁地让路（都不推进 claim），故不在此分支区分。
 			s.metrics.IncReplayBlocked(row.HandlerID)
 			return
 		}
-		// review #3：release 用独立 ctx（不继承业务 ctx）——tickTimeout/上层取消时 ctx 已 done，
-		// 随 ctx 跑 DELETE 会失败、gate 残留到 TTL。失败须告警（与 ReleaseClaim 的 REPLAY_RELEASE_FAILED 同词汇），
-		// 不再 `_ =` 吞掉（否则排查只见 replay 让路/无进度，不见 gate release 失败）。
+		// review #3：release 用独立 ctx（gate.Acquire 内部保证），不继承业务 ctx ——
+		// tickTimeout/上层取消时 ctx 已 done，随 ctx 跑 DELETE 会失败、gate 残留到 TTL。
+		// 失败须告警（与 ReleaseClaim 的 REPLAY_RELEASE_FAILED 同词汇），不再 `_ =` 吞掉。
 		defer func() {
-			relCtx, relCancel := context.WithTimeout(context.Background(), gateReleaseTimeout)
-			defer relCancel()
-			if err := s.store.ReleaseAggregateGate(relCtx, s.db, holder); err != nil {
+			if err := release(); err != nil {
 				s.alerter.AlertAnomaly("REPLAY_GATE_RELEASE_FAILED", row.HandlerID,
 					fmt.Sprintf("ReleaseAggregateGate: %v (gate lingers until TTL — verify reclaim sweeper)", err))
 			}
