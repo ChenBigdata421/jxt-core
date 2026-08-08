@@ -27,6 +27,15 @@ type Store interface {
 	// —— 占位与终结（§3.1）——
 
 	// TryClaim 占位：独立提交。首次写全不可变身份与小审计字段。
+	//
+	// LIVE 终止契约（review P1）：TryClaim 只占位——它不调用业务 handler，也不兜底「handler 崩溃后终结」。
+	// 内核仅 own 重放路径的 panic 兜底（replay/scheduler.go 的 defer recover() → MoveToDeadLetterWithToken，
+	// 显式打破「broker 重投 → 再 panic」死循环）；LIVE 投递路径（TryClaim → 服务 handler → MarkSucceeded/MarkFailed）
+	// 由消费服务的 decorator 承载。该 decorator **必须 defer recover() 并把 panic 终结到 MarkFailed /
+	// MoveToDeadLetterWithToken**：否则恒 panic 的 handler 会让行常驻 PROCESSING，租约过期后由 TryClaim
+	// 内联续占（claim.go 旋转 claim_id 但【不增 attempt】），而 attempt 耗尽→DEAD_LETTER 兜底只在
+	// MarkFailed/ClaimForReplay 触发——未 recover 的 panic 两条都到不了，消息会被无限重执、永不死信。
+	// 实现范例见 replay/scheduler.go 的 recover 分支。
 	TryClaim(ctx context.Context, in reliable.ClaimInput, lease time.Duration) (reliable.ClaimToken, reliable.Decision, error)
 
 	// MarkSucceeded 终结成功：WHERE status='PROCESSING' AND claim_id=tok；0 行返回 reliable.ErrConflict。

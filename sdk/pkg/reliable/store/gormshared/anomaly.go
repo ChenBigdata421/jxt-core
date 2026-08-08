@@ -96,8 +96,8 @@ func (s *GormStore) RecordAnomaly(ctx context.Context, db *gorm.DB, tenantID int
 // ListAnomalies 读 consumption_anomalies（§10 /anomalies 视图）。ORDER BY created_at DESC。
 func (s *GormStore) ListAnomalies(ctx context.Context, f store.AnomalyFilter) ([]store.AnomalyRow, error) {
 	// S3：强制 tenant 作用域（与 List 的守卫对齐）。
-	if f.TenantID == 0 {
-		return nil, fmt.Errorf("reliable: AnomalyFilter.TenantID is required for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
+	if f.TenantID <= 0 {
+		return nil, fmt.Errorf("reliable: AnomalyFilter.TenantID must be > 0 for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
 	}
 	q := s.markDB.WithContext(ctx).Model(&AnomalyModel{}).Where("tenant_id = ?", f.TenantID)
 	if f.Kind != "" {
@@ -133,8 +133,8 @@ func (s *GormStore) ListAnomalies(ctx context.Context, f store.AnomalyFilter) ([
 // CountFilter 删掉 Limit/Offset 正是为杜绝「带 Limit 调 Count」的误用路径（见 store.CountFilter 注释）。
 func (s *GormStore) Count(ctx context.Context, f store.CountFilter) (int64, error) {
 	// S3：强制 tenant 作用域（与 List 的守卫对齐）。
-	if f.TenantID == 0 {
-		return 0, fmt.Errorf("reliable: CountFilter.TenantID is required for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
+	if f.TenantID <= 0 {
+		return 0, fmt.Errorf("reliable: CountFilter.TenantID must be > 0 for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
 	}
 	q := s.markDB.WithContext(ctx).Model(&EventConsumptionModel{}).Where("tenant_id = ?", f.TenantID)
 	if f.Status != "" {

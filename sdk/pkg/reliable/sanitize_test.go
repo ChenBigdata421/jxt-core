@@ -21,6 +21,9 @@ var redactsCases = []struct {
 	{"tenant dsn (S2)", `conn fail: tenant_42:S3cret@tcp(db:3306)/evidence`, "S3cret"},
 	{"pg uri dsn", `dial postgres://app:hunter2@10.0.0.1:5432/db`, "hunter2"},
 	{"pg password=", `pq: host=10.0.0.1 user=app password=hunter2 dbname=x`, "hunter2"},
+	// quoted key=value（INI/YAML 回显）：双引号 / 单引号形态也要脱敏——原 [^;&\s"']+ 排除引号会漏配。
+	{"quoted password double", `conn fail password="hunter2" retry`, "hunter2"},
+	{"quoted password single", `cfg password='s3cr3t' ok`, "s3cr3t"},
 	{"bearer token", `401 Unauthorized: Authorization=Bearer eyJhbGciOi.abc-123`, "eyJhbGciOi.abc-123"},
 	{"api key header", `500 upstream: X-API-Key: AKIAEXAMPLE123`, "AKIAEXAMPLE123"},
 	{"json secret", `body {"api_key":"AKIA0000","id":1}`, "AKIA0000"},

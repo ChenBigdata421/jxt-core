@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 )
 
 // ListQuery 是 List 与 Stats 的查询参数（§10）。List 投影到 store.ListFilter，Stats 投影到
@@ -32,11 +31,16 @@ type ListQuery struct {
 	Offset   int
 }
 
-// ListResult 是 List 的返回。Rows 是 store.Row 直接投影，但其敏感字段（Payload / Headers / RawKey）
-// 已被 Service.List 强制清零——List 没有 includePayload 开关、也没有审计钩子，按 fail-closed
-// 原则（无审计不释放敏感载荷）默认不释放 payload；需要 payload 走 GetDetail(includePayload=true)。
+// ListResult 是 List 的返回。Rows 是 Detail 白名单投影——不直接透出 store.Row：store.Row 还携带
+// ReplayAuthID（一次性人工重放 bearer）、ClaimID、ReplayRequestedBy/ApprovedBy/Reason、DiscardReason
+// 等人员身份与内部令牌字段（store/row.go），而 List 无审计钩子，按 fail-closed 原则只能释放运维概览
+// 所需的安全字段集（与 GetDetail 同构的 projectDetail 白名单）。
+//
+// 用白名单投影而非按字段清零（denylist）：下次 store.Row 新增敏感字段时，denylist 会因遗漏而泄露，
+// 白名单（投影到不含该字段的 Detail）天然不泄。Detail 的 Payload/Headers/RawKey 恒 nil（门控字段，
+// List 不开 includePayload）——需载荷走 GetDetail(includePayload=true，先审计)。
 type ListResult struct {
-	Rows []store.Row
+	Rows []Detail
 }
 
 // Stats 是 Stats 的返回（§10 dashboard totals）。全部由 store.Count 填充（F6），不从 List 派生。
@@ -64,7 +68,6 @@ type Detail struct {
 	Attempt          int
 	ReplayGeneration int
 	RowVersion       int64
-	ClaimID          string
 	ErrorClass       reliable.ErrorClass
 	ErrorCode        string
 	ErrorMessage     string

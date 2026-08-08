@@ -55,7 +55,7 @@ const (
 
 // ErrMissingTenant 是任何 DTO（或 bare tenantID 参数）的 TenantID==0 时返回的标记错误。
 // Handler 把它映射到 HTTP 400（S3 多租户作用域强制）。
-var ErrMissingTenant = errors.New("opsvc: TenantID is required (0 means missing); bind a per-tenant request scope")
+var ErrMissingTenant = errors.New("opsvc: TenantID is required (must be > 0); bind a per-tenant request scope")
 
 // Service 是 §10 ops 服务层。每个方法解析请求所属租户的 per-tenant Store / QuarantineStore + *gorm.DB，
 // 拒绝 TenantID==0，并把底层 store 错误映射成 opsvc 的标记错误（ConflictError / ErrMissingTenant）。
@@ -90,9 +90,11 @@ func defaultTxRunner(db *gorm.DB, fn func(tx *gorm.DB) error) error {
 	return db.Transaction(fn)
 }
 
-// requireTenant 是每个公开方法的第一道守卫：TenantID==0 → ErrMissingTenant（handler → 400）。
+// requireTenant 是每个公开方法的第一道守卫：TenantID<=0 → ErrMissingTenant（handler → 400）。
+// 用 <=0（与 DLQ adapter adapter.go:136 同源）而非 ==0：负租户同样无意义，统一拒绝，不把
+// 「负租户是否被 resolver 服务」这一兜底交给运行期（resolver 通常也 fail-closed，但守卫层先拦更稳）。
 func requireTenant(tenantID int) error {
-	if tenantID == 0 {
+	if tenantID <= 0 {
 		return ErrMissingTenant
 	}
 	return nil
@@ -115,8 +117,11 @@ func mapStoreConflict(err error, requesterApproverEqual bool) error {
 
 // —— 10 个公开方法（1:1 对 §10）——
 
-// List 读 event_consumption（§10 列表）。每个返回行的 Payload/Headers/RawKey 被强制清零：
-// List 无 includePayload 开关、无审计钩子，按 fail-closed 原则不释放载荷（需载荷走 GetDetail）。
+// List 读 event_consumption（§10 列表）。返回行经 projectDetail 白名单投影到 Detail——不直接透出
+// store.Row（它还带 ReplayAuthID 一次性重放 bearer / ClaimID / ReplayRequestedBy 等人员身份与内部令牌，
+// 见 store/row.go）；List 无审计钩子，按 fail-closed 只释放与 GetDetail 同构的安全字段集。
+// 白名单而非按字段清零：下次 store.Row 新增敏感字段时，denylist 会因遗漏而泄露，白名单天然不泄。
+// Detail 的 Payload/Headers/RawKey 恒 nil（门控字段）——需载荷走 GetDetail(includePayload=true，先审计)。
 func (s *Service) List(ctx context.Context, q ListQuery) (ListResult, error) {
 	if err := requireTenant(q.TenantID); err != nil {
 		return ListResult{}, err
@@ -133,12 +138,11 @@ func (s *Service) List(ctx context.Context, q ListQuery) (ListResult, error) {
 	if err != nil {
 		return ListResult{}, err
 	}
+	out := make([]Detail, len(rows))
 	for i := range rows {
-		rows[i].Payload = nil
-		rows[i].Headers = nil
-		rows[i].RawKey = nil
+		out[i] = projectDetail(rows[i]) // 白名单投影：门控字段与 ReplayAuthID/人员字段均不在 Detail
 	}
-	return ListResult{Rows: rows}, nil
+	return ListResult{Rows: out}, nil
 }
 
 // GetDetail 读单行（§10 详情）。includePayload=false → Detail.Payload/Headers/RawKey 恒 nil。
@@ -232,9 +236,12 @@ func (s *Service) BatchReplay(ctx context.Context, r BatchReplayRequest) (BatchR
 		default:
 			var ce *ConflictError
 			if errors.As(err, &ce) {
+				// 三态互斥（dto 约定）：冲突行只置 Conflict，不填 Err——否则 handler 若先查 Err!=""
+				// 会把常规可重试冲突（§6.2.1 sibling / CAS row_version / D12）误判成硬错误并回 500。
 				res.Conflict = true
+			} else {
+				res.Err = err.Error()
 			}
-			res.Err = err.Error()
 		}
 		results[i] = res
 	}
@@ -402,7 +409,7 @@ func projectDetail(r store.Row) Detail {
 		ID: r.ID, EventID: r.EventID, ItemKey: r.ItemKey, HandlerID: r.HandlerID,
 		TenantID: r.TenantID, EventType: r.EventType, AggregateType: r.AggregateType,
 		AggregateID: r.AggregateID, Topic: r.Topic, Status: r.Status, Attempt: r.Attempt,
-		ReplayGeneration: r.ReplayGeneration, RowVersion: r.RowVersion, ClaimID: r.ClaimID,
+		ReplayGeneration: r.ReplayGeneration, RowVersion: r.RowVersion,
 		ErrorClass: r.ErrorClass, ErrorCode: r.ErrorCode, ErrorMessage: r.ErrorMessage,
 		NextAttemptAt: r.NextAttemptAt, ReplayMode: r.ReplayMode,
 		FirstSeenAt: r.FirstSeenAt, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,

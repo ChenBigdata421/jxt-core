@@ -20,8 +20,8 @@ func (s *GormStore) GetByID(ctx context.Context, tenantID int, id int64) (store.
 func (s *GormStore) List(ctx context.Context, f store.ListFilter) ([]store.Row, error) {
 	// S3（本轮评审）：多租户隔离——List 必须显式 tenant 作用域（PR-2 无全局/admin 消费者）。
 	// TenantID==0 视为「忘记限定租户」，拒绝而非静默跨租户读；全局视图（PR-7 运维）另立 ListGlobal。
-	if f.TenantID == 0 {
-		return nil, fmt.Errorf("reliable: ListFilter.TenantID is required for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
+	if f.TenantID <= 0 {
+		return nil, fmt.Errorf("reliable: ListFilter.TenantID must be > 0 for multi-tenant isolation (S3); bind a per-tenant *gorm.DB and set TenantID")
 	}
 	q := s.markDB.WithContext(ctx).Model(&EventConsumptionModel{}).Where("tenant_id = ?", f.TenantID)
 	if f.Status != "" {

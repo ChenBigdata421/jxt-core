@@ -326,10 +326,17 @@ func FromRawMeta(r eventbus.RawMeta) reliable.DeliveryMeta {
 // DeliveryMeta. PoisonMessage.Headers is []MessageHeader (C6) and carries
 // Timestamp (C6) — both set by toPoisonMessage in jxt-core
 // (partition_pipeline.go). PoisonMessage carries no PayloadHash, so compute
-// sha256(Value) here — the SAME definition the LIVE path (FromRawMeta ←
-// RawMeta.PayloadHash) and the quarantine arm (quarantine()) use — so the
-// integrity fingerprint is symmetric across LIVE and DLQ-terminaled
-// event_consumption rows (N16: raw_payload_hash is CHAR(64) NOT NULL).
+// sha256(Value) here — the SAME definition the LIVE path uses (FromRawMeta ←
+// RawMeta.PayloadHash), so the integrity fingerprint is symmetric across LIVE
+// and DLQ-terminaled event_consumption rows (N16: raw_payload_hash is CHAR(64)
+// NOT NULL).
+//
+// NOT symmetric with the quarantine arm: quarantine() (separate table
+// raw_message_quarantine) hashes the STORED bytes capped at
+// maxQuarantinePayloadBytes (1 MiB), so its raw_payload_hash is the fingerprint
+// of the possibly-truncated stored copy, NOT sha256(full original). Intentional
+// (DoS cap on unbounded poison payloads) and acceptable because quarantined
+// rows are unparseable and never matched against event_consumption rows.
 func FromPoisonMessage(m eventbus.PoisonMessage) reliable.DeliveryMeta {
 	sum := sha256.Sum256(m.Value)
 	return reliable.DeliveryMeta{

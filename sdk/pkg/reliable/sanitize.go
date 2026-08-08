@@ -42,7 +42,9 @@ var redactorPatterns = []*regexp.Regexp{
 	// R2：URL 编码 DSN——@ 被 %40 编码（跨服务 HTTP 回显常见），锚定字面 @ 的规则漏掉
 	regexp.MustCompile(`(?i)[A-Za-z0-9_.$]+:[A-Za-z0-9._\-+%]+%40`),
 	// DSN / 配置 key=value：password= / passwd= / pwd= / secret= / _auth=
-	regexp.MustCompile(`(?i)(password|passwd|pwd|secret|_auth)=[^;&\s"']+`),
+	// 值可为无引号、双引号或单引号：INI/YAML 回显的 password="x" / password='x' 也要脱敏——
+	// 原 [^;&\s"']+ 排除了引号，遇到引号开头的值连一个字符都匹配不到，整条 key=value 漏配。
+	regexp.MustCompile(`(?i)(password|passwd|pwd|secret|_auth)=([^;&\s"']+|"[^"]*"|'[^']*')`),
 
 	// 凭证头 / token（含空格分隔的 `Bearer <jwt>`）
 	regexp.MustCompile(`(?i)(authorization|bearer|token)[\s:=]+[A-Za-z0-9._+/=-]+(\s+[A-Za-z0-9._+/=-]+)?`),

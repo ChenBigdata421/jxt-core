@@ -2,7 +2,9 @@ package opsvc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
@@ -288,6 +290,52 @@ func TestList_RejectsMissingTenant(t *testing.T) {
 	}
 }
 
+// TestList_AllowlistProjection_DropsSensitiveFields（P2-1）：List 返回 Detail 白名单投影，
+// 结构上不含 ReplayAuthID（一次性人工重放 bearer）/ ReplayRequestedBy/ApprovedBy/Reason /
+// DiscardReason。即便底层行带这些字段，JSON 序列化（handler 的实际暴露面）也不得出现它们——
+// 钉住白名单契约，防未来把敏感字段加回 Detail 或回退到 store.Row 直接透出。
+func TestList_AllowlistProjection_DropsSensitiveFields(t *testing.T) {
+	r := newFakeResolver()
+	st, _, _ := r.addTenant(1)
+	st.listRows = []store.Row{{
+		ID: 99, TenantID: 1,
+		ClaimID:           "fencing-token-xyz",
+		ReplayAuthID:      "bearer-replay-token",
+		ReplayRequestedBy: "alice", ReplayApprovedBy: "bob", ReplayReason: "ops-reason",
+		DiscardReason: "sensitive-discard", Payload: []byte("payload-bytes"),
+	}}
+	svc, err := NewService(r, &fakeAuditor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.List(context.Background(), ListQuery{TenantID: 1, Limit: 5})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(res.Rows) != 1 || res.Rows[0].ID != 99 {
+		t.Fatalf("unexpected rows: %+v", res.Rows)
+	}
+	d := res.Rows[0]
+	// 门控字段恒 nil（List 无 includePayload）。
+	if d.Payload != nil || d.Headers != nil || d.RawKey != nil {
+		t.Fatalf("List must not release gated fields: %+v", d)
+	}
+	// 白名单：Detail 的 JSON 不得含敏感字段名或其值。
+	b, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(b)
+	for _, leak := range []string{
+		"fencing-token-xyz", "bearer-replay-token", "alice", "bob", "ops-reason", "sensitive-discard", "payload-bytes",
+		"ClaimID", "ReplayAuthID", "ReplayRequestedBy", "ReplayApprovedBy", "ReplayReason", "DiscardReason",
+	} {
+		if strings.Contains(js, leak) {
+			t.Fatalf("List leaked %q via Detail JSON: %s", leak, js)
+		}
+	}
+}
+
 func TestGetDetail_PayloadGateAndAudit(t *testing.T) {
 	r := newFakeResolver()
 	st, _, _ := r.addTenant(7)
@@ -492,12 +540,13 @@ func TestBatchReplay_PerRowResults_NoCrossRowTx(t *testing.T) {
 		{ID: 12, ExpectedRowVersion: 1, Requester: "a", Approver: "b"}, // sibling 冲突
 		{ID: 13, ExpectedRowVersion: 1, Requester: "x", Approver: "x"}, // D12
 		{ID: 14, ExpectedRowVersion: 1, Requester: "a", Approver: "b"}, // row_version mismatch
+		{ID: 15, ExpectedRowVersion: 1, Requester: "a", Approver: "b"}, // 硬错误（非冲突）
 	}})
 	if err != nil {
 		t.Fatalf("BatchReplay top-level error: %v", err)
 	}
-	if len(res.Results) != 4 {
-		t.Fatalf("want 4 results, got %d", len(res.Results))
+	if len(res.Results) != 5 {
+		t.Fatalf("want 5 results, got %d", len(res.Results))
 	}
 	expect := []struct {
 		id       int64
@@ -508,6 +557,7 @@ func TestBatchReplay_PerRowResults_NoCrossRowTx(t *testing.T) {
 		{12, false, true},
 		{13, false, true},
 		{14, false, true},
+		{15, false, false},
 	}
 	for i, e := range expect {
 		got := res.Results[i]
@@ -515,8 +565,27 @@ func TestBatchReplay_PerRowResults_NoCrossRowTx(t *testing.T) {
 			t.Fatalf("result[%d] = %+v, want %+v", i, got, e)
 		}
 	}
-	// 无跨行 tx：每行独立一次 txRunner（4 次），每次只包一行。
-	if perRowTx != 4 {
+	// P2-2：三态互斥（dto 约定）——Ok/Conflict/Err 互斥。
+	// 成功行（Conflict=false, Err=""）；冲突行（不填 Err，handler 凭 Conflict 优先判定）；
+	// 硬错误行（Conflict=false 且 Err 非空）。
+	for i, got := range res.Results {
+		switch {
+		case got.Ok:
+			if got.Conflict || got.Err != "" {
+				t.Fatalf("result[%d] Ok row must have Conflict=false and Err empty: %+v", i, got)
+			}
+		case got.Conflict:
+			if got.Err != "" {
+				t.Fatalf("result[%d] Conflict row must NOT populate Err (dto 三态互斥): %+v", i, got)
+			}
+		default:
+			if got.Err == "" {
+				t.Fatalf("result[%d] hard-error row must populate Err: %+v", i, got)
+			}
+		}
+	}
+	// 无跨行 tx：每行独立一次 txRunner（5 次），每次只包一行。
+	if perRowTx != 5 {
 		t.Fatalf("txRunner must be invoked once per row (no cross-row tx): got %d", perRowTx)
 	}
 }
@@ -538,6 +607,9 @@ func (d *dispatchStore) ScheduleReplay(ctx context.Context, db *gorm.DB, id, ver
 	}
 	if id == 14 {
 		return reliable.ErrConflict // row_version mismatch
+	}
+	if id == 15 {
+		return errors.New("boom: transient db error") // 硬错误（非 ConflictError）→ 走 else 分支填 Err
 	}
 	return nil
 }
