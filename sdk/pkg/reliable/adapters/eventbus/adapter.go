@@ -167,9 +167,9 @@ func (a *EventBusDLQAdapter) Send(ctx context.Context, msg eventbus.PoisonMessag
 		class = reliable.ClassPoison
 	}
 	// ⭐ P1 silent-loss fix (round-2 R1=A): NEVER terminalize a RETRYABLE cause.
-	// `RecordTerminal` HARDCODES `Status: StatusDeadLetter, Attempt: 1` and
-	// completely IGNORES the `class` argument (gormshared/mark.go — unlike
-	// `MarkFailed`, which routes via `OutcomeFor(class, safety)`). So passing
+	// `RecordTerminal` HARDCODES `Status: StatusDeadLetter, Attempt: 1` — it stores
+	// `class` for §10 attribution (gormshared/mark.go ErrorClass) but never ROUTES on
+	// it (unlike `MarkFailed`, which routes via `OutcomeFor(class, safety)`). So passing
 	// ClassRetryable here writes a DEAD_LETTER row on attempt 1 and returns nil →
 	// pipeline advances the frontier → ACK → the message is permanently lost,
 	// recoverable only by a human via the PR-7 ops API.

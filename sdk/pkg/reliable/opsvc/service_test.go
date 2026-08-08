@@ -552,17 +552,21 @@ func TestBatchReplay_PerRowResults_NoCrossRowTx(t *testing.T) {
 		id       int64
 		ok       bool
 		conflict bool
+		reason   string // 期望 ConflictReason（仅 Conflict 行有意义）
 	}{
-		{11, true, false},
-		{12, false, true},
-		{13, false, true},
-		{14, false, true},
-		{15, false, false},
+		{11, true, false, ""},
+		{12, false, true, conflictReasonSibling},
+		{13, false, true, conflictReasonD12},
+		{14, false, true, conflictReasonRowVersion},
+		{15, false, false, ""},
 	}
 	for i, e := range expect {
 		got := res.Results[i]
 		if got.ID != e.id || got.Ok != e.ok || got.Conflict != e.conflict {
 			t.Fatalf("result[%d] = %+v, want %+v", i, got, e)
+		}
+		if e.conflict && got.ConflictReason != e.reason {
+			t.Fatalf("result[%d] ConflictReason = %q, want %q", i, got.ConflictReason, e.reason)
 		}
 	}
 	// P2-2：三态互斥（dto 约定）——Ok/Conflict/Err 互斥。

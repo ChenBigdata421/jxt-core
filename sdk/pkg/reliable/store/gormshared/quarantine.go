@@ -3,6 +3,7 @@ package gormshared
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
@@ -52,6 +53,9 @@ func (q *GormQuarantineStore) Record(ctx context.Context, db *gorm.DB, row store
 }
 
 func (q *GormQuarantineStore) GetByID(ctx context.Context, tenantID int, id int64) (store.QuarantineRow, error) {
+	if tenantID <= 0 {
+		return store.QuarantineRow{}, fmt.Errorf("reliable: QuarantineStore.GetByID tenantID must be > 0 for multi-tenant isolation (S3)")
+	}
 	var m QuarantineModel
 	// review #1：强制 tenant 作用域——隔离区存的是不可解码的毒消息（最可能带 PII），绝不能跨租户裸读。
 	if err := q.db.WithContext(ctx).Where("id = ? AND tenant_id = ?", id, tenantID).First(&m).Error; err != nil {
@@ -61,6 +65,9 @@ func (q *GormQuarantineStore) GetByID(ctx context.Context, tenantID int, id int6
 }
 
 func (q *GormQuarantineStore) List(ctx context.Context, tenantID int, status string, limit int) ([]store.QuarantineRow, error) {
+	if tenantID <= 0 {
+		return nil, fmt.Errorf("reliable: QuarantineStore.List tenantID must be > 0 for multi-tenant isolation (S3)")
+	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -80,6 +87,9 @@ func (q *GormQuarantineStore) List(ctx context.Context, tenantID int, status str
 }
 
 func (q *GormQuarantineStore) MarkResolved(ctx context.Context, db *gorm.DB, tenantID int, id, expectedVersion int64, by string) error {
+	if tenantID <= 0 {
+		return fmt.Errorf("reliable: QuarantineStore.MarkResolved tenantID must be > 0 for multi-tenant isolation (S3)")
+	}
 	now := nowUTC()
 	// review #2：WHERE 含 tenant_id——跨租户凭泄露的 (id, version) 处置命中 0 行 → ErrConflict。
 	// 与 GetByID/List 同等级隔离；0 行同时覆盖「版本不匹配/已处置/租户不符」，不泄露 id 归属。

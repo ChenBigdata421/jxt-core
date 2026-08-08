@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -46,6 +47,7 @@ func RunConformance(t *testing.T, d *ConformanceDeps) {
 	t.Run("Count_PagingFree_TotalMatchesRows", func(t *testing.T) { confCount(t, d) })
 	t.Run("HasEarlierUnsolvedSibling_OrdersAggregateless", func(t *testing.T) { confHasEarlierUnsolvedSibling(t, d) })
 	t.Run("LargeRawKey_Persists_CrossDialect", func(t *testing.T) { confLargeRawKeyPersists(t, d) })
+	t.Run("LargeQuarantineRawKey_Persists_CrossDialect", func(t *testing.T) { confLargeQuarantineRawKeyPersists(t, d) })
 }
 
 func confFirstClaim(t *testing.T, d *ConformanceDeps) {
@@ -645,10 +647,29 @@ func confHasEarlierUnsolvedSibling(t *testing.T, d *ConformanceDeps) {
 // 分区卡死，而 PG（BYTEA 无界）不受影响。现两方均 LONGBLOB/BYTEA，本测钉住对等。
 func confLargeRawKeyPersists(t *testing.T, d *ConformanceDeps) {
 	in := newClaimInput(t, "bigkey")
-	in.Delivery.RawKey = bytes.Repeat([]byte("k"), 600) // > 512B（旧 MySQL VARBINARY 上限）
+	want := bytes.Repeat([]byte("k"), 600) // > 512B（旧 MySQL VARBINARY 上限）
+	in.Delivery.RawKey = want
 	tok, dec, err := d.Store.TryClaim(context.Background(), in, lease5)
 	require.NoError(t, err, "raw_key >512B must persist on both dialects (MySQL VARBINARY→LONGBLOB parity)")
 	assert.Equal(t, reliable.Claimed, dec)
 	assert.NotEmpty(t, tok)
 	assert.Equal(t, int64(1), rowCount(t, d, in.Key), "exactly one row persisted with the large key")
+	// byte-faithful round-trip：rowCount 只证明 INSERT 没失败（原 regression）；读回才能抓静默截断/字符集损坏。
+	fr := d.mustGetFullRow(t, in.Key)
+	require.Len(t, fr.RawKey, 600, "raw_key must round-trip 600B byte-faithful (no silent truncation)")
+	assert.True(t, bytes.Equal(fr.RawKey, want), "raw_key content must round-trip exactly")
+}
+
+// confLargeQuarantineRawKeyPersists：raw_message_quarantine.raw_key 同样从 VARBINARY(512)→LONGBLOB，
+// 且该列承载载荷（QuarantineStore.Record 写 RawKey；RecordTerminal 经 mark.go 写 RawKey）。TryClaim 用例
+// 只覆盖 event_consumption；本测钉住隔离区表的对等——否则隔离区侧的回归静默通过。
+func confLargeQuarantineRawKeyPersists(t *testing.T, d *ConformanceDeps) {
+	bigKey := bytes.Repeat([]byte("q"), 600) // > 512B
+	_, err := d.QStore.Record(context.Background(), d.DB, store.QuarantineRow{
+		TenantID: 1, HandlerID: reliable.HandlerID("test-handler"), Topic: "qt-bigkey",
+		SrcPartition: 99, SrcOffset: 1,
+		RawValue: []byte("v"), RawKey: bigKey,
+		RawPayloadHash: strings.Repeat("h", 64), Status: "QUARANTINED",
+	})
+	require.NoError(t, err, "quarantine raw_key >512B must persist on both dialects (mysql VARBINARY→LONGBLOB parity)")
 }

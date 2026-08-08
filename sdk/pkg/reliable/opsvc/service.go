@@ -236,9 +236,12 @@ func (s *Service) BatchReplay(ctx context.Context, r BatchReplayRequest) (BatchR
 		default:
 			var ce *ConflictError
 			if errors.As(err, &ce) {
-				// 三态互斥（dto 约定）：冲突行只置 Conflict，不填 Err——否则 handler 若先查 Err!=""
+				// 三态互斥（dto 约定）：冲突行只置 Conflict、不填 Err——否则 handler 若先查 Err!=""
 				// 会把常规可重试冲突（§6.2.1 sibling / CAS row_version / D12）误判成硬错误并回 500。
+				// ConflictReason 保留具体来源（与单行 ReplayOne 返回的 *ConflictError.Reason 对齐），
+				// 供 handler 填充 409 body——否则三种冲突坍缩成一个 opaque flag，操作者无从选择处置。
 				res.Conflict = true
+				res.ConflictReason = ce.Reason
 			} else {
 				res.Err = err.Error()
 			}

@@ -26,7 +26,9 @@ var redactorPatterns = []*regexp.Regexp{
 	// R2：URL 编码 DSN——@ 被 %40 编码（跨服务 HTTP 回显常见），锚定字面 @ 的规则漏掉
 	regexp.MustCompile(`(?i)[A-Za-z0-9_.$]+:[A-Za-z0-9._\-+%]+%40`),
 	// DSN / 配置 key=value：password= / passwd= / pwd= / secret= / _auth=
-	regexp.MustCompile(`(?i)(password|passwd|pwd|secret|_auth)=[^;&\s"']+`),
+	// 值可为无引号/双引号/单引号（与根 reliable.SanitizeForStorage 同源——INI/YAML 回显的
+	// password="x"/'x' 也要脱敏；原 [^;&\s"']+ 排除引号会漏配。两处 sanitize 必须同步此分支）。
+	regexp.MustCompile(`(?i)(password|passwd|pwd|secret|_auth)=([^;&\s"']+|"[^"]*"|'[^']*')`),
 
 	// 凭证头 / token（含空格分隔的 `Bearer <jwt>`）
 	regexp.MustCompile(`(?i)(authorization|bearer|token)[\s:=]+[A-Za-z0-9._+/=-]+(\s+[A-Za-z0-9._+/=-]+)?`),

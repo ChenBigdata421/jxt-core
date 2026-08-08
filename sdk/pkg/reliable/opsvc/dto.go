@@ -112,12 +112,15 @@ type BatchReplayRequest struct {
 }
 
 // BatchReplayRowResult 是 BatchReplay 单行结果。Ok / Conflict / Err 三态互斥：Ok=true 表示成功；
-// Conflict=true 表示该行命中 §6.2.1 门禁或 CAS 版本/D12 冲突（业务可重试）；其余错误进 Err。
+// Conflict=true 表示该行命中 §6.2.1 门禁或 CAS 版本/D12 冲突（业务可重试），ConflictReason 携带具体
+// 来源（§6.2.1 earlier-unsolved sibling / D12 / row_version mismatch）供 handler 填充 409 body——
+// 单行 ReplayOne 返回 *ConflictError（已带 Reason），批模式凭此字段补齐等价信息；其余错误进 Err。
 type BatchReplayRowResult struct {
-	ID       int64
-	Ok       bool
-	Conflict bool
-	Err      string
+	ID             int64
+	Ok             bool
+	Conflict       bool
+	ConflictReason string
+	Err            string
 }
 
 // BatchReplayResult 是 BatchReplay 的返回。Results 与入参 Items 一一对应、同序。
