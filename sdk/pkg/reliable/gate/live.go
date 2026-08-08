@@ -68,6 +68,20 @@ func AssertMaxAttemptsSymmetry(handlerMax, schedulerMax int) error {
 // applied_partition / applied_offset + conditional update). Two traps: NULL on legacy rows
 // must PASS the guard, and offsets are only comparable within one (topic, partition).
 //
+// Intentional release-error swallow (asymmetry vs replay):
+//
+// `defer release()` discards the release closure's error return — this is deliberate, NOT a
+// bug to "fix" by surfacing it. fn() has already returned nil (success) by the time release
+// runs; if RunLive then returned the release error, the caller would treat a successfully-
+// handled event as a failure and re-deliver an already-applied event — replay CAN surface
+// this error (it raises REPLAY_GATE_RELEASE_FAILED, see Acquire's doc) because replay's
+// failure semantics permit re-processing, but live cannot. The leaked-gate-row consequence
+// is bounded: a failed release (e.g. DB unreachable during the independent-ctx release)
+// leaves the gate row held until its TTL, after which ReclaimExpiredAggregateGates reclaims
+// it and same-aggregate live traffic spins/parks for at most that TTL window. If live-path
+// release-failure observability is later wanted, the extension is an OPTIONAL alerter-shaped
+// callback param on RunLive (default nil) — NOT returning the release error.
+//
 // v1.7.4 compensation note:
 //
 // Returning ErrRetryLater is no longer silent loss on the reliable path (v1.7.4's core DLQ
