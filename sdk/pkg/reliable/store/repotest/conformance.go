@@ -1,6 +1,7 @@
 package repotest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -44,6 +45,7 @@ func RunConformance(t *testing.T, d *ConformanceDeps) {
 	t.Run("ListAnomalies_TenantKindTime_OrderedDesc", func(t *testing.T) { confListAnomalies(t, d) })
 	t.Run("Count_PagingFree_TotalMatchesRows", func(t *testing.T) { confCount(t, d) })
 	t.Run("HasEarlierUnsolvedSibling_OrdersAggregateless", func(t *testing.T) { confHasEarlierUnsolvedSibling(t, d) })
+	t.Run("LargeRawKey_Persists_CrossDialect", func(t *testing.T) { confLargeRawKeyPersists(t, d) })
 }
 
 func confFirstClaim(t *testing.T, d *ConformanceDeps) {
@@ -636,4 +638,17 @@ func confHasEarlierUnsolvedSibling(t *testing.T, d *ConformanceDeps) {
 	hasAggLess, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, aggLessID)
 	require.NoError(t, err)
 	assert.False(t, hasAggLess, "aggregate-less row is never blocked (notification-type, free parallelism)")
+}
+
+// confLargeRawKeyPersists（cross-dialect parity）：TryClaim 带 >512B 的 raw_key 必须在两方言都落库。
+// 回归 mysql raw_key 曾为 VARBINARY(512) —— >512B 的 Kafka key 在 MySQL 严格模式下 INSERT 失败、
+// 分区卡死，而 PG（BYTEA 无界）不受影响。现两方均 LONGBLOB/BYTEA，本测钉住对等。
+func confLargeRawKeyPersists(t *testing.T, d *ConformanceDeps) {
+	in := newClaimInput(t, "bigkey")
+	in.Delivery.RawKey = bytes.Repeat([]byte("k"), 600) // > 512B（旧 MySQL VARBINARY 上限）
+	tok, dec, err := d.Store.TryClaim(context.Background(), in, lease5)
+	require.NoError(t, err, "raw_key >512B must persist on both dialects (MySQL VARBINARY→LONGBLOB parity)")
+	assert.Equal(t, reliable.Claimed, dec)
+	assert.NotEmpty(t, tok)
+	assert.Equal(t, int64(1), rowCount(t, d, in.Key), "exactly one row persisted with the large key")
 }

@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   replay_auth_id CHAR(36),
   replay_auth_consumed_at DATETIME(3),
   payload        LONGBLOB,
-  raw_key        VARBINARY(512),
+  raw_key        LONGBLOB,  -- 与 PG BYTEA 对等（曾 VARBINARY(512) 致 >512B Kafka key 在严格模式 INSERT 失败 → 卡分区；PG 无界不受影响）
   headers        JSON,
   src_partition  INT,
   src_offset     BIGINT,
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   src_partition INT NOT NULL,
   src_offset BIGINT NOT NULL,
   raw_value LONGBLOB NOT NULL,
-  raw_key VARBINARY(512),
+  raw_key LONGBLOB,  -- 与 PG BYTEA 对等（同 event_consumption.raw_key）
   headers JSON NOT NULL,
   raw_payload_hash CHAR(64) NOT NULL,
   broker_timestamp DATETIME(3),
