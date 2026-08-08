@@ -348,3 +348,45 @@ func TestEventBusDLQAdapter_NilLogSinkDoesNotPanic(t *testing.T) {
 		t.Fatalf("retryable must fail closed")
 	}
 }
+
+// (i) FromPoisonMessage — the DLQSender-input -> DeliveryMeta converter — must round-trip
+// every scalar field, RawKey, the broker Timestamp (-> BrokerTimestamp), and the ordered
+// duplicate-permitting header slice, AND compute PayloadHash == sha256(Value). This hash
+// matches the LIVE path (FromRawMeta <- RawMeta.PayloadHash), so the integrity fingerprint is
+// symmetric across LIVE and DLQ-terminaled event_consumption rows. It is NOT symmetric with
+// the quarantine arm — quarantine() hashes the 1MiB-capped stored bytes (separate table,
+// unparseable poison), so do NOT assert cross-table hash equality here. Pinning the
+// event_consumption symmetry guards against a silent divergence between the two independent
+// sha256 sites (N16: raw_payload_hash is CHAR(64) NOT NULL). Ports the file-storage
+// direct test deleted in the PR-2 dedup; FromPoisonMessage was previously only exercised
+// indirectly via Send, with no assertion on its output.
+func TestFromPoisonMessage_PreservesFieldsAndPayloadHash(t *testing.T) {
+	ts := time.UnixMilli(1700000000001)
+	value := []byte("poison-bytes")
+	m := eventbus.PoisonMessage{
+		Topic: "file-storage.file.events", Partition: 7, Offset: 42,
+		Key: []byte("rk"), Timestamp: ts, Value: value,
+		Headers: []eventbus.MessageHeader{
+			{Key: "h", Value: []byte("1")},
+			{Key: "h", Value: []byte("2")}, // duplicate key — order + dups must survive (C1/C6)
+		},
+	}
+	dm := eventbusdlq.FromPoisonMessage(m)
+
+	if dm.Topic != m.Topic || dm.Partition != 7 || dm.Offset != 42 {
+		t.Fatalf("scalar fields not preserved: %+v", dm)
+	}
+	if string(dm.RawKey) != "rk" {
+		t.Fatalf("RawKey not preserved: %q", dm.RawKey)
+	}
+	if dm.BrokerTimestamp != ts {
+		t.Fatalf("BrokerTimestamp not preserved: %v", dm.BrokerTimestamp)
+	}
+	sum := sha256.Sum256(value)
+	if want := hex.EncodeToString(sum[:]); dm.PayloadHash != want {
+		t.Fatalf("PayloadHash must be sha256(Value) (symmetric with the LIVE path / event_consumption rows; NOT the capped quarantine arm), want %q got %q", want, dm.PayloadHash)
+	}
+	if len(dm.Headers) != 2 || dm.Headers[0].Key != "h" || string(dm.Headers[1].Value) != "2" {
+		t.Fatalf("ordered duplicate headers not preserved: %+v", dm.Headers)
+	}
+}
