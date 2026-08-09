@@ -5,7 +5,7 @@
 // 各 caller 自决。helper 只负责「抢到 gate 就保证释放」这条机制。
 //
 // 为什么独立成包（而非放进根 reliable 包）：store 依赖 reliable（类型定义在根包），若 reliable 反过来
-// 直接持有 acquire/release 逻辑就会 import store → 成环。本包作为叶子，可同时 import reliable 与 store，
+// 直接持有 acquire/release 逻辑就会 import store → 成环。本包作为叶子，只依赖 reliable 与窄 Store 协议，
 // 给根包留出无环的 import 图（J2/cycle 不变量，见 gates_test.go 的 TestGate_RootPackageNoCycleImports）。
 package gate
 
@@ -15,9 +15,15 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"gorm.io/gorm"
 )
+
+var ErrInvalidLeaseTTL = errors.New("reliable/gate: lease TTL must be positive")
+
+type aggregateGateStore interface {
+	AcquireAggregateGate(context.Context, *gorm.DB, reliable.AggregateGateKey, string, time.Duration) (string, error)
+	ReleaseAggregateGate(context.Context, *gorm.DB, string) error
+}
 
 // ReleaseTimeout 是释放 aggregate gate 用的独立 ctx 超时。release 是纯清理，**不得继承业务 ctx**——
 // tickTimeout fire / 上层取消时业务 ctx 已 done，ReleaseAggregateGate 的 DELETE 会随 ctx 失败 →
@@ -43,12 +49,15 @@ const ReleaseTimeout = 3 * time.Second
 // （replay: IncReplayBlocked+skip；live: MarkFailed(retryable)+ACK），后者走错误处理。
 //
 // helper 不决定 MarkFailed(retryable) 这类策略，那是 caller 的职责（见包注释）。
-func Acquire(ctx context.Context, st store.Store, db *gorm.DB, key reliable.AggregateGateKey,
+func Acquire(ctx context.Context, st aggregateGateStore, db *gorm.DB, key reliable.AggregateGateKey,
 	holder string, ttl time.Duration) (release func() error, err error) {
 
 	// 空聚合身份（通知类事件，无串行约束）→ 跳过 gate。返回 no-op release 保证 caller 的 defer 安全。
 	if key.Empty() {
 		return func() error { return nil }, nil
+	}
+	if ttl <= 0 {
+		return nil, ErrInvalidLeaseTTL
 	}
 
 	token, gerr := st.AcquireAggregateGate(ctx, db, key, holder, ttl)
