@@ -308,3 +308,42 @@ func TestRunLive_APIGuard_F11(t *testing.T) {
 	// discipline + this comment. Go cannot negatively assert symbol absence; deliberately do
 	// NOT over-engineer a reflection test for it.
 }
+
+// (panic) fn panics while holding the gate → release MUST still run during the defer unwind.
+// This is the package's core guarantee ("acquired → release always runs"); a refactor that
+// moved release off a defer would leak the gate on panic and only this test would catch it.
+func TestRunLive_PanicInFn_ReleaseStillRuns(t *testing.T) {
+	fs := &liveFakeStore{}
+	fr := &failRecorder{}
+	spin := []time.Duration{50 * time.Millisecond}
+
+	var rec any
+	func() {
+		defer func() { rec = recover() }()
+		_ = RunLive(context.Background(), fs, nil, nonEmptyKey(), "h", time.Minute, spin, fr.fn, func() error {
+			panic("boom")
+		})
+	}()
+
+	require.Equal(t, "boom", rec, "panic must propagate unchanged through RunLive")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.acquireCalls), "exactly one acquire")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.releaseCalls), "release must run during panic unwind")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fr.calls), "fail must not be called on the fn path")
+}
+
+// jittered invariant: never returns less than d (additive jitter only) and d<=0 passes through
+// unchanged (the early-return branch). Guards against a subtractive-jitter regression that the
+// timing-based spin tests would not reliably catch.
+func TestJittered_NeverShortensDelay_AndZeroNegativePassThrough(t *testing.T) {
+	assert.Equal(t, time.Duration(0), jittered(0))
+	assert.Equal(t, -5*time.Millisecond, jittered(-5*time.Millisecond))
+
+	for _, d := range []time.Duration{1, time.Millisecond, 20 * time.Millisecond, time.Second} {
+		upper := d + d/4
+		for i := 0; i < 1000; i++ {
+			j := jittered(d)
+			assert.GreaterOrEqual(t, j, d, "jitter must never shorten the delay")
+			assert.LessOrEqual(t, j, upper, "jitter upper bound is d + d/4")
+		}
+	}
+}

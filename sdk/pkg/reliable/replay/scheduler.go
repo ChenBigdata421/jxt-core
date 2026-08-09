@@ -164,7 +164,7 @@ func (s *Scheduler) processOne(ctx context.Context, row store.Row) {
 		defer func() {
 			if err := release(); err != nil {
 				s.alerter.AlertAnomaly("REPLAY_GATE_RELEASE_FAILED", row.HandlerID,
-					fmt.Sprintf("ReleaseAggregateGate: %v (gate lingers until TTL — verify reclaim sweeper)", err))
+					fmt.Sprintf("ReleaseAggregateGate: %v (gate lingers until TTL — reclaimed lazily by the next acquire's CAS; no periodic reclaim sweeper is wired)", err))
 			}
 		}()
 	}

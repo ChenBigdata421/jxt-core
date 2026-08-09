@@ -71,16 +71,19 @@ func AssertMaxAttemptsSymmetry(handlerMax, schedulerMax int) error {
 // Intentional release-error swallow (asymmetry vs replay):
 //
 // `defer release()` discards the release closure's error return — this is deliberate, NOT a
-// bug to "fix" by surfacing it. fn() has already returned nil (success) by the time release
-// runs; if RunLive then returned the release error, the caller would treat a successfully-
-// handled event as a failure and re-deliver an already-applied event — replay CAN surface
-// this error (it raises REPLAY_GATE_RELEASE_FAILED, see Acquire's doc) because replay's
-// failure semantics permit re-processing, but live cannot. The leaked-gate-row consequence
-// is bounded: a failed release (e.g. DB unreachable during the independent-ctx release)
-// leaves the gate row held until its TTL, after which ReclaimExpiredAggregateGates reclaims
-// it and same-aggregate live traffic spins/parks for at most that TTL window. If live-path
-// release-failure observability is later wanted, the extension is an OPTIONAL alerter-shaped
-// callback param on RunLive (default nil) — NOT returning the release error.
+// bug to "fix" by surfacing it. fn() has already returned (whether nil/success OR a business
+// error) by the time release runs; if RunLive then returned the release error it would corrupt
+// its own return either way — on success the caller would treat a successfully-handled event as
+// a failure and re-deliver an already-applied event, on fn-error it would mask fn's business
+// error. Replay CAN surface this error (it raises REPLAY_GATE_RELEASE_FAILED, see Acquire's
+// doc) because replay's failure semantics permit re-processing, but live cannot. The leaked-
+// gate-row consequence is bounded: a failed release (e.g. DB unreachable during the
+// independent-ctx release) leaves the gate row held until its TTL; reclamation is then LAZY —
+// AcquireAggregateGate's step-1 CAS overwrites the expired row on the next same-key acquire
+// (ReclaimExpiredAggregateGates exists as an active DELETE sweep but is NOT currently wired
+// into any periodic tick), so same-aggregate live traffic spins/parks for at most that TTL
+// window. If live-path release-failure observability is later wanted, the extension is an
+// OPTIONAL alerter-shaped callback param on RunLive (default nil) — NOT returning the release error.
 //
 // v1.7.4 compensation note:
 //
