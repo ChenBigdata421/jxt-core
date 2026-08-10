@@ -9,13 +9,6 @@ import (
 )
 
 func TestMemory_Get(t *testing.T) {
-	type fields struct {
-		items   *sync.Map
-		queue   *sync.Map
-		wait    sync.WaitGroup
-		mutex   sync.RWMutex
-		PoolNum uint
-	}
 	type args struct {
 		key    string
 		value  string
@@ -23,13 +16,12 @@ func TestMemory_Get(t *testing.T) {
 	}
 	tests := []struct {
 		name    string
-		fields  fields
 		args    args
 		want    string
 		wantErr bool
 	}{
-		{"test01", fields{}, args{key: "test", value: "test", expire: 10}, "test", false},
-		{"test02", fields{}, args{key: "test", value: "test1", expire: 1}, "", false},
+		{"test01", args{key: "test", value: "test", expire: 10}, "test", false},
+		{"test02", args{key: "test", value: "test1", expire: 1}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

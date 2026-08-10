@@ -60,7 +60,6 @@ func (m MapClaims) String(key string) string {
 	case string:
 		return value.(string)
 	default:
-		fmt.Errorf("maptoclaims key to string invalid value '%v' type '%T' key %v", value, value, key)
 		return ""
 	}
 }

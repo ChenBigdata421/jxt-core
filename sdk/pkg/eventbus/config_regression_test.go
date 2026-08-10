@@ -395,8 +395,11 @@ func TestConvertUserConfigToInternalKafkaConfig(t *testing.T) {
 
 func TestNewKafkaEventBusWithInternalConfig(t *testing.T) {
 	// 创建一个完整的程序员配置层配置
+	// 注意：broker 用死端口 localhost:1（同 TestNewKafkaEventBus_PipelineValidationBeforeDial 的约定），
+	// 保证 NewKafkaEventBus 在任何环境下都因拨号失败而快速返回——避免当 :9092 真有 broker
+	// （如 jxt-redpanda）时，幂等 producer 卡在 InitProducerID 导致测试 hang。
 	internalConfig := &KafkaConfig{
-		Brokers: []string{"localhost:9092"},
+		Brokers: []string{"localhost:1"},
 		Producer: ProducerConfig{
 			RequiredAcks:    -1, // WaitForAll for idempotent producer
 			FlushFrequency:  100 * time.Millisecond,

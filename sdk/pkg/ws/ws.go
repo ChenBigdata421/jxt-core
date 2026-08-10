@@ -286,6 +286,7 @@ func (manager *Manager) WsClient(c *gin.Context) {
 
 	conn, err := upGrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		cancel()
 		log.Printf("websocket connect error: %s", c.Param("channel"))
 		return
 	}
