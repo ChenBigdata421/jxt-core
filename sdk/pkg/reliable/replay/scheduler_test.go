@@ -214,6 +214,19 @@ func TestScheduler_GateAcquiredBeforeClaim_NoSideEffectOnGateMiss(t *testing.T) 
 	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.moveToDL))
 }
 
+func TestScheduler_InvalidGateTTL_AlertsAndSkips(t *testing.T) {
+	fs := &schedulerFakeStore{heads: []store.Row{retryHead(13)}, claimTok: "tok"}
+	reg := fakeRegistry{h: &fakeHandler{id: "h"}, needGate: true}
+	al := &recordingAlerter{}
+	sch := NewScheduler(fs, nil, reg, nil, al, WithGateTTL(0))
+
+	_ = sch.Tick(context.Background())
+
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.gateCalls), "invalid ttl must not reach the store")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.claimCalls), "invalid ttl must not claim")
+	assert.True(t, al.has("REPLAY_GATE_CONFIG_INVALID"), "invalid gate configuration must be observable")
+}
+
 // 准入 ⑬：CanAutoReplay=false 的 head 行（RETRY_SCHEDULED）必须真被移出自动队列。
 // 原稿 MoveToDeadLetter 只匹配 PROCESSING，这里恒 0 行 → 每周期重取同一行（空转）。
 func TestScheduler_NotPermitted_MovesRetryScheduledRowOut(t *testing.T) {

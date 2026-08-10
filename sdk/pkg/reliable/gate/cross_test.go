@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -67,15 +66,10 @@ func newSharedState() *sharedGateState {
 	}
 }
 
-// crossFakeStore implements store.Store. Only AcquireAggregateGate / ReleaseAggregateGate
-// have real semantics; the rest are interface-completeness no-op stubs mirroring
-// gateFakeStore (gate_test.go) and liveFakeStore (live_test.go).
-//
 // Two crossFakeStore values constructed against the SAME *sharedGateState model two
 // instances sharing one PG. Token uniqueness comes from the shared monotonic counter
 // (tokenSeq), so two distinct holders can never collide — mirroring the real
 // holder+uuid scheme (D18#7).
-var _ store.Store = (*crossFakeStore)(nil)
 
 type crossFakeStore struct {
 	state *sharedGateState
@@ -136,62 +130,6 @@ func (s *crossFakeStore) ReleaseAggregateGate(ctx context.Context, _ *gorm.DB, t
 		return ctx.Err()
 	}
 	return nil
-}
-
-// —— interface-completeness no-op stubs (mirror gateFakeStore in gate_test.go) ——
-func (s *crossFakeStore) TryClaim(context.Context, reliable.ClaimInput, time.Duration) (reliable.ClaimToken, reliable.Decision, error) {
-	return "", 0, nil
-}
-func (s *crossFakeStore) MarkSucceeded(context.Context, *gorm.DB, reliable.Key, reliable.ClaimToken) error {
-	return nil
-}
-func (s *crossFakeStore) MarkFailed(context.Context, *gorm.DB, reliable.Key, reliable.ClaimToken, reliable.ErrorClass, reliable.ReplaySafety, int, error, []byte) error {
-	return nil
-}
-func (s *crossFakeStore) RecordTerminal(context.Context, *gorm.DB, reliable.ClaimInput, reliable.ErrorClass, error, []byte) error {
-	return nil
-}
-func (s *crossFakeStore) ObserveExpiredLeases(context.Context, time.Time) (int, error) {
-	return 0, nil
-}
-func (s *crossFakeStore) FindEligibleHeads(context.Context, time.Time, int) ([]store.Row, error) {
-	return nil, nil
-}
-func (s *crossFakeStore) ClaimForReplay(context.Context, *gorm.DB, int64) (reliable.ClaimToken, store.Row, error) {
-	return "", store.Row{}, nil
-}
-func (s *crossFakeStore) ReleaseClaim(context.Context, *gorm.DB, int64, reliable.ClaimToken) error {
-	return nil
-}
-func (s *crossFakeStore) AdvanceDue(context.Context, *gorm.DB, int64) error               { return nil }
-func (s *crossFakeStore) MoveToDeadLetter(context.Context, *gorm.DB, int64, string) error { return nil }
-func (s *crossFakeStore) MoveToDeadLetterWithToken(context.Context, *gorm.DB, int64, reliable.ClaimToken, reliable.ErrorClass, string) error {
-	return nil
-}
-func (s *crossFakeStore) ScheduleReplay(context.Context, *gorm.DB, int64, int64, string, string, string) error {
-	return nil
-}
-func (s *crossFakeStore) Discard(context.Context, *gorm.DB, int64, int64, string, string) error {
-	return nil
-}
-func (s *crossFakeStore) ReclaimExpiredAggregateGates(context.Context, time.Time) (int, error) {
-	return 0, nil
-}
-func (s *crossFakeStore) RecordAnomaly(context.Context, *gorm.DB, int, string, reliable.Key, string, string) error {
-	return nil
-}
-func (s *crossFakeStore) GetByID(context.Context, int, int64) (store.Row, error) {
-	return store.Row{}, nil
-}
-func (s *crossFakeStore) List(context.Context, store.ListFilter) ([]store.Row, error) {
-	return nil, nil
-}
-func (s *crossFakeStore) ListAnomalies(context.Context, store.AnomalyFilter) ([]store.AnomalyRow, error) {
-	return nil, nil
-}
-func (s *crossFakeStore) Count(context.Context, store.CountFilter) (int64, error) { return 0, nil }
-func (s *crossFakeStore) HasEarlierUnsolvedSibling(context.Context, *gorm.DB, int64) (bool, error) {
-	return false, nil
 }
 
 // crossKey builds a non-empty aggregate key with a distinguishing suffix.

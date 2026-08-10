@@ -152,6 +152,10 @@ func (s *Scheduler) processOne(ctx context.Context, row store.Row) {
 		release, gerr := gate.Acquire(ctx, s.store, s.db, aggregateKeyOf(row),
 			fmt.Sprintf("replay-%d", row.ID), s.gateTTL)
 		if gerr != nil {
+			if errors.Is(gerr, gate.ErrInvalidLeaseTTL) {
+				s.alerter.AlertAnomaly("REPLAY_GATE_CONFIG_INVALID", row.HandlerID, gerr.Error())
+				return
+			}
 			// 让路：整行不动，attempt 不增，下一周期重试（准入 ⑬）。
 			// gate.IsContention(gerr) == true 表示他人持租约（本 fake/真路径都透传 ErrRetryLater）；
 			// scheduler 对 contention 与真 DB 失败一视同仁地让路（都不推进 claim），故不在此分支区分。

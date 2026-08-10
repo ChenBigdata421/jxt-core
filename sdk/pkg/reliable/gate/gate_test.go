@@ -8,18 +8,15 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
-// gateFakeStore 实现 store.Store，只对 AcquireAggregateGate / ReleaseAggregateGate 有意义；
-// 其余方法 no-op 仅满足接口（编译期断言钉住完整性，镜像 replay/scheduler_test.go 的 fake 形态）。
+// gateFakeStore implements the gate package's narrow acquire/release dependency.
 //
 // ReleaseAggregateGate 在调用瞬间快照 ctx 是否存活——不能事后查 ctx：release 闭包返回后独立 ctx
 // 立刻被 relCancel() 取消，事后查必为 canceled 而误报。模拟真实 GORM：ctx 已取消 → DELETE 立即失败。
-var _ store.Store = (*gateFakeStore)(nil)
 
 type gateFakeStore struct {
 	acquireCalls      int32
@@ -55,62 +52,6 @@ func (s *gateFakeStore) ReleaseAggregateGate(ctx context.Context, _ *gorm.DB, to
 		return s.releaseErr
 	}
 	return nil
-}
-
-// —— 以下为接口完整性 no-op stub ——
-func (s *gateFakeStore) TryClaim(context.Context, reliable.ClaimInput, time.Duration) (reliable.ClaimToken, reliable.Decision, error) {
-	return "", 0, nil
-}
-func (s *gateFakeStore) MarkSucceeded(context.Context, *gorm.DB, reliable.Key, reliable.ClaimToken) error {
-	return nil
-}
-func (s *gateFakeStore) MarkFailed(context.Context, *gorm.DB, reliable.Key, reliable.ClaimToken, reliable.ErrorClass, reliable.ReplaySafety, int, error, []byte) error {
-	return nil
-}
-func (s *gateFakeStore) RecordTerminal(context.Context, *gorm.DB, reliable.ClaimInput, reliable.ErrorClass, error, []byte) error {
-	return nil
-}
-func (s *gateFakeStore) ObserveExpiredLeases(context.Context, time.Time) (int, error) {
-	return 0, nil
-}
-func (s *gateFakeStore) FindEligibleHeads(context.Context, time.Time, int) ([]store.Row, error) {
-	return nil, nil
-}
-func (s *gateFakeStore) ClaimForReplay(context.Context, *gorm.DB, int64) (reliable.ClaimToken, store.Row, error) {
-	return "", store.Row{}, nil
-}
-func (s *gateFakeStore) ReleaseClaim(context.Context, *gorm.DB, int64, reliable.ClaimToken) error {
-	return nil
-}
-func (s *gateFakeStore) AdvanceDue(context.Context, *gorm.DB, int64) error               { return nil }
-func (s *gateFakeStore) MoveToDeadLetter(context.Context, *gorm.DB, int64, string) error { return nil }
-func (s *gateFakeStore) MoveToDeadLetterWithToken(context.Context, *gorm.DB, int64, reliable.ClaimToken, reliable.ErrorClass, string) error {
-	return nil
-}
-func (s *gateFakeStore) ScheduleReplay(context.Context, *gorm.DB, int64, int64, string, string, string) error {
-	return nil
-}
-func (s *gateFakeStore) Discard(context.Context, *gorm.DB, int64, int64, string, string) error {
-	return nil
-}
-func (s *gateFakeStore) ReclaimExpiredAggregateGates(context.Context, time.Time) (int, error) {
-	return 0, nil
-}
-func (s *gateFakeStore) RecordAnomaly(context.Context, *gorm.DB, int, string, reliable.Key, string, string) error {
-	return nil
-}
-func (s *gateFakeStore) GetByID(context.Context, int, int64) (store.Row, error) {
-	return store.Row{}, nil
-}
-func (s *gateFakeStore) List(context.Context, store.ListFilter) ([]store.Row, error) {
-	return nil, nil
-}
-func (s *gateFakeStore) ListAnomalies(context.Context, store.AnomalyFilter) ([]store.AnomalyRow, error) {
-	return nil, nil
-}
-func (s *gateFakeStore) Count(context.Context, store.CountFilter) (int64, error) { return 0, nil }
-func (s *gateFakeStore) HasEarlierUnsolvedSibling(context.Context, *gorm.DB, int64) (bool, error) {
-	return false, nil
 }
 
 func nonEmptyKey() reliable.AggregateGateKey {
@@ -184,6 +125,17 @@ func TestGate_EmptyKey_NoopRelease(t *testing.T) {
 
 	assert.NoError(t, release(), "no-op release returns nil")
 	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.releaseCalls), "no-op release must NOT call ReleaseAggregateGate")
+}
+
+func TestGate_AcquireRejectsNonPositiveTTL(t *testing.T) {
+	for _, ttl := range []time.Duration{0, -time.Second} {
+		fs := &gateFakeStore{}
+		release, err := Acquire(context.Background(), fs, nil, nonEmptyKey(), "h", ttl)
+
+		require.ErrorIs(t, err, ErrInvalidLeaseTTL, "ttl=%s must be rejected", ttl)
+		assert.Nil(t, release)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&fs.acquireCalls), "invalid ttl must not reach the store")
+	}
 }
 
 // (e) acquire 失败 → 返回 (nil, err)：caller 不持有 release，无需 defer。

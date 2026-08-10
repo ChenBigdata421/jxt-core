@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"gorm.io/gorm"
 )
 
@@ -24,6 +23,8 @@ type MarkFailedFn func(class reliable.ErrorClass, cause error) error
 // first contention). This default is a convenience var, NOT baked into RunLive's behaviour —
 // the caller's choice to spin or not is load-bearing and must stay explicit.
 var DefaultSpinDelays = []time.Duration{20 * time.Millisecond, 40 * time.Millisecond, 80 * time.Millisecond}
+
+var ErrInvalidSpinDelay = fmt.Errorf("reliable/gate: spin delays must be positive")
 
 // AssertMaxAttemptsSymmetry is the startup check adopters call to guarantee the live
 // handler's MarkFailed budget equals the replay scheduler's budget (F11). It returns nil
@@ -55,7 +56,7 @@ func AssertMaxAttemptsSymmetry(handlerMax, schedulerMax int) error {
 //     if a retry wins, proceed as acquired. If every spin loses → fail(ClassRetryable)+ACK
 //     (return nil) — F1: never ErrRetryLater.
 //   - Real DB error (not contention) → no spin → fail(ClassRetryable)+ACK — F9.
-//   - spinDelays nil/empty → park on the first contention (no spin).
+//   - spinDelays nil/empty → park on the first contention (no spin); a gated path rejects non-positive entries with ErrInvalidSpinDelay.
 //   - If fail itself returns a non-nil error, it is surfaced (never ACK on a failed
 //     MarkFailed — otherwise the row stays PROCESSING and the helper ACKs = silent loss).
 //
@@ -91,7 +92,7 @@ func AssertMaxAttemptsSymmetry(handlerMax, schedulerMax int) error {
 // adapter fail-closes retryable causes → partition-block + redelivery), but this helper's
 // contract — MarkFailed(retryable)+ACK on gate-busy, never ErrRetryLater — is still
 // preferable because it parks ONE row instead of stalling the whole partition.
-func RunLive(ctx context.Context, st store.Store, db *gorm.DB, key reliable.AggregateGateKey,
+func RunLive(ctx context.Context, st aggregateGateStore, db *gorm.DB, key reliable.AggregateGateKey,
 	holder string, ttl time.Duration, spinDelays []time.Duration,
 	fail MarkFailedFn, fn func() error) error {
 
@@ -99,6 +100,14 @@ func RunLive(ctx context.Context, st store.Store, db *gorm.DB, key reliable.Aggr
 	// gate entirely: no acquire, no fail, just run the business function.
 	if key.Empty() {
 		return fn()
+	}
+	if ttl <= 0 {
+		return ErrInvalidLeaseTTL
+	}
+	for _, delay := range spinDelays {
+		if delay <= 0 {
+			return ErrInvalidSpinDelay
+		}
 	}
 
 	for i := 0; ; i++ {

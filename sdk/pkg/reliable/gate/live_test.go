@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
-	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -22,7 +21,6 @@ import (
 // ReleaseAggregateGate snapshots whether its ctx is alive at call time — mirroring real
 // GORM where a canceled ctx makes the DELETE fail immediately (cannot check after the
 // release closure returns: it cancels its own independent ctx on the way out).
-var _ store.Store = (*liveFakeStore)(nil)
 
 type liveFakeStore struct {
 	acquireCalls    int32
@@ -47,64 +45,6 @@ func (s *liveFakeStore) ReleaseAggregateGate(ctx context.Context, _ *gorm.DB, _ 
 		return err
 	}
 	return s.releaseErr
-}
-
-// —— interface-completeness no-op stubs (mirror gateFakeStore in gate_test.go) ——
-func (s *liveFakeStore) TryClaim(context.Context, reliable.ClaimInput, time.Duration) (reliable.ClaimToken, reliable.Decision, error) {
-	return "", 0, nil
-}
-func (s *liveFakeStore) MarkSucceeded(context.Context, *gorm.DB, reliable.Key, reliable.ClaimToken) error {
-	return nil
-}
-func (s *liveFakeStore) MarkFailed(context.Context, *gorm.DB, reliable.Key, reliable.ClaimToken, reliable.ErrorClass, reliable.ReplaySafety, int, error, []byte) error {
-	return nil
-}
-func (s *liveFakeStore) RecordTerminal(context.Context, *gorm.DB, reliable.ClaimInput, reliable.ErrorClass, error, []byte) error {
-	return nil
-}
-func (s *liveFakeStore) ObserveExpiredLeases(context.Context, time.Time) (int, error) {
-	return 0, nil
-}
-func (s *liveFakeStore) FindEligibleHeads(context.Context, time.Time, int) ([]store.Row, error) {
-	return nil, nil
-}
-func (s *liveFakeStore) ClaimForReplay(context.Context, *gorm.DB, int64) (reliable.ClaimToken, store.Row, error) {
-	return "", store.Row{}, nil
-}
-func (s *liveFakeStore) ReleaseClaim(context.Context, *gorm.DB, int64, reliable.ClaimToken) error {
-	return nil
-}
-func (s *liveFakeStore) AdvanceDue(context.Context, *gorm.DB, int64) error { return nil }
-func (s *liveFakeStore) MoveToDeadLetter(context.Context, *gorm.DB, int64, string) error {
-	return nil
-}
-func (s *liveFakeStore) MoveToDeadLetterWithToken(context.Context, *gorm.DB, int64, reliable.ClaimToken, reliable.ErrorClass, string) error {
-	return nil
-}
-func (s *liveFakeStore) ScheduleReplay(context.Context, *gorm.DB, int64, int64, string, string, string) error {
-	return nil
-}
-func (s *liveFakeStore) Discard(context.Context, *gorm.DB, int64, int64, string, string) error {
-	return nil
-}
-func (s *liveFakeStore) ReclaimExpiredAggregateGates(context.Context, time.Time) (int, error) {
-	return 0, nil
-}
-func (s *liveFakeStore) RecordAnomaly(context.Context, *gorm.DB, int, string, reliable.Key, string, string) error {
-	return nil
-}
-func (s *liveFakeStore) GetByID(context.Context, int, int64) (store.Row, error) {
-	return store.Row{}, nil
-}
-func (s *liveFakeStore) List(context.Context, store.ListFilter) ([]store.Row, error) {
-	return nil, nil
-}
-func (s *liveFakeStore) ListAnomalies(context.Context, store.AnomalyFilter) ([]store.AnomalyRow, error) {
-	return nil, nil
-}
-func (s *liveFakeStore) Count(context.Context, store.CountFilter) (int64, error) { return 0, nil }
-func (s *liveFakeStore) HasEarlierUnsolvedSibling(context.Context, *gorm.DB, int64) (bool, error) {
-	return false, nil
 }
 
 // failRecorder captures MarkFailedFn invocations and optionally returns a forced error.
@@ -141,6 +81,97 @@ func TestRunLive_AcquireOnFirstTry_FnRunsNoSleep(t *testing.T) {
 	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.acquireCalls), "exactly one acquire")
 	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.releaseCalls), "release called after fn")
 	assert.Less(t, elapsed, spin[0], "no spin sleep on first-try acquire")
+}
+
+func TestRunLive_RejectsNonPositiveSpinDelay(t *testing.T) {
+	for _, spin := range [][]time.Duration{{0}, {-time.Millisecond}} {
+		fs := &liveFakeStore{}
+		fr := &failRecorder{}
+		err := RunLive(context.Background(), fs, nil, nonEmptyKey(), "h", time.Minute, spin, fr.fn, func() error {
+			t.Fatal("fn must not run with invalid spin delay")
+			return nil
+		})
+
+		require.ErrorIs(t, err, ErrInvalidSpinDelay, "spin=%v must be rejected", spin)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&fs.acquireCalls), "invalid spin delay must not acquire")
+		assert.Equal(t, int32(0), atomic.LoadInt32(&fr.calls), "invalid spin delay must not park")
+	}
+}
+
+func TestRunLive_EmptyKeyIgnoresSpinDelay(t *testing.T) {
+	fs := &liveFakeStore{}
+	fr := &failRecorder{}
+	fnRan := false
+
+	err := RunLive(context.Background(), fs, nil, reliable.AggregateGateKey{}, "h", time.Minute,
+		[]time.Duration{0}, fr.fn, func() error {
+			fnRan = true
+			return nil
+		})
+
+	require.NoError(t, err)
+	assert.True(t, fnRan, "empty key must bypass gate-only spin validation")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fs.acquireCalls))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fr.calls))
+}
+
+func TestRunLive_RejectsNonPositiveTTL(t *testing.T) {
+	for _, ttl := range []time.Duration{0, -time.Second} {
+		fs := &liveFakeStore{}
+		fr := &failRecorder{}
+		err := RunLive(context.Background(), fs, nil, nonEmptyKey(), "h", ttl, nil, fr.fn, func() error {
+			t.Fatal("fn must not run with invalid ttl")
+			return nil
+		})
+
+		require.ErrorIs(t, err, ErrInvalidLeaseTTL, "ttl=%s must be rejected", ttl)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&fs.acquireCalls), "invalid ttl must not acquire")
+		assert.Equal(t, int32(0), atomic.LoadInt32(&fr.calls), "invalid ttl must not park")
+	}
+}
+
+func TestRunLive_AcquiredFnErrorPropagates(t *testing.T) {
+	fnErr := errors.New("handler failed")
+	fs := &liveFakeStore{}
+	fr := &failRecorder{}
+
+	err := RunLive(context.Background(), fs, nil, nonEmptyKey(), "h", time.Minute, nil, fr.fn, func() error {
+		return fnErr
+	})
+
+	require.ErrorIs(t, err, fnErr)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.releaseCalls), "release must run after a handler error")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&fr.calls), "handler errors must not park the claimed row")
+}
+
+func TestRunLive_ReleaseErrorDoesNotOverrideFnResult(t *testing.T) {
+	fnErr := errors.New("handler failed")
+	releaseErr := errors.New("release failed")
+
+	for _, tc := range []struct {
+		name    string
+		fnErr   error
+		wantErr error
+	}{
+		{name: "successful handler", wantErr: nil},
+		{name: "failed handler", fnErr: fnErr, wantErr: fnErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := &liveFakeStore{releaseErr: releaseErr}
+			fr := &failRecorder{}
+			err := RunLive(context.Background(), fs, nil, nonEmptyKey(), "h", time.Minute, nil, fr.fn, func() error {
+				return tc.fnErr
+			})
+
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+			assert.Equal(t, int32(1), atomic.LoadInt32(&fs.releaseCalls))
+			assert.Equal(t, int32(0), atomic.LoadInt32(&fr.calls))
+		})
+	}
 }
 
 // (b) transient contention — ErrRetryLater once then success → fn runs after exactly one
