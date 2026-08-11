@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package function_regression_tests
 
 import (

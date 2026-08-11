@@ -112,7 +112,7 @@ func TestKafkaTopicPartitionsConfiguration(t *testing.T) {
 
 // TestPartitionConfigComparison 测试分区配置比较
 func TestPartitionConfigComparison(t *testing.T) {
-	t.Run("Partition count mismatch - can increase", func(t *testing.T) {
+	t.Run("Partition count mismatch - increase reported but NOT auto-fixable", func(t *testing.T) {
 		expected := DefaultTopicOptions()
 		expected.Partitions = 10
 
@@ -126,7 +126,9 @@ func TestPartitionConfigComparison(t *testing.T) {
 		for _, mismatch := range mismatches {
 			if mismatch.Field == "Partitions" {
 				found = true
-				assert.True(t, mismatch.CanAutoFix, "Increasing partitions should be auto-fixable")
+				// jxt-core 不再自动修复分区（CreatePartitions 已移除，方案改动5）；
+				// 分区收敛由 infra bootstrap 独占。CanAutoFix 恒为 false。
+				assert.False(t, mismatch.CanAutoFix, "Partitions must NOT be auto-fixed by jxt-core (CreatePartitions removed; managed by infra bootstrap)")
 				assert.Equal(t, 10, mismatch.ExpectedValue)
 				assert.Equal(t, 5, mismatch.ActualValue)
 			}

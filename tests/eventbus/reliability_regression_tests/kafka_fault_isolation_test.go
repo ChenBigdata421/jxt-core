@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package reliability_regression_tests
 
 import (
