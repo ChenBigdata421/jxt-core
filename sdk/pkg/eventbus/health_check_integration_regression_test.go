@@ -550,8 +550,17 @@ func TestHealthCheckMessageFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start subscriber: %v", err)
 	}
-	// 等待消息流建立
-	time.Sleep(3 * time.Second)
+	// 等待消息流建立：轮询直至订阅器收到 ≥2 条消息（上限 15s）。
+	// 旧实现用固定 time.Sleep(3s)——在 go test ./... 并行负载下 publisher/subscriber
+	// goroutine 在 3s 窗口内拿不到足够 CPU 交换 ≥2 条消息，导致 TotalMessagesReceived
+	// 落在 0-1 触发断言偶发失败。改为条件等待，与负载无关。
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if bus.GetHealthCheckSubscriberStats().TotalMessagesReceived >= 2 {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 	// 检查发布器状态
 	publisherStatus := bus.GetHealthCheckPublisherStatus()
 	t.Logf("Publisher status: %+v", publisherStatus)
