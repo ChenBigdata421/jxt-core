@@ -55,7 +55,8 @@ func TestPreSubscriptionBasic(t *testing.T) {
 
 	// 设置预订阅topic列表
 	kafkaBus := eventBus.(*kafkaEventBus)
-	kafkaBus.allPossibleTopics = []string{"test.topic.1", "test.topic.2", "test.topic.3"}
+	// 走公共方法（加锁 + 设 topicsSnapshot），勿直接戳 allPossibleTopics 字段
+	kafkaBus.SetPreSubscriptionTopics([]string{"test.topic.1", "test.topic.2", "test.topic.3"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -167,7 +168,8 @@ func TestPreSubscriptionMultiTopic(t *testing.T) {
 
 	// 设置预订阅topic列表
 	kafkaBus := eventBus.(*kafkaEventBus)
-	kafkaBus.allPossibleTopics = []string{"multi.topic.1", "multi.topic.2", "multi.topic.3"}
+	// 走公共方法（加锁 + 设 topicsSnapshot），勿直接戳 allPossibleTopics 字段
+	kafkaBus.SetPreSubscriptionTopics([]string{"multi.topic.1", "multi.topic.2", "multi.topic.3"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
