@@ -23,11 +23,12 @@ func RunQuarantineConformance(t *testing.T, d *ConformanceDeps) {
 	})
 	t.Run("MarkResolved_CAS", func(t *testing.T) {
 		q := quarantineRow()
+		q.TenantID = 1 // 有效租户：MarkResolved 的 S3 多租户守卫要求 tenantID>0（gormshared.MarkResolved:90）
 		q.SrcOffset = q.SrcOffset + 100
 		id, err := d.QStore.Record(context.Background(), d.DB, q)
 		require.NoError(t, err)
-		require.NoError(t, d.QStore.MarkResolved(context.Background(), d.DB, 0, id, 1, "ops"))
-		assert.Error(t, d.QStore.MarkResolved(context.Background(), d.DB, 0, id, 1, "ops"), "stale version conflicts")
+		require.NoError(t, d.QStore.MarkResolved(context.Background(), d.DB, 1, id, 1, "ops"))
+		assert.Error(t, d.QStore.MarkResolved(context.Background(), d.DB, 1, id, 1, "ops"), "stale version conflicts")
 	})
 	// B7：headers 列是 NOT NULL，而一条不带 header 的坏消息必须也能落隔离区——
 	// 否则按 §4 语义必须上抛不 ACK → 分区阻塞（准入 ⑯ 会踩到）。
@@ -100,12 +101,13 @@ func RunQuarantineConformance(t *testing.T, d *ConformanceDeps) {
 	// 不能伪装成 ErrConflict，否则真实失败丢失。用【预先取消的 ctx】驱动直 UPDATE 路径。
 	t.Run("MarkResolved_CtxError_Propagates", func(t *testing.T) {
 		q := quarantineRow()
+		q.TenantID = 1 // 有效租户：绕过 S3 守卫，让被取消的 ctx 真正走到 UPDATE 路径（review #4）
 		q.SrcOffset = q.SrcOffset + 400
 		id, err := d.QStore.Record(context.Background(), d.DB, q)
 		require.NoError(t, err)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		err = d.QStore.MarkResolved(ctx, d.DB, 0, id, 1, "ops")
+		err = d.QStore.MarkResolved(ctx, d.DB, 1, id, 1, "ops")
 		assert.True(t, errors.Is(err, context.Canceled),
 			"MarkResolved must propagate the real ctx error, not mask it as ErrConflict")
 	})
