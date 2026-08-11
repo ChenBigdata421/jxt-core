@@ -74,18 +74,17 @@ jobs:
       # (matching TestKafka*/TestMemory*) so this collapses to `-run 'Test(Kafka|NATS|Memory)'`
       # and the full broker suite moves to a broker-backed job.
       #
-      # KNOWN EXCLUSION: TestMemoryEventBus_ConcurrentPublish is deliberately NOT matched.
-      # It exposes a real but low-severity data race on the Metrics counter fields
-      # (m.metrics.MessagesPublished++ etc., unsynchronized across concurrent Publish at
-      # memory.go:194 / eventbus.go:596). Impact is lost metric increments only (no crash,
-      # no data loss). The fix is to make the Metrics counters atomic or guard the Metrics
-      # struct with a mutex (which also covers the whole-struct copy in GetMetrics) — a
-      # focused refactor across memory.go / eventbus.go / nats.go. Broaden TestMemory(...)
-      # to re-enable this test once fixed.
+      # RE-ENABLED 2026-08-11: TestMemoryEventBus_ConcurrentPublish +
+      # TestEventBusManager_ConcurrentPublish were previously excluded — they exposed a data
+      # race on the Metrics counter fields (unsynchronized m.metrics.X++ across concurrent
+      # Publish at memory.go / eventbus.go). Fixed: eventBusManager now guards m.metrics with
+      # a dedicated metricsMu (GetMetrics + updateMetrics), memoryEventBus uses atomic.AddInt64
+      # for its counters, and the manager no longer shares its *Metrics with the inner memory
+      # bus (memory.go initMemory/NewMemoryEventBus). Both pass under -race (verified ×8).
       - name: go test -race (eventbus broker-free subset)
         run: |
           go test -race -timeout 5m -run \
-            'TestKafka(SendResult|UnregisterTenant|Close|RegisterTenant|Reinitialize)|TestMemory(SendResult|UnregisterTenant|Close|Registry)|TestClose_(StableTerminalError|IdempotentSecondCall)|TestRegisterTenant_RejectedAfterClose|TestUnregisterTenant_(NoSendOnClosedPanic|RejectedAfterClose)|TestSendResult_(NoFallbackNoDropWhenFull|FrozenAfterClose)|TestNATSRegisterTenant|TestNewKafkaEventBus_Pipeline(ValidationBeforeDial|WindowSizeUpperBound)|TestConvertUserConfig_Pipeline(Passthrough|DefaultOff)' \
+            'TestKafka(SendResult|UnregisterTenant|Close|RegisterTenant|Reinitialize)|TestMemory(SendResult|UnregisterTenant|Close|Registry)|TestClose_(StableTerminalError|IdempotentSecondCall)|TestRegisterTenant_RejectedAfterClose|TestUnregisterTenant_(NoSendOnClosedPanic|RejectedAfterClose)|TestSendResult_(NoFallbackNoDropWhenFull|FrozenAfterClose)|TestNATSRegisterTenant|TestNewKafkaEventBus_Pipeline(ValidationBeforeDial|WindowSizeUpperBound)|TestConvertUserConfig_Pipeline(Passthrough|DefaultOff)|TestMemoryEventBus_ConcurrentPublish|TestEventBusManager_ConcurrentPublish' \
             ./sdk/pkg/eventbus
 
       # reliable kernel (PR-2): broker-free AND DB-free unit tests + the TestGate_* CI gates

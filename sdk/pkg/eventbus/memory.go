@@ -78,7 +78,10 @@ func NewMemoryEventBus() EventBus {
 			eventBus:            bus,
 			topicConfigStrategy: StrategyCreateOrUpdate, // 默认策略
 		},
-		metrics: bus.metrics,
+		// manager 持有自己独立的 *Metrics（不与 bus.metrics 共享）：manager 用 metricsMu+plain ++，
+		// memory bus 用 atomic.AddInt64 —— 共享同一 *Metrics 会在两种同步方式间触发 data race。
+		// manager.updateMetrics 会在每次 Publish/Subscribe 时自增，GetMetrics 读的是这份。
+		metrics: &Metrics{},
 		healthStatus: &HealthStatus{
 			Overall:   "healthy",
 			Timestamp: time.Now(),
@@ -159,7 +162,7 @@ func (m *memoryEventBus) publishWithActorPool(ctx context.Context, topic string,
 		// 提交到 Actor Pool
 		if err := m.globalActorPool.ProcessMessage(ctx, aggMsg); err != nil {
 			logger.Error("Failed to submit message to actor pool", "error", err)
-			m.metrics.ConsumeErrors++
+			atomic.AddInt64(&m.metrics.ConsumeErrors, 1)
 			continue
 		}
 
@@ -180,18 +183,18 @@ func (m *memoryEventBus) publishWithActorPool(ctx context.Context, topic string,
 					} else {
 						logger.Error("Regular message handler failed", "topic", topic, "error", err)
 					}
-					m.metrics.ConsumeErrors++
+					atomic.AddInt64(&m.metrics.ConsumeErrors, 1)
 				} else {
-					m.metrics.MessagesConsumed++
+					atomic.AddInt64(&m.metrics.MessagesConsumed, 1)
 				}
 			case <-timer.C:
 				logger.Error("Message processing timeout", "topic", topic)
-				m.metrics.ConsumeErrors++
+				atomic.AddInt64(&m.metrics.ConsumeErrors, 1)
 			}
 		}(aggMsg, wrapper.isEnvelope)
 	}
 
-	m.metrics.MessagesPublished++
+	atomic.AddInt64(&m.metrics.MessagesPublished, 1)
 	logger.Debug("Message published to memory eventbus via actor pool", "topic", topic, "handlers", len(handlers), "routingKey", routingKey)
 	return nil
 }
@@ -364,7 +367,9 @@ func (m *eventBusManager) initMemory() (EventBus, error) {
 		eventBus:            bus,
 		topicConfigStrategy: StrategyCreateOrUpdate, // 默认策略
 	}
-	m.metrics = bus.metrics
+	// 不共享 bus.metrics：manager 用 metricsMu+plain ++，memory bus 用 atomic.AddInt64 ——
+	// 共享同一 *Metrics 会在两种同步方式间触发 data race。manager 保留 NewEventBus 分配的
+	// 独立 metrics，updateMetrics 会在每次 Publish/Subscribe 自增；GetMetrics 读这份。
 	m.healthStatus = &HealthStatus{
 		Overall:   "healthy",
 		Timestamp: time.Now(),

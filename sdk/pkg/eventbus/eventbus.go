@@ -22,6 +22,7 @@ type eventBusManager struct {
 	businessHealthChecker BusinessHealthChecker
 	reconnectCallback     func(ctx context.Context) error
 	mu                    sync.RWMutex
+	metricsMu             sync.RWMutex // 专门守护 m.metrics 的并发自增/读写；与 mu 解耦（updateMetrics 在 Publish 持 mu.RLock 时被调，无法升级为 Lock）
 	closed                bool
 
 	// PR2-core (Task 2, D5 — memory-backend only, spec §3.3): stable terminal error on
@@ -276,9 +277,11 @@ func (m *eventBusManager) performFullHealthCheck(ctx context.Context) (*HealthSt
 
 	m.mu.Lock()
 	m.healthStatus = healthStatus
+	m.mu.Unlock()
+	m.metricsMu.Lock()
 	m.metrics.LastHealthCheck = time.Now()
 	m.metrics.HealthCheckStatus = "healthy"
-	m.mu.Unlock()
+	m.metricsMu.Unlock()
 	logger.Debug("Health check completed successfully")
 	return healthStatus, nil
 }
@@ -442,6 +445,9 @@ func (m *eventBusManager) performEndToEndTest(ctx context.Context, testTopic, he
 
 // getEventBusMetrics 获取 EventBus 性能指标（内部方法）
 func (m *eventBusManager) getEventBusMetrics() EventBusHealthMetrics {
+	m.metricsMu.RLock()
+	backlog := m.metrics.MessageBacklog
+	m.metricsMu.RUnlock()
 	return EventBusHealthMetrics{
 		ConnectionStatus:    "connected",
 		PublishLatency:      0, // TODO: 实际测量
@@ -449,7 +455,7 @@ func (m *eventBusManager) getEventBusMetrics() EventBusHealthMetrics {
 		LastSuccessTime:     time.Now(),
 		ConsecutiveFailures: 0,
 		ThroughputPerSecond: 0, // TODO: 实际统计
-		MessageBacklog:      m.metrics.MessageBacklog,
+		MessageBacklog:      backlog,
 		ReconnectCount:      0, // TODO: 实际统计
 		BrokerCount:         1, // TODO: 实际获取
 		TopicCount:          1, // TODO: 实际获取
@@ -578,8 +584,8 @@ func (m *eventBusManager) RegisterReconnectCallback(callback ReconnectCallback) 
 
 // GetMetrics 获取指标
 func (m *eventBusManager) GetMetrics() Metrics {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.metricsMu.RLock()
+	defer m.metricsMu.RUnlock()
 	return *m.metrics
 }
 
@@ -591,6 +597,8 @@ func (m *eventBusManager) GetHealthStatus() HealthCheckStatus {
 
 // updateMetrics 更新指标
 func (m *eventBusManager) updateMetrics(success bool, isPublish bool, duration time.Duration) {
+	m.metricsMu.Lock()
+	defer m.metricsMu.Unlock()
 	if isPublish {
 		if success {
 			m.metrics.MessagesPublished++
