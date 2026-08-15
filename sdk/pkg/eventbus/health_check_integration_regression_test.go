@@ -417,17 +417,25 @@ func TestHealthCheckConfigurationApplication(t *testing.T) {
 		defer CloseGlobal()
 		bus := GetGlobal()
 		ctx := context.Background()
-		// 启动健康检查
-		err = bus.StartHealthCheckPublisher(ctx)
-		if err != nil {
-			t.Fatalf("Failed to start publisher: %v", err)
-		}
+		// 先订阅、后发布：publisher 启动时会立即首发（healthCheckLoop 立即执行一次），
+		// 若订阅尚未建立，memory 总线无持久化会直接丢弃该消息；默认配置 Interval=2min，
+		// 丢失首发后整个 3s 窗口内不会有第二条 —— 固定先后顺序（publisher 先）曾因此 flake。
 		err = bus.StartHealthCheckSubscriber(ctx)
 		if err != nil {
 			t.Fatalf("Failed to start subscriber: %v", err)
 		}
-		// 等待一段时间让系统运行
-		time.Sleep(3 * time.Second)
+		err = bus.StartHealthCheckPublisher(ctx)
+		if err != nil {
+			t.Fatalf("Failed to start publisher: %v", err)
+		}
+		// 等待一段时间让系统运行：条件轮询直至收到 ≥1 条（上限 15s），与负载无关。
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if bus.GetHealthCheckSubscriberStats().TotalMessagesReceived >= 1 {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 		// 检查统计信息
 		stats := bus.GetHealthCheckSubscriberStats()
 		t.Logf("Default config subscriber stats: %+v", stats)
@@ -541,19 +549,18 @@ func TestHealthCheckMessageFlow(t *testing.T) {
 	defer CloseGlobal()
 	bus := GetGlobal()
 	ctx := context.Background()
-	// 启动发布器和订阅器
-	err = bus.StartHealthCheckPublisher(ctx)
-	if err != nil {
-		t.Fatalf("Failed to start publisher: %v", err)
-	}
+	// 先订阅、后发布（publisher 启动即立即首发；若订阅未建立，memory 总线无持久化
+	// 会丢弃首发消息，导致等待窗口内可能收不到消息）
 	err = bus.StartHealthCheckSubscriber(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start subscriber: %v", err)
 	}
-	// 等待消息流建立：轮询直至订阅器收到 ≥2 条消息（上限 15s）。
-	// 旧实现用固定 time.Sleep(3s)——在 go test ./... 并行负载下 publisher/subscriber
-	// goroutine 在 3s 窗口内拿不到足够 CPU 交换 ≥2 条消息，导致 TotalMessagesReceived
-	// 落在 0-1 触发断言偶发失败。改为条件等待，与负载无关。
+	err = bus.StartHealthCheckPublisher(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start publisher: %v", err)
+	}
+	// 等待消息流建立：条件轮询直至订阅器收到 ≥2 条（上限 15s），与负载无关。
+	// 旧实现用固定 time.Sleep(3s)——在并行门禁负载下 3s 窗口内交换不足 ≥2 条消息而 flake。
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if bus.GetHealthCheckSubscriberStats().TotalMessagesReceived >= 2 {
