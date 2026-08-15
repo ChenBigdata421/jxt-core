@@ -1104,9 +1104,37 @@ func (m *eventBusManager) SubscribeEnvelope(ctx context.Context, topic string, h
 		return fmt.Errorf("handler cannot be nil")
 	}
 
+	// 包装 handler 以更新指标（与 Subscribe 的 wrappedHandler 对齐；此前 envelope 路径
+	// 完全绕过 updateMetrics，manager 侧消费计数恒为 0——过去仅靠与 bus 共享 *Metrics
+	// 的别名效应掩盖，该共享已在 Metrics race 修复中移除）
+	wrapEnvelopeHandler := func(inner EnvelopeHandler) EnvelopeHandler {
+		return func(ctx context.Context, envelope *Envelope) error {
+			start := time.Now()
+			err := inner(ctx, envelope)
+			duration := time.Since(start)
+
+			m.updateMetrics(err == nil, false, duration)
+
+			if m.metricsCollector != nil {
+				m.metricsCollector.RecordConsume(topic, err == nil, duration)
+				if err != nil {
+					m.metricsCollector.RecordError("consume", topic)
+				}
+			}
+
+			if err != nil {
+				logger.Error("Envelope handler failed", "topic", topic, "error", err)
+			} else {
+				logger.Debug("Envelope processed successfully", "topic", topic, "aggregateId", envelope.AggregateID)
+			}
+
+			return err
+		}
+	}
+
 	// 检查subscriber是否支持Envelope
 	if envelopeSubscriber, ok := m.subscriber.(EnvelopeSubscriber); ok {
-		return envelopeSubscriber.SubscribeEnvelope(ctx, topic, handler)
+		return envelopeSubscriber.SubscribeEnvelope(ctx, topic, wrapEnvelopeHandler(handler))
 	}
 
 	// 回退到普通订阅（包装handler解析Envelope）
@@ -1115,7 +1143,7 @@ func (m *eventBusManager) SubscribeEnvelope(ctx context.Context, topic string, h
 		if err != nil {
 			return fmt.Errorf("failed to parse envelope: %w", err)
 		}
-		return handler(ctx, envelope)
+		return wrapEnvelopeHandler(handler)(ctx, envelope)
 	}
 
 	return m.subscriber.Subscribe(ctx, topic, wrappedHandler)
