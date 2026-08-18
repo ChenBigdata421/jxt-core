@@ -118,7 +118,10 @@ func (p *HollywoodActorPool) ProcessMessage(ctx context.Context, msg *AggregateM
 
 	// ⭐ 增加 Inbox 深度计数器 (近似值)
 	// 注意: 这是近似值，实际入队与计数器增加之间存在时间窗口
-	// 如果 Inbox 满载，消息可能被丢弃，但计数器已 +1
+	// 永久漂移风险：hollywood v1.0.5 满载时 ringbuffer 扩容、不丢消息；真正让本计数器
+	// 只 +1 不 -1 的是消息到不了 actor——目标 actor 已注销（SendLocal 仅广播 DeadLetter，
+	// 本库未订阅）或 inbox 已停（消息滞留 buffer 永不 invoke）。每个此类消息留下永久 +1，
+	// 深度指标单调虚高，不应用于容量判断。
 	p.inboxDepthCounters[actorIndex].Add(1)
 
 	pid := p.actors[actorIndex]

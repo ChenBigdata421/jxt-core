@@ -319,7 +319,12 @@ func (p *partitionPipeline) run(ctx context.Context, messages <-chan *sarama.Con
 			}
 			aggMsg := p.buildAggMsg(msg)
 			inflight[msg.Offset] = &inflightEntry{msg: msg, isEnvelope: aggMsg.IsEnvelope}
-			_ = p.pool.ProcessMessage(ctx, aggMsg) // 异步，不等 Done。返回值仅 AggregateID=="" 时非 nil（buildAggMsg 的 RR 兜底已杜绝该情形）；inbox 满时 engine.Send 静默丢消息、不报 error，由 stall 告警覆盖 → 此处安全忽略
+			// 异步，不等 Done。返回值仅 AggregateID=="" 时非 nil（buildAggMsg 的 RR 兜底已杜绝该情形）。
+			// 投递层无失败信号可检：engine.Send 无返回值；inbox 满时 ringbuffer 扩容、不丢（hollywood v1.0.5），
+			// 真实静默面是目标 actor 已注销（仅广播 DeadLetter，本库未订阅）或 inbox 已停——消息被搁置、Done 永不写入。
+			// 此类丢失必然表现为该 entry 不 settle → frontier 停滞 → stall 告警暴露，且 offset 不提交由
+			// Kafka 重投递兜底（at-least-once）→ 此处安全忽略（actor 永久死亡时重投递不能自愈，依赖告警人工处理）
+			_ = p.pool.ProcessMessage(ctx, aggMsg)
 			// bridge：把这条的 Done 搬进 compCh（决策 1-A 非阻塞 drain）
 			go forwardCompletion(ctx, msg.Offset, aggMsg.Done, compCh)
 
