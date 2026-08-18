@@ -120,6 +120,13 @@ func TestKafkaFaultIsolation(t *testing.T) {
 	success := helper.WaitForMessages(&totalReceived, expectedMessages, 30*time.Second)
 	helper.AssertTrue(success, "Should receive all messages after panic recovery (at-least-once)")
 
+	// 门计数器（totalReceived）与下方断言的各聚合计数器是不同变量——门开瞬间，最后一个
+	// handler 可能已执行 totalReceived++ 但尚未执行各聚合的 ++（两步非原子组合）。
+	// 先等分类计数器收敛到期望值，再做精确相等断言。
+	helper.WaitForMessages(&aggregate1Received, int64(versionsPerAggregate), 10*time.Second)
+	helper.WaitForMessages(&aggregate2Received, int64(versionsPerAggregate), 10*time.Second)
+	helper.WaitForMessages(&aggregate3Received, int64(versionsPerAggregate), 10*time.Second)
+
 	// 验证结果
 	actualReceived := atomic.LoadInt64(&totalReceived)
 	helper.AssertEqual(expectedMessages, actualReceived, "Should receive all messages (at-least-once semantics)")
