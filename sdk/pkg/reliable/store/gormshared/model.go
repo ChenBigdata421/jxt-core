@@ -145,9 +145,18 @@ type QuarantineModel struct {
 	ErrorMessage    string     `gorm:"column:error_message;type:text"`
 	Status          string     `gorm:"column:status;type:varchar(16);not null;index:idx_raw_status,priority:2"`
 	RowVersion      int64      `gorm:"column:row_version;not null;default:1"`
-	ResolvedAt      *time.Time `gorm:"column:resolved_at"`
-	ResolvedBy      string     `gorm:"column:resolved_by;type:varchar(100)"`
-	CreatedAt       time.Time  `gorm:"column:created_at;not null;index:idx_raw_status,priority:3"`
+	// PR-7 Task 3（C①）：replay_attempts 是 QuarantineReplay 的失败重放计数（见 store.QuarantineRow
+	// 同名字段的注释——含为何不沿用 row_version 反推）。INT NOT NULL DEFAULT 0 两方言同形，
+	// AutoMigrate 产物与 migration SQL 不分叉，故与 idx_unresolved（刻意不进 tag，D7=6A）不同，
+	// 普通 COLUMN 进 GORM tag 是正确做法（双源原则：列在两处声明且同形）。
+	ReplayAttempts int        `gorm:"column:replay_attempts;not null;default:0"`
+	ResolvedAt     *time.Time `gorm:"column:resolved_at"`
+	ResolvedBy     string     `gorm:"column:resolved_by;type:varchar(100)"`
+	CreatedAt      time.Time  `gorm:"column:created_at;not null;index:idx_raw_status,priority:3"`
+	// UpdatedAt 承载 QuarantineReplay 的 OV⑤④ watchdog 谓词（REPLAYING 超时重claim）。
+	// 可空：Record 不写（新行无「上次迁移」概念），CAS 迁移时由 opsvc 显式置 now。
+	// Task 14 的 sweep（REPLAYING AND updated_at < now-10min → QUARANTINED）同谓词。
+	UpdatedAt *time.Time `gorm:"column:updated_at"`
 }
 
 func (QuarantineModel) TableName() string { return "raw_message_quarantine" }
@@ -159,7 +168,8 @@ func (m *QuarantineModel) ToRow() store.QuarantineRow {
 		RawValue: m.RawValue, RawKey: m.RawKey, Headers: unmarshalHeaders(m.Headers),
 		RawPayloadHash: m.RawPayloadHash, BrokerTimestamp: m.BrokerTimestamp,
 		ErrorMessage: m.ErrorMessage, Status: m.Status, RowVersion: m.RowVersion,
-		ResolvedAt: m.ResolvedAt, ResolvedBy: m.ResolvedBy, CreatedAt: m.CreatedAt,
+		ReplayAttempts: m.ReplayAttempts,
+		ResolvedAt:     m.ResolvedAt, ResolvedBy: m.ResolvedBy, CreatedAt: m.CreatedAt,
 	}
 }
 

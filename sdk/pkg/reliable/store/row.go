@@ -91,7 +91,12 @@ type QuarantineRow struct {
 	ErrorMessage    string
 	Status          string // QUARANTINED | REPLAYING | RESOLVED | DISCARDED
 	RowVersion      int64
-	ResolvedAt      *time.Time
-	ResolvedBy      string
-	CreatedAt       time.Time
+	// ReplayAttempts 是 QuarantineReplay（PR-7 Task 3，C①）的失败重放计数：每次
+	// REPLAYING→QUARANTINED 失败收尾 +1（opsvc 的 settleBack CAS），达到
+	// QuarantineReplayMaxAttempts 后该端点拒绝再试。成功毕业（→RESOLVED）是终态，无需清零。
+	// 取代「从 row_version 增长反推重试次数」的草案——row_version 也被无关迁移消耗，不可作计数。
+	ReplayAttempts int
+	ResolvedAt     *time.Time
+	ResolvedBy     string
+	CreatedAt      time.Time
 }

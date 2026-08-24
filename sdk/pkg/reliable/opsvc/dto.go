@@ -146,6 +146,18 @@ type ResolveRequest struct {
 	By                 string
 }
 
+// QuarantineReplayRequest 是 QuarantineReplay（POST /quarantine/:id/replay，PR-7 Task 3，C①）
+// 的入参。ExpectedRowVersion 同 ResolveRequest 的 CAS 语义；By 是操作者（成功毕业时落
+// resolved_by）。注意本端点【无】D12 双人确认字段：隔离行本就不可自助重放（毒消息已脱离
+// broker 投递），QuarantineReplay 只是把它送回 TryClaim 仲裁——不直接执行业务，双人确认
+// 的授权语义由服务侧 handler（PR-7）按需前置；内核不越权假设审批流程。
+type QuarantineReplayRequest struct {
+	TenantID           int
+	ID                 int64
+	ExpectedRowVersion int64
+	By                 string
+}
+
 // AnomalyQuery 是 Anomalies（§10 /anomalies 视图）的查询参数。Kind 约束 anomaly 类型；
 // From/To 约束 created_at（与 ListQuery 约束 first_seen_at 的语义不同）。
 type AnomalyQuery struct {
@@ -164,7 +176,7 @@ type QuarantineDetail struct {
 	TenantID       int
 	HandlerID      reliable.HandlerID
 	Topic          string
-	SrcPartition  int32
+	SrcPartition   int32
 	SrcOffset      int64
 	RawPayloadHash string
 	ErrorMessage   string

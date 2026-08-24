@@ -96,11 +96,20 @@ CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   src_partition INT NOT NULL, src_offset BIGINT NOT NULL, raw_value BYTEA NOT NULL, raw_key BYTEA,
   headers JSONB NOT NULL, raw_payload_hash VARCHAR(64) NOT NULL, broker_timestamp TIMESTAMP(3),
   error_message TEXT, status VARCHAR(16) NOT NULL, row_version BIGINT NOT NULL DEFAULT 1,
+  -- PR-7 Task 3（C①，review D1）：QuarantineReplay 的失败重放计数（见 QuarantineModel.ReplayAttempts）。
+  replay_attempts INT NOT NULL DEFAULT 0,
   resolved_at TIMESTAMP(3), resolved_by VARCHAR(100), created_at TIMESTAMP(3) NOT NULL,
+  -- PR-7 Task 3（C①，OV⑤④）：watchdog 谓词列（REPLAYING 超时重claim / Task 14 sweep）。可空。
+  updated_at TIMESTAMP(3),
   -- review #1（纵深防御）：键含 tenant_id——与 consumption_anomalies.uk_anomaly_once 同理（见 MySQL DDL 同名注释）。
   CONSTRAINT uk_raw_delivery UNIQUE (tenant_id, topic, src_partition, src_offset, handler_id)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_status ON raw_message_quarantine (tenant_id, status, created_at);
+-- PR-7 Task 3（C①，review D1）：companion 自愈 ALTER——CREATE TABLE IF NOT EXISTS 对存量表不生效，
+-- 旧库补列走这两条（与 idx_unresolved 的 IF NOT EXISTS 自愈同模式）。file-storage 租户库（PG only）
+-- 因此无需服务侧迁移。注意本注释块不得出现 ASCII 分号——evidence 侧 SplitDDL 按分号朴素切分整段 DDL。
+ALTER TABLE raw_message_quarantine ADD COLUMN IF NOT EXISTS replay_attempts INT NOT NULL DEFAULT 0;
+ALTER TABLE raw_message_quarantine ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP(3);
 
 CREATE TABLE IF NOT EXISTS consumption_aggregate_leases (
   tenant_id INT NOT NULL, aggregate_type VARCHAR(64) NOT NULL, aggregate_id VARCHAR(100) NOT NULL,

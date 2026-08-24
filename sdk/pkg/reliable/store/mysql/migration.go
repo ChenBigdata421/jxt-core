@@ -105,9 +105,21 @@ CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   error_message TEXT,
   status VARCHAR(16) NOT NULL,
   row_version BIGINT NOT NULL DEFAULT 1,
+  -- PR-7 Task 3（C①，review D1）：QuarantineReplay 的失败重放计数。仅随 CREATE TABLE 生效——
+  -- 本迁移无 ALTER 机制（与 idx_unresolved 同一 OV⑧b 缺口类）：存量 MySQL 库（evidence-command
+  -- 租户库）由 evidence 侧迁移补列
+  -- command/cmd/migrate/migration/version/2026082300003_add_quarantine_replay_attempts.go
+  -- （information_schema.COLUMNS 存在性守卫——MySQL 5.7/8.0 无 ADD COLUMN IF NOT EXISTS，
+  -- 且本仓库不钉 MySQL 版本下限，不能依赖 8.0.29+ 才有的语法）。file-storage 的租户库是
+  -- PostgreSQL only，内核侧 ADD COLUMN IF NOT EXISTS 已自愈，无需 evidence 式迁移。
+  replay_attempts INT NOT NULL DEFAULT 0,
   resolved_at DATETIME(3),
   resolved_by VARCHAR(100),
   created_at DATETIME(3) NOT NULL,
+  -- PR-7 Task 3（C①，OV⑤④）：watchdog 谓词列（REPLAYING 超时重claim / Task 14 sweep）。
+  -- 可空：Record 不写，QuarantineReplay 的 CAS 迁移显式置 now。存量库同走
+  -- 2026082300003 evidence 侧迁移补列（与 replay_attempts 同文件，见上方注释）。
+  updated_at DATETIME(3),
   -- review #1（纵深防御）：键含 tenant_id——与 consumption_anomalies.uk_anomaly_once 同理。共享库下两租户
   -- 撞上相同 (topic,partition,offset,handler) 时，缺 tenant_id 会让第二租户的毒消息被 ON CONFLICT DO NOTHING
   -- 静默吞掉、回读还拿到第一租户 id（丢消息 + id 污染 + ACK 语义错误）。当前每租户独立库不触发，纵深对齐。

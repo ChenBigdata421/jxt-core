@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/replay"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
 	"gorm.io/gorm"
 )
@@ -19,7 +22,7 @@ import (
 // 避免为 22 个方法逐一写 panic 存根。fakeQuarantineStore 同理。
 
 type scheduleCall struct {
-	id, ver                   int64
+	id, ver                     int64
 	requester, approver, reason string
 }
 
@@ -28,40 +31,68 @@ type fakeStore struct {
 	tenantID    int
 
 	// 调用计数（cross-tenant isolation 断言用）。
-	listCalls            int
-	getByIDCalls         int
-	scheduleCalls        int
-	hasSiblingCalls      int
-	discardCalls         int
-	countCalls           int
-	listAnomaliesCalls   int
+	listCalls          int
+	getByIDCalls       int
+	scheduleCalls      int
+	hasSiblingCalls    int
+	discardCalls       int
+	countCalls         int
+	listAnomaliesCalls int
+
+	// QuarantineReplay（PR-7 Task 3）行为控制与捕获。
+	tryClaimCalls             int
+	markFailedCalls           int
+	tryClaimDecision          reliable.Decision
+	tryClaimToken             reliable.ClaimToken
+	tryClaimErr               error
+	markFailedErr             error
+	capturedClaimInput        reliable.ClaimInput
+	capturedMarkFailedPayload []byte
+	capturedMarkFailedSafety  reliable.ReplaySafety
 
 	// 捕获的入参。
-	capturedListFilter     store.ListFilter
-	capturedCountFilters   []store.CountFilter
-	capturedAnomalyFilter  store.AnomalyFilter
-	capturedSchedule       scheduleCall
-	capturedHasSiblingID   int64
-	capturedHasSiblingDB   *gorm.DB
-	capturedScheduleDB     *gorm.DB
-	capturedDiscardID      int64
-	capturedDiscardVer     int64
-	capturedDiscardBy      string
-	capturedDiscardReason  string
+	capturedListFilter    store.ListFilter
+	capturedCountFilters  []store.CountFilter
+	capturedAnomalyFilter store.AnomalyFilter
+	capturedSchedule      scheduleCall
+	capturedHasSiblingID  int64
+	capturedHasSiblingDB  *gorm.DB
+	capturedScheduleDB    *gorm.DB
+	capturedDiscardID     int64
+	capturedDiscardVer    int64
+	capturedDiscardBy     string
+	capturedDiscardReason string
 
 	// 返回值。
-	listRows       []store.Row
-	listErr        error
-	getByIDRow     store.Row
-	getByIDErr     error
-	scheduleErr    error
-	hasSiblingRes  bool
-	hasSiblingErr  error
-	discardErr     error
-	countRes       int64
-	countErr       error
-	anomalyRows    []store.AnomalyRow
-	anomalyErr     error
+	listRows      []store.Row
+	listErr       error
+	getByIDRow    store.Row
+	getByIDErr    error
+	scheduleErr   error
+	hasSiblingRes bool
+	hasSiblingErr error
+	discardErr    error
+	countRes      int64
+	countErr      error
+	anomalyRows   []store.AnomalyRow
+	anomalyErr    error
+}
+
+// TryClaim / MarkFailed 覆写（QuarantineReplay 路径）。
+func (f *fakeStore) TryClaim(ctx context.Context, in reliable.ClaimInput, lease time.Duration) (reliable.ClaimToken, reliable.Decision, error) {
+	f.tryClaimCalls++
+	f.capturedClaimInput = in
+	if f.tryClaimErr != nil {
+		return "", 0, f.tryClaimErr
+	}
+	return f.tryClaimToken, f.tryClaimDecision, nil
+}
+func (f *fakeStore) MarkFailed(ctx context.Context, db *gorm.DB, key reliable.Key, tok reliable.ClaimToken,
+	class reliable.ErrorClass, safety reliable.ReplaySafety, maxAttempts int, cause error, payload []byte) error {
+	f.markFailedCalls++
+	f.capturedMarkFailedPayload = payload
+	f.capturedMarkFailedSafety = safety
+	return f.markFailedErr
 }
 
 func (f *fakeStore) List(ctx context.Context, flt store.ListFilter) ([]store.Row, error) {
@@ -108,23 +139,23 @@ type fakeQuarantineStore struct {
 	store.QuarantineStore
 	tenantID int
 
-	listCalls     int
-	getByIDCalls  int
-	resolveCalls  int
+	listCalls    int
+	getByIDCalls int
+	resolveCalls int
 
-	capturedListStatus  string
-	capturedListLimit   int
-	capturedGetID       int64
-	capturedResolveID   int64
-	capturedResolveVer  int64
-	capturedResolveBy   string
-	capturedResolveDB   *gorm.DB
+	capturedListStatus string
+	capturedListLimit  int
+	capturedGetID      int64
+	capturedResolveID  int64
+	capturedResolveVer int64
+	capturedResolveBy  string
+	capturedResolveDB  *gorm.DB
 
-	listRows    []store.QuarantineRow
-	listErr     error
-	getByIDRow  store.QuarantineRow
-	getByIDErr  error
-	resolveErr  error
+	listRows   []store.QuarantineRow
+	listErr    error
+	getByIDRow store.QuarantineRow
+	getByIDErr error
+	resolveErr error
 }
 
 func (f *fakeQuarantineStore) List(ctx context.Context, tenantID int, status string, limit int) ([]store.QuarantineRow, error) {
@@ -946,5 +977,536 @@ func TestResolverError_Propagates(t *testing.T) {
 	}
 	if err := svc.ReplayOne(context.Background(), ReplayRequest{TenantID: 30, ID: 1}); err == nil {
 		t.Fatal("ReplayOne must surface resolver error")
+	}
+}
+
+// —— QuarantineReplay（PR-7 Task 3，C①；OV⑤=8A「毕业」流程）——
+//
+// fake 策略（ambiguity resolution #3：扩展现有 DB-less fake，不引真实 DB driver）：
+// fakeStore 增加 TryClaim/MarkFailed 的行为控制与入参捕获；三个隔离区 CAS（qrClaim/qrBack/
+// qrResolve）覆写为 in-memory 状态机（记录迁移序列 + 可注入的失败）。真实 SQL 谓词由
+// system-tagged 测试（store/gormshared，repotest 真库）钉住，本套只钉编排语义。
+
+// qrTransition 记录一次 CAS 迁移（断言迁移序列用）。
+type qrTransition struct {
+	kind       string // "claim" | "back" | "resolve"
+	id         int64
+	tenantID   int
+	rowVer     int64 // 期望的 CAS 版本（claim: ExpectedRowVersion；back/resolve: replayRowVer+1）
+	causeOrDtl string
+	by         string
+}
+
+// qrRowState 是 fakeQrState 持有的隔离行状态。
+type qrRowState struct {
+	status         string
+	rowVersion     int64
+	replayAttempts int
+	errMsg         string
+	updatedAt      time.Time
+}
+
+// fakeQrState 是三个 CAS seam 的 in-memory 实现：按 (id, tenant) 持一行状态。
+type fakeQrState struct {
+	rows map[[2]int64]*qrRowState // key: {id, tenantID}
+	log  []qrTransition
+	// claimErrs 排队消费（每次 claim 取一条，nil = 走正常谓词）。
+	claimErrs []error
+}
+
+func newFakeQrState() *fakeQrState {
+	return &fakeQrState{rows: map[[2]int64]*qrRowState{}}
+}
+
+func (f *fakeQrState) seed(id int64, tenantID int, status string, rowVersion int64, replayAttempts int, updatedAt time.Time) {
+	f.rows[[2]int64{id, int64(tenantID)}] = &qrRowState{
+		status: status, rowVersion: rowVersion, replayAttempts: replayAttempts, updatedAt: updatedAt,
+	}
+}
+
+func (f *fakeQrState) row(id int64, tenantID int) (qrRowState, bool) {
+	r, ok := f.rows[[2]int64{id, int64(tenantID)}]
+	if !ok {
+		return qrRowState{}, false
+	}
+	return *r, true
+}
+
+// claim 模拟 casToReplaying 的谓词：(QUARANTINED) OR (REPLAYING AND updatedAt<watchdog)。
+func (f *fakeQrState) claim(ctx context.Context, db *gorm.DB, id int64, tenantID int, expectedVersion int64, watchdogCutoff time.Time) error {
+	f.log = append(f.log, qrTransition{kind: "claim", id: id, tenantID: tenantID, rowVer: expectedVersion})
+	if len(f.claimErrs) > 0 {
+		err := f.claimErrs[0]
+		f.claimErrs = f.claimErrs[1:]
+		if err != nil {
+			return err
+		}
+	}
+	r, ok := f.rows[[2]int64{id, int64(tenantID)}]
+	if !ok || r.rowVersion != expectedVersion {
+		return &ConflictError{Reason: conflictReasonRowVersion}
+	}
+	if !(r.status == quarantineStatusQuarantined ||
+		(r.status == quarantineStatusReplaying && r.updatedAt.Before(watchdogCutoff))) {
+		return &ConflictError{Reason: conflictReasonRowVersion}
+	}
+	r.status = quarantineStatusReplaying
+	r.rowVersion++
+	r.updatedAt = time.Now().UTC()
+	return nil
+}
+
+// back 模拟 casBackToQuarantined：replayRowVer+1 命中 REPLAYING 行 → QUARANTINED + 计数。
+func (f *fakeQrState) back(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, cause error) error {
+	f.log = append(f.log, qrTransition{kind: "back", id: id, tenantID: tenantID, rowVer: replayRowVer + 1, causeOrDtl: fmt.Sprintf("%v", cause)})
+	r, ok := f.rows[[2]int64{id, int64(tenantID)}]
+	if !ok || r.status != quarantineStatusReplaying || r.rowVersion != replayRowVer+1 {
+		return nil // 并发迁移：幂等 nil（与生产语义一致）。
+	}
+	r.status = quarantineStatusQuarantined
+	r.rowVersion++
+	r.replayAttempts++
+	r.errMsg = reliable.SanitizeForStorage(fmt.Sprintf("%v", cause))
+	r.updatedAt = time.Now().UTC()
+	return nil
+}
+
+// resolve 模拟 casToResolved。
+func (f *fakeQrState) resolve(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by, detail string) error {
+	f.log = append(f.log, qrTransition{kind: "resolve", id: id, tenantID: tenantID, rowVer: replayRowVer + 1, causeOrDtl: detail, by: by})
+	r, ok := f.rows[[2]int64{id, int64(tenantID)}]
+	if !ok || r.status != quarantineStatusReplaying || r.rowVersion != replayRowVer+1 {
+		return nil // 并发迁移：幂等 nil。
+	}
+	r.status = quarantineStatusResolved
+	r.rowVersion++
+	r.errMsg = detail
+	r.updatedAt = time.Now().UTC()
+	return nil
+}
+
+// fakeRegistry 实现 replay.HandlerRegistry。handler 用 recordingHandler 包一层——
+// 「绝不直接调 Handler.Handle」（OV⑤）的断言钩子。
+type fakeRegistry struct {
+	handlers  map[reliable.HandlerID]replay.HandlerInfo
+	handleCnt map[reliable.HandlerID]int
+}
+
+func newFakeRegistry() *fakeRegistry {
+	return &fakeRegistry{
+		handlers:  map[reliable.HandlerID]replay.HandlerInfo{},
+		handleCnt: map[reliable.HandlerID]int{},
+	}
+}
+
+func (fr *fakeRegistry) register(id reliable.HandlerID, safety reliable.ReplaySafety) {
+	fr.handlers[id] = replay.HandlerInfo{
+		HandlerID: id, ReplaySafety: safety,
+		Handler: &recordingHandler{reg: fr, id: id},
+	}
+}
+
+func (fr *fakeRegistry) Lookup(id reliable.HandlerID) (replay.HandlerInfo, bool) {
+	info, ok := fr.handlers[id]
+	return info, ok
+}
+
+func (fr *fakeRegistry) All() []replay.HandlerInfo {
+	out := make([]replay.HandlerInfo, 0, len(fr.handlers))
+	for _, v := range fr.handlers {
+		out = append(out, v)
+	}
+	return out
+}
+
+type recordingHandler struct {
+	reg *fakeRegistry
+	id  reliable.HandlerID
+}
+
+func (h *recordingHandler) Handle(ctx context.Context, envelopeBytes []byte, delivery reliable.DeliveryMeta) error {
+	h.reg.handleCnt[h.id]++
+	return nil
+}
+func (h *recordingHandler) HandlerID() reliable.HandlerID { return h.id }
+func (h *recordingHandler) ReplaySafety() reliable.ReplaySafety {
+	return h.reg.handlers[h.id].ReplaySafety
+}
+func (h *recordingHandler) RequiresAggregateGate() bool { return false }
+
+// stubDecoder 是可控的 EnvelopeDecoder fake。
+type stubDecoder struct {
+	key      reliable.Key
+	meta     reliable.Meta
+	tenantID int
+	err      error
+	calls    int
+}
+
+func (d *stubDecoder) decode(raw []byte) (reliable.Key, reliable.Meta, int, error) {
+	d.calls++
+	return d.key, d.meta, d.tenantID, d.err
+}
+
+// qrHarness 装配 QuarantineReplay 单测的全套 fake。租户 40 / 行 id 300 / handler
+// "media.v1" / row_version 1（QUARANTINED）。
+func newQrHarness(t *testing.T) *qrHarness {
+	t.Helper()
+	r := newFakeResolver()
+	st, qs, db := r.addTenant(40)
+	qs.getByIDRow = store.QuarantineRow{
+		ID: 300, TenantID: 40, HandlerID: "media.v1", Topic: "domain.media",
+		SrcPartition: 3, SrcOffset: 77, RawValue: []byte("env-bytes"), RawKey: []byte("rk"),
+		Headers: []reliable.HeaderPair{{Key: "h", Value: []byte("v")}}, RawPayloadHash: "hash-x",
+		Status: "QUARANTINED", RowVersion: 1,
+	}
+	reg := newFakeRegistry()
+	reg.register("media.v1", reliable.ReplayIdempotent)
+	dec := &stubDecoder{
+		key:      reliable.Key{EventID: "ev-1", Handler: "media.v1"},
+		meta:     reliable.Meta{EventType: "FileUploaded", AggregateType: "Media", AggregateID: "m1"},
+		tenantID: 40,
+	}
+	qst := newFakeQrState()
+	qst.seed(300, 40, "QUARANTINED", 1, 0, time.Now().UTC())
+	svc, err := NewService(r, &fakeAuditor{}, WithRegistry(reg), WithEnvelopeDecoder(dec.decode))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	_ = db
+	svc.qrClaim = qst.claim
+	svc.qrBack = qst.back
+	svc.qrResolve = qst.resolve
+	return &qrHarness{svc: svc, res: r, store: st, qstate: qst, reg: reg, dec: dec, handler: "media.v1"}
+}
+
+type qrHarness struct {
+	svc     *Service
+	res     *fakeResolver
+	store   *fakeStore
+	qstate  *fakeQrState
+	reg     *fakeRegistry
+	dec     *stubDecoder
+	handler reliable.HandlerID
+}
+
+func qrReq() QuarantineReplayRequest {
+	return QuarantineReplayRequest{TenantID: 40, ID: 300, ExpectedRowVersion: 1, By: "ops-alice"}
+}
+
+// TestQuarantineReplay_RequiresRegistry：缺 WithRegistry / 缺 WithEnvelopeDecoder（任一）→
+// ErrQuarantineReplayUnsupported，且不触碰任何 store（fail-closed 在解析 store 之前）。
+func TestQuarantineReplay_RequiresRegistry(t *testing.T) {
+	r := newFakeResolver()
+	st, qs, _ := r.addTenant(40)
+	qs.getByIDRow = store.QuarantineRow{ID: 300, TenantID: 40, HandlerID: "media.v1", Status: "QUARANTINED"}
+	aud := &fakeAuditor{}
+	dec := &stubDecoder{key: reliable.Key{EventID: "ev-1", Handler: "media.v1"}, tenantID: 40}
+
+	svcNone, err := NewService(r, aud)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svcDec, err := NewService(r, aud, WithEnvelopeDecoder(dec.decode))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := newFakeRegistry()
+	reg.register("media.v1", reliable.ReplayIdempotent)
+	svcReg, err := NewService(r, aud, WithRegistry(reg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, svc := range []*Service{svcNone, svcDec, svcReg} {
+		if err := svc.QuarantineReplay(context.Background(), qrReq()); !errors.Is(err, ErrQuarantineReplayUnsupported) {
+			t.Fatalf("case %d: expected ErrQuarantineReplayUnsupported, got %v", i, err)
+		}
+	}
+	if st.getByIDCalls != 0 || qs.getByIDCalls != 0 {
+		t.Fatal("fail-closed must reject BEFORE touching any store")
+	}
+}
+
+// TestQuarantineReplay_HappyPath（毕业）：TryClaim→Claimed，MarkFailed 把 envelope 字节按
+// §6.1 矩阵落 RETRY_SCHEDULED；隔离行 CAS REPLAYING→RESOLVED（resolved_by=r.By）。
+// 断言 TryClaim 收到解码的 Key/TenantID 与行内重建的 Delivery；且【registry handler 从未被
+// 调用】——业务执行属于 scheduler，不属于 opsvc（OV⑤=8A 的核心断言）。
+func TestQuarantineReplay_HappyPath(t *testing.T) {
+	h := newQrHarness(t)
+	h.store.tryClaimDecision = reliable.Claimed
+	h.store.tryClaimToken = "tok-1"
+
+	if err := h.svc.QuarantineReplay(context.Background(), qrReq()); err != nil {
+		t.Fatalf("happy path: %v", err)
+	}
+
+	// TryClaim 入参：Key 的 Handler 来自【行】（row.HandlerID），EventID 来自解码；ItemKey 恒空。
+	if h.store.tryClaimCalls != 1 {
+		t.Fatalf("TryClaim calls = %d", h.store.tryClaimCalls)
+	}
+	in := h.store.capturedClaimInput
+	if in.Key.Handler != "media.v1" || in.Key.EventID != "ev-1" || in.Key.ItemKey != "" {
+		t.Fatalf("TryClaim Key wrong: %+v", in.Key)
+	}
+	if in.TenantID != 40 {
+		t.Fatalf("TryClaim TenantID = %d, want 40", in.TenantID)
+	}
+	// Delivery 由行内 Raw* 重建（非 envelope）。
+	if in.Delivery.Topic != "domain.media" || in.Delivery.Partition != 3 || in.Delivery.Offset != 77 {
+		t.Fatalf("Delivery broker identity wrong: %+v", in.Delivery)
+	}
+	if in.Delivery.PayloadHash != "hash-x" || string(in.Delivery.RawKey) != "rk" {
+		t.Fatalf("Delivery integrity fields wrong: %+v", in.Delivery)
+	}
+	// MarkFailed：payload=RawValue（envelope 字节持久化），safety 来自 registry。
+	if h.store.markFailedCalls != 1 {
+		t.Fatalf("MarkFailed calls = %d", h.store.markFailedCalls)
+	}
+	if string(h.store.capturedMarkFailedPayload) != "env-bytes" {
+		t.Fatalf("MarkFailed payload must be the envelope bytes, got %q", h.store.capturedMarkFailedPayload)
+	}
+	if h.store.capturedMarkFailedSafety != reliable.ReplayIdempotent {
+		t.Fatalf("MarkFailed safety = %v, want ReplayIdempotent (from registry)", h.store.capturedMarkFailedSafety)
+	}
+	// 隔离行 → RESOLVED。
+	row, ok := h.qstate.row(300, 40)
+	if !ok || row.status != "RESOLVED" {
+		t.Fatalf("quarantine row must end RESOLVED, got %+v", row)
+	}
+	// OV⑤ 核心：handler 从未被调用。
+	if h.reg.handleCnt[h.handler] != 0 {
+		t.Fatalf("Handler.Handle must NEVER be called by QuarantineReplay (got %d calls)", h.reg.handleCnt[h.handler])
+	}
+	// 成功不计数。
+	if row.replayAttempts != 0 {
+		t.Fatalf("successful graduation must not increment replay_attempts, got %d", row.replayAttempts)
+	}
+}
+
+// TestQuarantineReplay_AlreadySettled：TryClaim→AlreadySettled → 行 RESOLVED（幂等成功），
+// 不调 MarkFailed、不计数。
+func TestQuarantineReplay_AlreadySettled(t *testing.T) {
+	h := newQrHarness(t)
+	h.store.tryClaimDecision = reliable.AlreadySettled
+
+	if err := h.svc.QuarantineReplay(context.Background(), qrReq()); err != nil {
+		t.Fatalf("AlreadySettled must be idempotent success, got %v", err)
+	}
+	if h.store.markFailedCalls != 0 {
+		t.Fatal("MarkFailed must not run on AlreadySettled")
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "RESOLVED" || row.replayAttempts != 0 {
+		t.Fatalf("want RESOLVED/0 attempts, got %+v", row)
+	}
+	last := h.qstate.log[len(h.qstate.log)-1]
+	if !strings.Contains(last.causeOrDtl, "already settled") {
+		t.Fatalf("resolve detail must mention 'already settled', got %q", last.causeOrDtl)
+	}
+}
+
+// TestQuarantineReplay_AlreadyProcessing：TryClaim→AlreadyProcessing → 行回 QUARANTINED
+// （row_version+1、replay_attempts+1、error_message 固定文案）+ *ConflictError{live claim active}。
+func TestQuarantineReplay_AlreadyProcessing(t *testing.T) {
+	h := newQrHarness(t)
+	h.store.tryClaimDecision = reliable.AlreadyProcessing
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.Reason != conflictReasonLiveClaim {
+		t.Fatalf("expected ConflictError(live claim active), got %v", err)
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "QUARANTINED" || row.rowVersion != 3 || row.replayAttempts != 1 {
+		t.Fatalf("row must be back to QUARANTINED ver=3 attempts=1, got %+v", row)
+	}
+	if !strings.Contains(row.errMsg, "live consumer holds the lease") {
+		t.Fatalf("error_message must carry the lease hint, got %q", row.errMsg)
+	}
+	if h.store.markFailedCalls != 0 {
+		t.Fatal("MarkFailed must not run on AlreadyProcessing")
+	}
+}
+
+// TestQuarantineReplay_TryClaimError：TryClaim 出错 → 行回 QUARANTINED + 计数，错误上抛
+// （非 ConflictError）。
+func TestQuarantineReplay_TryClaimError(t *testing.T) {
+	h := newQrHarness(t)
+	dbErr := errors.New("db conn reset")
+	h.store.tryClaimErr = dbErr
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	if !errors.Is(err, dbErr) {
+		t.Fatalf("underlying TryClaim error must propagate, got %v", err)
+	}
+	var ce *ConflictError
+	if errors.As(err, &ce) {
+		t.Fatalf("hard error must not be a ConflictError, got %v", err)
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "QUARANTINED" || row.replayAttempts != 1 {
+		t.Fatalf("row must be back QUARANTINED with attempts=1, got %+v", row)
+	}
+}
+
+// TestQuarantineReplay_VersionConflict：qrClaim CAS 0 行（版本不符 / 非 QUARANTINED 亦非
+// 超时 REPLAYING）→ *ConflictError，且不解码、不 TryClaim。
+func TestQuarantineReplay_VersionConflict(t *testing.T) {
+	h := newQrHarness(t)
+	h.qstate.claimErrs = []error{&ConflictError{Reason: conflictReasonRowVersion}}
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.Reason != conflictReasonRowVersion {
+		t.Fatalf("expected ConflictError(row_version mismatch), got %v", err)
+	}
+	if h.dec.calls != 0 || h.store.tryClaimCalls != 0 {
+		t.Fatal("CAS failure must short-circuit before decode/TryClaim")
+	}
+}
+
+// TestQuarantineReplay_UnknownHandler：行 HandlerID 不在 registry → 错误（行不动），
+// 不 CAS、不解码、不 TryClaim。
+func TestQuarantineReplay_UnknownHandler(t *testing.T) {
+	h := newQrHarness(t)
+	h.res.qstores[40].(*fakeQuarantineStore).getByIDRow = store.QuarantineRow{
+		ID: 300, TenantID: 40, HandlerID: "ghost.v9", Status: "QUARANTINED", RowVersion: 1,
+		RawValue: []byte("env-bytes"),
+	}
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	if err == nil {
+		t.Fatal("unknown handler must error")
+	}
+	var ce *ConflictError
+	if errors.As(err, &ce) {
+		t.Fatalf("unknown-handler is a 400-class error, not a ConflictError: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ghost.v9") {
+		t.Fatalf("error must name the unknown handler, got %v", err)
+	}
+	if len(h.qstate.log) != 0 || h.store.tryClaimCalls != 0 || h.dec.calls != 0 {
+		t.Fatal("row must be untouched on unknown handler (no CAS, no decode, no TryClaim)")
+	}
+}
+
+// TestQuarantineReplay_MaxAttempts：replay_attempts 已达 QuarantineReplayMaxAttempts →
+// *ConflictError{max replay attempts}，行不动（不 CAS、不 TryClaim）。上限检查在
+// QUARANTINED→REPLAYING CAS 之前（controller ambiguity #1）。
+func TestQuarantineReplay_MaxAttempts(t *testing.T) {
+	h := newQrHarness(t)
+	h.res.qstores[40].(*fakeQuarantineStore).getByIDRow.ReplayAttempts = QuarantineReplayMaxAttempts
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.Reason != conflictReasonMaxReplayAtt {
+		t.Fatalf("expected ConflictError(max replay attempts), got %v", err)
+	}
+	if len(h.qstate.log) != 0 || h.store.tryClaimCalls != 0 {
+		t.Fatal("cap check must precede the QUARANTINED→REPLAYING CAS (row untouched)")
+	}
+}
+
+// TestQuarantineReplay_Watchdog（OV⑤④）：REPLAYING 且 updated_at 早于 watchdog 截止 →
+// 可重claim（崩溃残留自愈）；REPLAYING 且 updated_at 新鲜 → 0 行 Conflict。
+// 注意：fake 的 qs.getByIDRow.RowVersion 与 qstate 行版本须同步——生产中两者本就同一行。
+func TestQuarantineReplay_Watchdog(t *testing.T) {
+	h := newQrHarness(t)
+	h.store.tryClaimDecision = reliable.AlreadySettled
+	stale := h.qstate.rows[[2]int64{300, 40}]
+	stale.status = "REPLAYING"
+	stale.updatedAt = time.Now().UTC().Add(-11 * time.Minute) // > 10min watchdog
+	stale.rowVersion = 2                                      // ExpectedRowVersion 随之。
+	h.res.qstores[40].(*fakeQuarantineStore).getByIDRow.RowVersion = 2
+	req := qrReq()
+	req.ExpectedRowVersion = 2
+
+	if err := h.svc.QuarantineReplay(context.Background(), req); err != nil {
+		t.Fatalf("stale REPLAYING row must be re-claimeable: %v", err)
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "RESOLVED" {
+		t.Fatalf("re-claimed row must graduate, got %+v", row)
+	}
+
+	// 反例：新鲜 REPLAYING（updated_at=now）→ 0 行 → ConflictError。
+	h2 := newQrHarness(t)
+	h2.store.tryClaimDecision = reliable.AlreadySettled
+	fresh := h2.qstate.rows[[2]int64{300, 40}]
+	fresh.status = "REPLAYING"
+	fresh.updatedAt = time.Now().UTC()
+	fresh.rowVersion = 2
+	h2.res.qstores[40].(*fakeQuarantineStore).getByIDRow.RowVersion = 2
+	req2 := qrReq()
+	req2.ExpectedRowVersion = 2
+	err := h2.svc.QuarantineReplay(context.Background(), req2)
+	var ce *ConflictError
+	if !errors.As(err, &ce) {
+		t.Fatalf("fresh REPLAYING row must conflict, got %v", err)
+	}
+}
+
+// TestQuarantineReplay_DecodeError：decoder 报错 → CAS 回 QUARANTINED、计数+1、上抛原错误
+// （controller ambiguity #2：非 ConflictError）。
+func TestQuarantineReplay_DecodeError(t *testing.T) {
+	h := newQrHarness(t)
+	decErr := errors.New("envelope: bad crc")
+	h.dec.err = decErr
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	if !errors.Is(err, decErr) {
+		t.Fatalf("decode error must propagate (not ConflictError), got %v", err)
+	}
+	if h.store.tryClaimCalls != 0 {
+		t.Fatal("decode failure must not reach TryClaim")
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "QUARANTINED" || row.replayAttempts != 1 {
+		t.Fatalf("row must be back QUARANTINED attempts=1, got %+v", row)
+	}
+}
+
+// TestQuarantineReplay_TenantMismatch：envelope 自称别的租户 → 拒绝 + 回 QUARANTINED 计数
+// （防跨租户投递：行所在租户为准）。
+func TestQuarantineReplay_TenantMismatch(t *testing.T) {
+	h := newQrHarness(t)
+	h.dec.tenantID = 41 // envelope 声明 41，行在 40。
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	if err == nil || !strings.Contains(err.Error(), "cross-tenant") {
+		t.Fatalf("cross-tenant envelope must be refused, got %v", err)
+	}
+	if h.store.tryClaimCalls != 0 {
+		t.Fatal("tenant mismatch must not reach TryClaim")
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "QUARANTINED" || row.replayAttempts != 1 {
+		t.Fatalf("row must be back QUARANTINED attempts=1, got %+v", row)
+	}
+}
+
+// TestQuarantineReplay_MarkFailedError：MarkFailed 出错 → 错误上抛 + 隔离行回 QUARANTINED
+// （可重试毕业；event_consumption 行留 PROCESSING 由 §3.2 lease 回收接管——不为它造新机制）。
+func TestQuarantineReplay_MarkFailedError(t *testing.T) {
+	h := newQrHarness(t)
+	h.store.tryClaimDecision = reliable.Claimed
+	mfErr := errors.New("markfailed: serialization failure")
+	h.store.markFailedErr = mfErr
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	if !errors.Is(err, mfErr) {
+		t.Fatalf("MarkFailed error must propagate, got %v", err)
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "QUARANTINED" || row.replayAttempts != 1 {
+		t.Fatalf("row must be back QUARANTINED attempts=1, got %+v", row)
+	}
+}
+
+// TestQuarantineReplay_RejectsMissingTenant：S3 守卫。
+func TestQuarantineReplay_RejectsMissingTenant(t *testing.T) {
+	h := newQrHarness(t)
+	if err := h.svc.QuarantineReplay(context.Background(), QuarantineReplayRequest{}); !errors.Is(err, ErrMissingTenant) {
+		t.Fatalf("got %v", err)
 	}
 }

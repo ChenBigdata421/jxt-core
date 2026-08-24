@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/replay"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store"
+	"github.com/ChenBigdata421/jxt-core/sdk/pkg/reliable/store/gormshared"
 	"gorm.io/gorm"
 )
 
@@ -51,11 +54,31 @@ const (
 	conflictReasonSibling      = "§6.2.1 earlier-unsolved sibling"
 	conflictReasonD12          = "requester==approver (D12)"
 	conflictReasonRowVersion   = "row_version mismatch"
+	conflictReasonLiveClaim    = "live claim active"
+	conflictReasonMaxReplayAtt = "max replay attempts"
 )
 
 // ErrMissingTenant 是任何 DTO（或 bare tenantID 参数）的 TenantID==0 时返回的标记错误。
 // Handler 把它映射到 HTTP 400（S3 多租户作用域强制）。
 var ErrMissingTenant = errors.New("opsvc: TenantID is required (must be > 0); bind a per-tenant request scope")
+
+// ErrQuarantineReplayUnsupported 是 QuarantineReplay 在 Service 未同时注入 WithRegistry +
+// WithEnvelopeDecoder 时返回的标记错误（PR-7 Task 3，C①）。fail-closed：缺任何一个都无法
+// 构造 TryClaim 所需的 ClaimInput（registry 校验 HandlerID 合法性；decoder 解出 Key/Meta/TenantID），
+// 静默忽略或部分降级都会把毒消息送进一条没有身份校验的执行路径。
+var ErrQuarantineReplayUnsupported = errors.New("opsvc: quarantine replay requires WithRegistry + WithEnvelopeDecoder")
+
+// QuarantineReplayMaxAttempts（OV⑤③）：单条隔离行的失败重放上限。达到后 QuarantineReplay
+// 返回 *ConflictError{max replay attempts} 且行不再被本端点触碰——操作者必须走
+// QuarantineResolve + 外部重排队（re-emit）处置。上限防的是「操作者对一条每次都失败的毒消息
+// 无限点击 replay」把 TryClaim/异常路径刷成自噪。
+const QuarantineReplayMaxAttempts = 5
+
+// quarantineReplayWatchdog（OV⑤④）：REPLAYING 停留超过该时长视为「上次 replay 崩溃在半路」，
+// QuarantineReplay 可重claim（CAS 谓词对 REPLAYING 行加 updated_at < now-watchdog 守卫）。
+// 10min >> 任何同步 TryClaim 时长——误判需要 TryClaim 卡死 >10min，那本身就是独立事故。
+// 服务侧 Task 14 的 OpsMaintenance sweep（REPLAYING 超时 → QUARANTINED）用同一常量。
+const quarantineReplayWatchdog = 10 * time.Minute
 
 // Service 是 §10 ops 服务层。每个方法解析请求所属租户的 per-tenant Store / QuarantineStore + *gorm.DB，
 // 拒绝 TenantID==0，并把底层 store 错误映射成 opsvc 的标记错误（ConflictError / ErrMissingTenant）。
@@ -63,10 +86,48 @@ var ErrMissingTenant = errors.New("opsvc: TenantID is required (must be > 0); bi
 type Service struct {
 	resolve store.TenantStoreResolver
 	audit   AccessAuditor
+	// registry / envelopeDecoder 只服务 QuarantineReplay（PR-7 Task 3，C①）。nil（未注入）时
+	// QuarantineReplay 返回 ErrQuarantineReplayUnsupported（fail-closed），其余 10 个方法不受影响。
+	registry        replay.HandlerRegistry
+	envelopeDecoder EnvelopeDecoder
+	// qrClaim / qrBack / qrResolve 是 QuarantineReplay 的三个隔离区 CAS 迁移（接口冻结决策：
+	// 不进 QuarantineStore，直接写在 resolver 提供的 per-tenant db 上）。做成 func 字段与
+	// txRunner 同理——仅同包测试覆写，避免为断言 CAS 语义拉真实 DB driver 进单元测试；
+	// 生产默认值就是本文件的 gorm 实现（NewService 里绑定）。真实 SQL 语义由 system-tagged
+	// 测试（repotest 真库）钉住。
+	qrClaim   func(ctx context.Context, db *gorm.DB, id int64, tenantID int, expectedVersion int64, watchdogCutoff time.Time) error
+	qrBack    func(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, cause error) error
+	qrResolve func(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by, detail string) error
 	// txRunner 把一段闭包包进单个 DB 事务。默认是 db.Transaction（brief 规定：ReplayOne 的
 	// sibling-check + ScheduleReplay 跑在同一 tx 以缩小 check-then-act TOCTOU 窗口）。仅在同包测试里
 	// 覆写——避免为「两调用拿到同一 tx」这条断言拉一个真实 DB driver 进测试。生产调用方不设此字段。
 	txRunner func(db *gorm.DB, fn func(tx *gorm.DB) error) error
+}
+
+// ServiceOption 是 NewService 的可选注入项（PR-7 Task 3，C①）。additive：现有 2 参调用不变。
+type ServiceOption func(*Service)
+
+// EnvelopeDecoder 把隔离区原始字节解回 TryClaim 所需的身份三元组。服务侧实现包住
+// eventbus.FromBytes（J2：本包不 import eventbus——那会把 sarama 带进 ops 层）。返回的
+// key.ItemKey 恒为 ""（隔离区存的是单条不可解码消息，无批量 item 维度）；tenantID 来自
+// envelope 自身声明，QuarantineReplay 会再与请求的租户作用域比对。
+type EnvelopeDecoder func(raw []byte) (key reliable.Key, meta reliable.Meta, tenantID int, err error)
+
+// WithRegistry 注入 handler 注册表。**OV⑤ 重设计后的角色**：QuarantineReplay 只用它校验
+// 隔离行的 HandlerID 是已注册 handler（unknown → 错误、行不动）——绝不直接调 Handler.Handle。
+// 直接调 handler 会造出第三条执行路径，绕过 TryClaim fencing、aggregate gate、attempt 上限
+// 与 §10 运维面（OV⑤=8A）。注入的值须与消费侧 scheduler 共用同一注册表实例。
+func WithRegistry(reg replay.HandlerRegistry) ServiceOption {
+	return func(s *Service) { s.registry = reg }
+}
+
+// WithEnvelopeDecoder 注入 envelope 解码器。服务侧实现包住 eventbus.FromBytes（evidence 的
+// 双胞胎在 shared/infrastructure/reliable/ops_service.go）——opsvc 自身保持 eventbus-free
+// （J2：opsvc 只 import store/reliable/gorm(+replay)，拉进 eventbus 会把 sarama 带入 ops 层）。
+// 解出的 tenantID 与 r.TenantID 不一致时 QuarantineReplay 拒绝（防跨租户投递：envelope 自称
+// 租户 A 而行存于租户 B 的隔离表，以行所在租户为准 + 显式报错，不静默改写）。
+func WithEnvelopeDecoder(fn EnvelopeDecoder) ServiceOption {
+	return func(s *Service) { s.envelopeDecoder = fn }
 }
 
 // NewService 构造一个 ops Service。r 与 a 都必须非 nil：
@@ -74,15 +135,27 @@ type Service struct {
 //   - a==nil：审计未注入则构造失败（Q4=A「未注入则构造失败」——fail-closed 不能靠运行时 nil 检查兜底，
 //     构造期就拒绝，杜绝「上线忘配 auditor」的静默特权泄露）。
 //
+// opts 是可选注入（PR-7 Task 3）：WithRegistry + WithEnvelopeDecoder 共同启用 QuarantineReplay；
+// 只注入其一同样 fail-closed（QuarantineReplay 返回 ErrQuarantineReplayUnsupported，不半启动）。
+//
 // 返回值签名偏离 plan 草稿的 `NewService(r) *Service`：Q4 增加了 required auditor + error return。
-func NewService(r store.TenantStoreResolver, a AccessAuditor) (*Service, error) {
+func NewService(r store.TenantStoreResolver, a AccessAuditor, opts ...ServiceOption) (*Service, error) {
 	if r == nil {
 		return nil, errors.New("opsvc: NewService: nil TenantStoreResolver")
 	}
 	if a == nil {
 		return nil, errors.New("opsvc: NewService: nil AccessAuditor (Q4=A: required for fail-closed privileged-access audit)")
 	}
-	return &Service{resolve: r, audit: a, txRunner: defaultTxRunner}, nil
+	s := &Service{resolve: r, audit: a, txRunner: defaultTxRunner}
+	s.qrClaim = s.casToReplaying
+	s.qrBack = s.casBackToQuarantined
+	s.qrResolve = s.casToResolved
+	for _, o := range opts {
+		if o != nil {
+			o(s)
+		}
+	}
+	return s, nil
 }
 
 // defaultTxRunner 是 txRunner 的生产默认值：直接委托 gorm.DB.Transaction。
@@ -388,6 +461,239 @@ func (s *Service) QuarantineResolve(ctx context.Context, r ResolveRequest) error
 		return err
 	}
 	return nil
+}
+
+// —— QuarantineReplay（PR-7 Task 3，C①；OV⑤=8A「毕业」流程）——
+
+// quarantine CAS 语句（gorm Updates 形态，与 gormshared/quarantine.go MarkResolved 同纪律：
+// 先查 res.Error 再看 RowsAffected——DB 错误/ctx 取消不得伪装成 CAS conflict）。
+const (
+	quarantineStatusQuarantined = "QUARANTINED"
+	quarantineStatusReplaying   = "REPLAYING"
+	quarantineStatusResolved    = "RESOLVED"
+)
+
+// QuarantineReplay 把一条隔离区毒消息「毕业」回正常消费路径（POST /quarantine/:id/replay）。
+// **OV⑤=8A 核心不变量：绝不直接调 Handler.Handle**——直接执行会造出第三条执行路径，绕过
+// TryClaim fencing、aggregate gate（§6.2.1）、attempt 上限（§6.2）与 §10 运维面。流程：
+//
+//  1. 读行（tenant 作用域，GetByID）+ 尝试上限守卫（replay_attempts >= QuarantineReplayMaxAttempts
+//     → ConflictError，行不动——OV⑤③）+ registry 校验 HandlerID 已注册（unknown → 错误，行不动）。
+//  2. CAS QUARANTINED→REPLAYING（ExpectedRowVersion）；REPLAYING 行仅在 updated_at <
+//     now-quarantineReplayWatchdog 时可被重claim（OV⑤④：上次 replay 崩溃在半路的自愈）。
+//  3. 解码 envelope（服务注入的 EnvelopeDecoder；解码失败 → CAS 回 QUARANTINED、计数+1、上抛错误）。
+//  4. store.TryClaim(Key{EventID 来自解码, Handler 来自【行】而非 envelope, ItemKey:""}, Meta, TenantID,
+//     Delivery 由行内 Raw* 重建)——行序与消费侧 LIVE 投递完全相同的仲裁点（M5/M3：与在途消费者
+//     的 TryClaim 互斥，无双重处理）。Handler 取行不取 envelope：隔离行的 handler_id 是当初投递
+//     绑定的稳定协议标识（§3.1），envelope 只是载荷；以行为准防「毒载荷自称别的 handler」越权。
+//     Delivery 的 Topic/Partition/Offset/RawKey/Headers/PayloadHash 用行内存储的 broker 原始值
+//     重建（RawValue 是完整 envelope 字节，另作 MarkFailed 的 payload 持久化）。
+//  5. TryClaim 三分支：
+//     - Claimed → MarkFailed(pay­load=RawValue, class=RETRYABLE, safety=registry 的 ReplaySafety)
+//     把行转成 RETRY_SCHEDULED/DEAD_LETTER——这是唯一能同时满足 chk_retry_due（payload +
+//     next_attempt_at + error_class）且让 FindEligibleHeads 可扫到的内核路径；随后 CAS
+//     REPLAYING→RESOLVED（resolved_by=r.By）。业务执行、attempt 计数、aggregate gate、
+//     head 排序全部由既有 replay scheduler 承接（对本方法是黑盒）。attempt 上限由
+//     MarkFailed 的 maxAttempts 参数强制（§6.1），与消费侧 LIVE 路径同一条防线。
+//     - AlreadySettled → 消息早已落地（幂等成功）：CAS REPLAYING→RESOLVED，detail 注明。
+//     - AlreadyProcessing → 在途消费者持有租约：CAS REPLAYING→QUARANTINED（row_version+1、
+//     replay_attempts+1、error_message="live consumer holds the lease; retry after it settles"），
+//     返回 *ConflictError{live claim active}（→ HTTP 409）。等在途方结算后再试。
+//     - error → CAS REPLAYING→QUARANTINED（replay_attempts+1、error_message=sanitize 后的 cause），
+//     上抛错误（非 ConflictError）。
+//
+// **接口冻结（Step 3 locked decision）**：REPLAYING→X 的两三次 CAS 由本方法直接在
+// resolver 提供的 per-tenant *gorm.DB 上执行（与 ScheduleReplay 写 db 同纪律），【不】给
+// store.QuarantineStore 加 MarkReplaying/MarkQuarantinedBack——隔离区全部状态迁移集中在
+// 一个文件里（store 侧保持哑 CRUD 端口），且这些迁移是 QuarantineReplay 私有编排，没有
+// 第二个调用方需要共享。
+//
+// **审计判定（controller 指示的 reasoned choice）**：本方法【不】发 quarantine_raw 特权读审计。
+// 现有 quarantine_raw 审计（QuarantineDetail/QuarantineList includeRaw=true）的义务是
+// 「只要把原始字节释放给【调用方】就保证审计」——本方法读 RawValue 仅作内部解码 + 喂给
+// TryClaim/MarkFailed（内核内部数据流），RawValue/RawKey/Headers 从不出现在返回值或错误文本里
+// （错误只携带 sanitize 后的 cause 字符串）。特权读审计的威胁模型是「人看到毒载荷内容」；
+// 机器内部的字节搬运不产生新的暴露面。此为有意决策，非遗漏。
+func (s *Service) QuarantineReplay(ctx context.Context, r QuarantineReplayRequest) error {
+	if err := requireTenant(r.TenantID); err != nil {
+		return err
+	}
+	// fail-closed：缺 registry 或 decoder 都无法构造合法 ClaimInput。
+	if s.registry == nil || s.envelopeDecoder == nil {
+		return ErrQuarantineReplayUnsupported
+	}
+	qs, err := s.resolve.QuarantineStore(r.TenantID)
+	if err != nil {
+		return err
+	}
+	st, db, err := s.resolve.Store(r.TenantID)
+	if err != nil {
+		return err
+	}
+
+	// —— 步骤 1：读行（tenant 作用域）+ 前置守卫（上限 / registry）。行未动。 ——
+	row, err := qs.GetByID(ctx, r.TenantID, r.ID)
+	if err != nil {
+		return err
+	}
+	if row.ReplayAttempts >= QuarantineReplayMaxAttempts {
+		// OV⑤③：达到上限 → 行不动，操作者走 QuarantineResolve + 外部重排队。
+		return &ConflictError{Reason: conflictReasonMaxReplayAtt}
+	}
+	if _, ok := s.registry.Lookup(row.HandlerID); !ok {
+		return fmt.Errorf("opsvc: quarantine replay: handler %q not registered (row untouched)", row.HandlerID)
+	}
+
+	// —— 步骤 2：CAS →REPLAYING（qrClaim seam；真实谓词见 casToReplaying）。 ——
+	now := time.Now().UTC()
+	if err := s.qrClaim(ctx, db, r.ID, r.TenantID, r.ExpectedRowVersion, now.Add(-quarantineReplayWatchdog)); err != nil {
+		return err // 0 行 → *ConflictError（版本不符 / 非 QUARANTINED 亦非超时 REPLAYING，含已 RESOLVED）。
+	}
+
+	// —— 步骤 3：解码。失败 → CAS 回 QUARANTINED、replay_attempts+1、上抛。 ——
+	key, meta, envTenant, decErr := s.envelopeDecoder(row.RawValue)
+	if decErr != nil {
+		return errors.Join(decErr, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, decErr))
+	}
+	if envTenant != r.TenantID {
+		tenErr := fmt.Errorf("opsvc: quarantine replay: envelope tenant %d != row tenant %d (cross-tenant envelope refused)", envTenant, r.TenantID)
+		return errors.Join(tenErr, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, tenErr))
+	}
+
+	// —— 步骤 4：TryClaim（与消费侧 LIVE 投递同一仲裁点）。 ——
+	info, _ := s.registry.Lookup(row.HandlerID) // 步骤 1 已确认存在。
+	claimKey := reliable.Key{EventID: key.EventID, Handler: row.HandlerID, ItemKey: ""}
+	delivery := reliable.DeliveryMeta{
+		Topic:           row.Topic,
+		Partition:       row.SrcPartition,
+		Offset:          row.SrcOffset,
+		BrokerTimestamp: derefTime(row.BrokerTimestamp),
+		PayloadHash:     row.RawPayloadHash,
+		RawKey:          append([]byte(nil), row.RawKey...),
+		Headers:         append([]reliable.HeaderPair(nil), row.Headers...),
+	}
+	tok, dec, err := st.TryClaim(ctx, reliable.ClaimInput{
+		Key: claimKey, Meta: meta, TenantID: r.TenantID, Delivery: delivery,
+	}, quarantineReplayClaimLease)
+	switch {
+	case err == nil && dec == reliable.Claimed:
+		// 毕业收尾：MarkFailed 把 envelope 字节持久化为 payload 并按 §6.1 矩阵落
+		// RETRY_SCHEDULED（safety != ReplayUnsafe）或 DEAD_LETTER——FindEligibleHeads 从此
+		// 可扫到（chk_retry_due 的 payload/next_attempt_at/error_class 三件套只有 MarkFailed
+		// 会写全）。类用 RETRYABLE：这是一次人工触发的重投，非业务失败——RETRYABLE + 非
+		// ReplayUnsafe 正是「让 scheduler 正常驱动」的入口；unsafe handler 则直接落死信，
+		// 交给 §6.2 的人工双人路径，绝不静默重放有进程外副作用的 handler。
+		mfErr := st.MarkFailed(ctx, db, claimKey, tok, reliable.ClassRetryable,
+			info.ReplaySafety, reliable.DefaultMaxAttempts,
+			errQuarantineGraduated, row.RawValue)
+		if mfErr != nil {
+			// MarkFailed 失败：行留在 PROCESSING（TryClaim 已占位）——lease 过期后由既有
+			// §3.2 回收/重投路径接管，不为它造新机制。隔离行回 QUARANTINED（可重试毕业）。
+			return errors.Join(mfErr, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, mfErr))
+		}
+		// 隔离行 → RESOLVED（毕业完成）。并发迁移（0 行）由 seam 幂等返回 nil——毕业的
+		// 事实已由 MarkFailed 的产物保证（TryClaim 的 uk 幂等兜底防双毕业）。
+		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By, "graduated into replay path")
+	case err == nil && dec == reliable.AlreadySettled:
+		// 幂等成功：消息早已落地。隔离行 → RESOLVED（detail 注明），不计数。
+		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By, "already settled by earlier processing")
+	case err == nil && dec == reliable.AlreadyProcessing:
+		// 在途消费者持有租约：回 QUARANTINED + 409。live 消费者自己的 TryClaim/Mark* 才是
+		// 该行的处置者（M5/M3 同一仲裁点），这里绝不能覆盖。
+		if backErr := s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, errLiveClaimHolds); backErr != nil {
+			return errors.Join(&ConflictError{Reason: conflictReasonLiveClaim}, backErr)
+		}
+		return &ConflictError{Reason: conflictReasonLiveClaim}
+	default: // TryClaim 出错
+		return errors.Join(err, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, err))
+	}
+}
+
+// errQuarantineGraduated 是毕业路径 MarkFailed 的 cause：一行说明重放的来源，写入
+// error_message（sanitize 后）。非业务错误——语义是「这条行是从隔离区毕业的」。
+var errQuarantineGraduated = errors.New("quarantine replay: graduated from raw_message_quarantine into replay path")
+
+// errLiveClaimHolds 是 AlreadyProcessing 分支写回 error_message 的固定文案（brief 规定）。
+var errLiveClaimHolds = errors.New("live consumer holds the lease; retry after it settles")
+
+// quarantineReplayClaimLease 是毕业 TryClaim 的租约时长。MarkFailed 紧随其后（同请求内），
+// 租约只是让 TryClaim 的占位合法（chk_processing_owner 三元组），不承载真实等待。
+const quarantineReplayClaimLease = 5 * time.Minute
+
+// casToReplaying 是 qrClaim 的生产实现：CAS QUARANTINED→REPLAYING（或超时 REPLAYING 重claim）。
+// OR 谓词写成单个自带括号的字符串——gorm 多 Where 逐条 AND 拼接，把含 OR 的裸串拆出第二个
+// Where 再依赖 builder 的 wrapInParentheses 推断（clause/where.go:65-67）是隐式契约；显式括号
+// 让 tenant/version 作用域对 OR 短路免疫。0 行 → *ConflictError（版本不符 / 状态谓词未命中）。
+func (s *Service) casToReplaying(ctx context.Context, db *gorm.DB, id int64, tenantID int, expectedVersion int64, watchdogCutoff time.Time) error {
+	now := time.Now().UTC()
+	res := db.WithContext(ctx).Model(&gormshared.QuarantineModel{}).
+		Where("id = ? AND tenant_id = ? AND row_version = ? AND (status = ? OR (status = ? AND updated_at < ?))",
+			id, tenantID, expectedVersion,
+			quarantineStatusQuarantined, quarantineStatusReplaying, watchdogCutoff).
+		Updates(map[string]any{
+			"status": quarantineStatusReplaying, "updated_at": now,
+			"row_version": gorm.Expr("row_version + 1"),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return &ConflictError{Reason: conflictReasonRowVersion}
+	}
+	return nil
+}
+
+// casBackToQuarantined 是 qrBack 的生产实现：REPLAYING→QUARANTINED，row_version+1
+// （replayRowVer 是 →REPLAYING 之前的版本，+1 即 REPLAYING 态的版本，再 +1 落回）、
+// replay_attempts+1（OV⑤③ 的计数——控制器裁定：每次 REPLAYING→QUARANTINED 失败迁移都计，
+// 成功毕业不重置，RESOLVED 是终态）、error_message = sanitize 后的 cause（§10 脱敏地板——
+// cause 可能携带 DSN/凭证/PII）。
+// 0 行（并发迁移：另一操作者 / watchdog sweep 先动了）幂等返回 nil——行已不在我们手里，
+// 「离开 REPLAYING」的目的可能已被并发方达成；真 DB 错误照常上抛（滞留 REPLAYING 由
+// OV⑤④ watchdog 自愈，调用方以 errors.Join 双抛感知）。
+func (s *Service) casBackToQuarantined(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, cause error) error {
+	res := db.WithContext(ctx).Model(&gormshared.QuarantineModel{}).
+		Where("id = ? AND tenant_id = ? AND status = ? AND row_version = ?",
+			id, tenantID, quarantineStatusReplaying, replayRowVer+1).
+		Updates(map[string]any{
+			"status":          quarantineStatusQuarantined,
+			"error_message":   reliable.SanitizeForStorage(fmt.Sprintf("%v", cause)),
+			"replay_attempts": gorm.Expr("replay_attempts + 1"),
+			"updated_at":      time.Now().UTC(),
+			"row_version":     gorm.Expr("row_version + 1"),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	return nil // 0 行 = 并发迁移，幂等 nil（见函数头）。
+}
+
+// casToResolved 是 qrResolve 的生产实现：REPLAYING→RESOLVED（毕业 / AlreadySettled 幂等共用）。
+// 0 行同样幂等 nil——另一路径（QuarantineResolve / watchdog）已把行移走，目的达成。
+func (s *Service) casToResolved(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by, detail string) error {
+	now := time.Now().UTC()
+	res := db.WithContext(ctx).Model(&gormshared.QuarantineModel{}).
+		Where("id = ? AND tenant_id = ? AND status = ? AND row_version = ?",
+			id, tenantID, quarantineStatusReplaying, replayRowVer+1).
+		Updates(map[string]any{
+			"status": quarantineStatusResolved, "resolved_by": by,
+			"error_message": reliable.SanitizeForStorage(detail),
+			"resolved_at":   now,
+			"updated_at":    now,
+			"row_version":   gorm.Expr("row_version + 1"),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	return nil
+}
+
+// derefTime 解 *time.Time（nil → 零值），Delivery.BrokerTimestamp 是值类型。
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
 
 // Anomalies 读 consumption_anomalies（§10 /anomalies 视图）。直接透传 store.ListAnomalies 的结果。
