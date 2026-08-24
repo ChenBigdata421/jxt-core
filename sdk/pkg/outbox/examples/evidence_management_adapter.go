@@ -236,6 +236,16 @@ func (a *OutboxRepositoryAdapter) MarkDeadLetterNotified(ctx context.Context, id
 	return a.repo.MarkDeadLetterNotified(ctx, id)
 }
 
+// FindDeadLettered delegates to the underlying jxt-core repository (PR-7 C② ops listing).
+func (a *OutboxRepositoryAdapter) FindDeadLettered(ctx context.Context, limit, offset, tenantID int) ([]*outbox.OutboxEvent, error) {
+	return a.repo.FindDeadLettered(ctx, limit, offset, tenantID)
+}
+
+// CountDeadLettered delegates to the underlying jxt-core repository (PR-7 C② ops listing).
+func (a *OutboxRepositoryAdapter) CountDeadLettered(ctx context.Context, tenantID int) (int64, error) {
+	return a.repo.CountDeadLettered(ctx, tenantID)
+}
+
 // DeletePublishedBefore 删除指定时间之前已发布的事件
 func (a *OutboxRepositoryAdapter) DeletePublishedBefore(ctx context.Context, before time.Time, tenantID int) (int64, error) {
 	return a.repo.DeletePublishedBefore(ctx, before, tenantID)

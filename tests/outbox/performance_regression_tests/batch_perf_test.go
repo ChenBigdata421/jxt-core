@@ -417,6 +417,12 @@ func (r *batchCountRepo) FindUnnotifiedDeadLettered(_ context.Context, _ int, _ 
 	return nil, nil
 }
 func (r *batchCountRepo) MarkDeadLetterNotified(_ context.Context, _ string) error { return nil }
+func (r *batchCountRepo) FindDeadLettered(_ context.Context, _, _, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *batchCountRepo) CountDeadLettered(_ context.Context, _ int) (int64, error) {
+	return 0, nil
+}
 func (r *batchCountRepo) FindPublishedByIdempotencyKeys(_ context.Context, _ []string) (map[string]struct{}, error) {
 	return nil, nil
 }
@@ -549,6 +555,12 @@ func (r *callCountRepo) FindUnnotifiedDeadLettered(_ context.Context, _ int, _ i
 	return nil, nil
 }
 func (r *callCountRepo) MarkDeadLetterNotified(_ context.Context, _ string) error { return nil }
+func (r *callCountRepo) FindDeadLettered(_ context.Context, _, _, _ int) ([]*outbox.OutboxEvent, error) {
+	return nil, nil
+}
+func (r *callCountRepo) CountDeadLettered(_ context.Context, _ int) (int64, error) {
+	return 0, nil
+}
 func (r *callCountRepo) FindPublishedByIdempotencyKeys(_ context.Context, keys []string) (map[string]struct{}, error) {
 	r.mu.Lock(); defer r.mu.Unlock()
 	r.batchIdempotentCalls.Add(1)

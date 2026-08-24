@@ -156,11 +156,19 @@ func (r *countingRepo) MarkBatchAsPublished(_ context.Context, _ []*OutboxEvent)
 	r.markBatchCallCount.Add(1)
 	return nil
 }
-func (r *countingRepo) MarkAsDeadLettered(_ context.Context, _ string) error         { return nil }
+func (r *countingRepo) MarkAsDeadLettered(_ context.Context, _ string) error { return nil }
 func (r *countingRepo) FindUnnotifiedDeadLettered(_ context.Context, _ int, _ int) ([]*OutboxEvent, error) {
 	return nil, nil
 }
 func (r *countingRepo) MarkDeadLetterNotified(_ context.Context, _ string) error { return nil }
+
+// PR-7 C② ops listing（publisher 路径不触碰，空实现仅为满足接口契约）
+func (r *countingRepo) FindDeadLettered(_ context.Context, _, _, _ int) ([]*OutboxEvent, error) {
+	return nil, nil
+}
+func (r *countingRepo) CountDeadLettered(_ context.Context, _ int) (int64, error) {
+	return 0, nil
+}
 
 type asyncFakePublisher struct{}
 

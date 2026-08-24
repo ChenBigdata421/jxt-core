@@ -3,6 +3,7 @@ package function_regression_tests
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -456,6 +457,54 @@ func (m *MockRepository) MarkDeadLetterNotified(ctx context.Context, id string) 
 		event.UpdatedAt = now
 	}
 	return nil
+}
+
+// FindDeadLettered PR-7 C② ops 死信列表（mock）：全部 dead_lettered（含已通知），
+// 按 DeadLetteredAt DESC、ID DESC 排序后分页；tenantID<=0 为全租户。
+func (m *MockRepository) FindDeadLettered(ctx context.Context, limit, offset, tenantID int) ([]*outbox.OutboxEvent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var matched []*outbox.OutboxEvent
+	for _, event := range m.events {
+		if event.Status == outbox.EventStatusDeadLettered {
+			if tenantID <= 0 || event.TenantID == tenantID {
+				matched = append(matched, event)
+			}
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		ti, tj := matched[i].DeadLetteredAt, matched[j].DeadLetteredAt
+		if ti != nil && tj != nil && !ti.Equal(*tj) {
+			return ti.After(*tj)
+		}
+		return matched[i].ID > matched[j].ID
+	})
+	if offset >= len(matched) {
+		return []*outbox.OutboxEvent{}, nil
+	}
+	if limit <= 0 {
+		return []*outbox.OutboxEvent{}, nil
+	}
+	end := offset + limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[offset:end], nil
+}
+
+// CountDeadLettered PR-7 C② ops 死信总数（mock）；租户语义与 FindDeadLettered 一致。
+func (m *MockRepository) CountDeadLettered(ctx context.Context, tenantID int) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var count int64
+	for _, event := range m.events {
+		if event.Status == outbox.EventStatusDeadLettered {
+			if tenantID <= 0 || event.TenantID == tenantID {
+				count++
+			}
+		}
+	}
+	return count, nil
 }
 
 // FindScheduledEvents 查找计划发布的事件

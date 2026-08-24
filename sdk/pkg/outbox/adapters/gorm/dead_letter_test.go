@@ -13,7 +13,10 @@ func insertStatus(t *testing.T, repo outbox.OutboxRepository, id string, status 
 	ev := &outbox.OutboxEvent{
 		ID: id, TenantID: 1, AggregateID: "agg", AggregateType: "X", EventType: "Created",
 		Payload: []byte(`{}`), Status: status, RetryCount: 3, MaxRetries: 3,
-		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		// idempotency_key 有 uniqueIndex 且非 NULL：空串会在同库插多行时互相冲突，
+		// 按 id 唯一化（C② 的 ops 列表测试同库多种子行）。
+		IdempotencyKey: id,
+		CreatedAt:      time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 	}
 	if err := repo.Save(context.Background(), ev); err != nil {
 		t.Fatalf("Save: %v", err)

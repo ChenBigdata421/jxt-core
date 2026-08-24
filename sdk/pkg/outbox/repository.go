@@ -163,6 +163,17 @@ type OutboxRepository interface {
 	// MarkDeadLetterNotified CAS: 标记通知成功（C1 step3）。并发/重复调用安全。
 	MarkDeadLetterNotified(ctx context.Context, id string) error
 
+	// FindDeadLettered 运维死信列表（PR-7 C②/§10）：列出全部 status=dead_lettered 的行，
+	// 按 dead_lettered_at DESC, id DESC 排序，LIMIT/OFFSET 分页。
+	// 与 FindUnnotifiedDeadLettered 的分野：ops 视图不过滤 dlq_notified_at——已通知的
+	// 死信仍要展示（运维需要看到历史死信，而不仅是待补发的）。
+	// ctx: 上下文；limit/offset: 分页；tenantID: 租户 ID（<=0 表示所有租户的 ops 视图）
+	FindDeadLettered(ctx context.Context, limit, offset, tenantID int) ([]*OutboxEvent, error)
+
+	// CountDeadLettered 统计死信总数（PR-7 C②/§10），租户语义与 FindDeadLettered 一致
+	// （tenantID<=0 = 全租户），用于 ops REST 分页的总数。
+	CountDeadLettered(ctx context.Context, tenantID int) (int64, error)
+
 	// MarkBatchAsPublished transitions a batch of events from Pending to Published
 	// using a single UPDATE statement (status='published', published_at=now,
 	// updated_at=now WHERE id IN (?) AND status='pending').

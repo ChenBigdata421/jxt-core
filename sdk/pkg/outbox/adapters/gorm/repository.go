@@ -532,6 +532,41 @@ func (r *GormOutboxRepository) MarkDeadLetterNotified(ctx context.Context, id st
 		}).Error
 }
 
+// FindDeadLettered 运维死信列表（PR-7 C②/§10）：全部 dead_lettered 行（含已 dlq_notified 的——
+// 与 C1 的 FindUnnotifiedDeadLettered 分野），ORDER BY dead_lettered_at DESC, id DESC，LIMIT/OFFSET。
+// tenantID<=0（含 0 与负数）= 全租户 ops 视图；排序次键 id DESC 保证同一时间戳下分页稳定。
+func (r *GormOutboxRepository) FindDeadLettered(ctx context.Context, limit, offset, tenantID int) ([]*outbox.OutboxEvent, error) {
+	var models []*OutboxEventModel
+	query := r.db.WithContext(ctx).
+		Where("status = ?", outbox.EventStatusDeadLettered).
+		Order("dead_lettered_at DESC").
+		Order("id DESC").
+		Limit(limit).
+		Offset(offset)
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+	if err := query.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return ToEntities(models), nil
+}
+
+// CountDeadLettered 统计死信总数（PR-7 C②/§10）；租户语义与 FindDeadLettered 一致（<=0 = 全租户）。
+func (r *GormOutboxRepository) CountDeadLettered(ctx context.Context, tenantID int) (int64, error) {
+	var count int64
+	query := r.db.WithContext(ctx).
+		Model(&OutboxEventModel{}).
+		Where("status = ?", outbox.EventStatusDeadLettered)
+	if tenantID > 0 {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // Ensure GormOutboxRepository implements the interfaces
 var (
 	_ outbox.OutboxRepository        = (*GormOutboxRepository)(nil)
