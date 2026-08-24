@@ -60,7 +60,6 @@ type qrFixture struct {
 	qst     store.QuarantineStore
 	svc     *opsvc.Service
 	decoder *qrDecoderFake
-	reg     *qrRegistryFake
 }
 
 // qrTenant / qrHandlerID：装配常量（与 service_test.go 的 harness 取值解耦——真库种子
@@ -130,7 +129,7 @@ func newQrFixture(t *testing.T, dialect repotest.Dialect) *qrFixture {
 	svc, err := opsvc.NewService(&qrResolver{st: st, qst: qst, db: db}, qrAuditorFake{},
 		opsvc.WithRegistry(qrRegistryFake{}), opsvc.WithEnvelopeDecoder(dec.decode))
 	require.NoError(t, err)
-	return &qrFixture{db: db, st: st, qst: qst, svc: svc, decoder: dec, reg: nil}
+	return &qrFixture{db: db, st: st, qst: qst, svc: svc, decoder: dec}
 }
 
 // seedQuarantinedRow 落一条 QUARANTINED 隔离行（真 Record 路径——ON CONFLICT 幂等 +

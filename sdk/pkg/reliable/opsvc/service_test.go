@@ -981,8 +981,10 @@ func TestAnomalies_RejectsMissingTenant(t *testing.T) {
 //  1. resolver 层：Service 只解析【请求租户】的 store——错误租户的 store 永不被触碰
 //     （assertOnlyTouched；fake resolver 按租户分发，被解析 = 被调用）。
 //  2. store 层：tenant 谓词下传（GetByID/MarkResolved 带 tenantID 形参；confTenantIsolation 在
-//     真库钉住 SQL 侧 0 行 → not-found/conflict）。本套 fake 只钉第 1 层 + 入参下传，第 2 层的
-//     not-found/conflict 语义交给 resolver 层天然保证（一库一租户，错租户 store 根本拿不到）。
+//     真库钉住读路径 SQL 侧 0 行 → not-found；MarkResolved 的跨租户 0 行 → conflict 由
+//     repotest/quarantine.go 的 MarkResolved_RejectsCrossTenant 钉住）。本套 fake 只钉第 1 层 +
+//     入参下传，第 2 层的 not-found/conflict 语义交给 resolver 层天然保证（一库一租户，错租户
+//     store 根本拿不到）。
 //
 // GetDetail / QuarantineDetail：详情读取若漏了租户作用域，最坏后果是跨租户载荷泄露（配合
 // includePayload/includeRaw=true 直接放出毒载荷原文）——虽然单 fake 证明不了 SQL 谓词，这里
@@ -1028,7 +1030,8 @@ func TestQuarantineDetail_CrossTenantIsolation(t *testing.T) {
 
 // TestQuarantineResolve_CrossTenantIsolation：写路径同样只解析请求租户；错租户的隔离行在真实
 // resolver（一库一租户）下等价 not-found/0 行 → store 侧 ErrConflict → *ConflictError。fake 层
-// 钉「另一租户的 store 不被触碰」；confTenantIsolation（repotest）钉真库侧的 0 行语义。
+// 钉「另一租户的 store 不被触碰」；MarkResolved_RejectsCrossTenant（repotest/quarantine.go:82）
+// 钉真库侧 MarkResolved 跨租户 0 行 → ErrConflict 语义。
 func TestQuarantineResolve_CrossTenantIsolation(t *testing.T) {
 	r := newFakeResolver()
 	_, qs1, _ := r.addTenant(15)
@@ -1164,12 +1167,11 @@ func TestResolverError_Propagates(t *testing.T) {
 
 // qrTransition 记录一次 CAS 迁移（断言迁移序列用）。
 type qrTransition struct {
-	kind       string // "claim" | "back" | "resolve"
-	id         int64
-	tenantID   int
-	rowVer     int64 // 期望的 CAS 版本（claim: ExpectedRowVersion；back/resolve: replayRowVer+1）
-	causeOrDtl string
-	by         string
+	kind     string // "claim" | "back" | "resolve"
+	id       int64
+	tenantID int
+	rowVer   int64 // 期望的 CAS 版本（claim: ExpectedRowVersion；back/resolve: replayRowVer+1）
+	by       string
 }
 
 // qrRowState 是 fakeQrState 持有的隔离行状态。
@@ -1233,7 +1235,7 @@ func (f *fakeQrState) claim(ctx context.Context, db *gorm.DB, id int64, tenantID
 
 // back 模拟 casBackToQuarantined：replayRowVer+1 命中 REPLAYING 行 → QUARANTINED + 计数。
 func (f *fakeQrState) back(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, cause error) error {
-	f.log = append(f.log, qrTransition{kind: "back", id: id, tenantID: tenantID, rowVer: replayRowVer + 1, causeOrDtl: fmt.Sprintf("%v", cause)})
+	f.log = append(f.log, qrTransition{kind: "back", id: id, tenantID: tenantID, rowVer: replayRowVer + 1})
 	r, ok := f.rows[[2]int64{id, int64(tenantID)}]
 	if !ok || r.status != quarantineStatusReplaying || r.rowVersion != replayRowVer+1 {
 		return nil // 并发迁移：幂等 nil（与生产语义一致）。

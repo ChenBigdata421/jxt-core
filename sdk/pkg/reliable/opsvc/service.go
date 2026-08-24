@@ -74,11 +74,14 @@ var ErrQuarantineReplayUnsupported = errors.New("opsvc: quarantine replay requir
 // 无限点击 replay」把 TryClaim/异常路径刷成自噪。
 const QuarantineReplayMaxAttempts = 5
 
-// quarantineReplayWatchdog（OV⑤④）：REPLAYING 停留超过该时长视为「上次 replay 崩溃在半路」，
+// QuarantineReplayWatchdog（OV⑤④）：REPLAYING 停留超过该时长视为「上次 replay 崩溃在半路」，
 // QuarantineReplay 可重claim（CAS 谓词对 REPLAYING 行加 updated_at < now-watchdog 守卫）。
 // 10min >> 任何同步 TryClaim 时长——误判需要 TryClaim 卡死 >10min，那本身就是独立事故。
-// 服务侧 Task 14 的 OpsMaintenance sweep（REPLAYING 超时 → QUARANTINED）用同一常量。
-const quarantineReplayWatchdog = 10 * time.Minute
+// **导出（终评修正）**：服务侧 Task 14 的 OpsMaintenance sweep（REPLAYING 超时 → QUARANTINED）
+// 必须与本 CAS 守卫用同一时长——两端各自抄 10min 漂移后，sweep 会在 watchdog 自愈窗口内
+// 抢先把可重claim 行搬走（或反向放走真孤儿）。服务侧 lockstep 引用本导出符号，禁止手抄时长
+// （evidence-management 无法 import 未导出的常量；引用符号 = 编译期锁死同步）。
+const QuarantineReplayWatchdog = 10 * time.Minute
 
 // Service 是 §10 ops 服务层。每个方法解析请求所属租户的 per-tenant Store / QuarantineStore + *gorm.DB，
 // 拒绝 TenantID==0，并把底层 store 错误映射成 opsvc 的标记错误（ConflictError / ErrMissingTenant）。
@@ -482,7 +485,7 @@ const (
 //  1. 读行（tenant 作用域，GetByID）+ 尝试上限守卫（replay_attempts >= QuarantineReplayMaxAttempts
 //     → ConflictError，行不动——OV⑤③）+ registry 校验 HandlerID 已注册（unknown → 错误，行不动）。
 //  2. CAS QUARANTINED→REPLAYING（ExpectedRowVersion）；REPLAYING 行仅在 updated_at <
-//     now-quarantineReplayWatchdog 时可被重claim（OV⑤④：上次 replay 崩溃在半路的自愈）。
+//     now-QuarantineReplayWatchdog 时可被重claim（OV⑤④：上次 replay 崩溃在半路的自愈）。
 //  3. 解码 envelope（服务注入的 EnvelopeDecoder；解码失败 → CAS 回 QUARANTINED、计数+1、上抛错误）。
 //  4. store.TryClaim(Key{EventID 来自解码, Handler 来自【行】而非 envelope, ItemKey:""}, Meta, TenantID,
 //     Delivery 由行内 Raw* 重建)——行序与消费侧 LIVE 投递完全相同的仲裁点（M5/M3：与在途消费者
@@ -551,7 +554,7 @@ func (s *Service) QuarantineReplay(ctx context.Context, r QuarantineReplayReques
 
 	// —— 步骤 2：CAS →REPLAYING（qrClaim seam；真实谓词见 casToReplaying）。 ——
 	now := time.Now().UTC()
-	if err := s.qrClaim(ctx, db, r.ID, r.TenantID, r.ExpectedRowVersion, now.Add(-quarantineReplayWatchdog)); err != nil {
+	if err := s.qrClaim(ctx, db, r.ID, r.TenantID, r.ExpectedRowVersion, now.Add(-QuarantineReplayWatchdog)); err != nil {
 		return err // 0 行 → *ConflictError（版本不符 / 非 QUARANTINED 亦非超时 REPLAYING，含已 RESOLVED）。
 	}
 
@@ -585,8 +588,9 @@ func (s *Service) QuarantineReplay(ctx context.Context, r QuarantineReplayReques
 		// 毕业收尾：MarkFailed 把 envelope 字节持久化为 payload 并按 §6.1 矩阵落
 		// RETRY_SCHEDULED（safety != ReplayUnsafe）或 DEAD_LETTER——FindEligibleHeads 从此
 		// 可扫到（chk_retry_due 的 payload/next_attempt_at/error_class 三件套，在 token 持有
-		// 路径内只有 MarkFailed 会写全——review M-5；无 token 的 RecordTerminal 也写全，
-		// 但本路径已持 TryClaim token，走 MarkFailed）。类用 RETRYABLE：这是一次人工触发
+		// 路径内只有 MarkFailed 会写全——review M-5；无 token 的 RecordTerminal 只写
+		// payload+error_class，落 DEAD_LETTER 行由 chk_dead_payload（无需 next_attempt_at）
+		// 治理——但本路径已持 TryClaim token，走 MarkFailed）。类用 RETRYABLE：这是一次人工触发
 		// 的重投，非业务失败——RETRYABLE + 非 ReplayUnsafe 正是「让 scheduler 正常驱动」
 		// 的入口；unsafe handler 则直接落死信，交给 §6.2 的人工双人路径，
 		// 绝不静默重放有进程外副作用的 handler。

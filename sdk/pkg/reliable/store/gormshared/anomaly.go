@@ -47,6 +47,8 @@ import (
 // 不变（PR-7 决议：加宽会砸掉各消费仓库的显式 fake）；MySQL 侧 gorm 的 OnConflict
 // DoNothing 翻译成 `id = id` 的 ON DUPLICATE KEY UPDATE，冲突行 RowsAffected=0，故
 // res.RowsAffected 即插入数，两方言一致。
+// ⚠ 前提：消费 DSN 不得设 clientFoundRows=true——该参数下 go-sql-driver 对「冲突且值未变」
+// 也报 1（found rows 语义），inserted 语义静默退化回 scanned 语义，>10/h 告警被自身刷爆。
 func (s *GormStore) ObserveExpiredLeases(ctx context.Context, now time.Time) (int, error) {
 	var rows []EventConsumptionModel
 	// review #12：只投影构造 anomaly 用到的 4 列。PROCESSING 行的 payload 可能很大，全行 Find 会让

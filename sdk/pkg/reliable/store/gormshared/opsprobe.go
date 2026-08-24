@@ -54,7 +54,8 @@ type FrozenAggregate struct {
 // 与 EligibleHeadsSQL/EarlierUnsolvedSiblingSQL 的锁步耦合约定相同：任何一方改 earlier-than
 // 谓词，三方必须同步（R4-H：禁止服务侧手抄）。
 // aggregate-less 守卫（review OV②）：与 EligibleHeadsSQL 外层/replay.go:39 同源——无聚合的
-// 通知类行不参与冻结判定（”=” 恒真会让任意两条 aggregate-less 行互判冻结，永久误报）。
+// 通知类行不参与冻结判定（两行 aggregate_id 同为 '' 时 ''='' 恒真，会让任意两条 aggregate-less
+// 行互判冻结，永久误报）。
 const FrozenAggregatesSQL = `
 SELECT e.tenant_id, e.aggregate_type, e.aggregate_id, e.id AS dead_letter_id, e.handler_id AS dead_letter_handler_id
 FROM event_consumption e
