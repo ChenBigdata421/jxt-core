@@ -27,10 +27,15 @@ type EventConsumptionModel struct {
 	CausalSeq     *int64 `gorm:"column:causal_seq;index:idx_aggregate,priority:5"`
 	Topic         string `gorm:"column:topic;type:varchar(100);not null"`
 
-	Status           string `gorm:"column:status;type:varchar(16);not null;index:idx_due,priority:1;index:idx_lease,priority:1;index:idx_ops,priority:2;index:idx_handler,priority:2;index:idx_aggregate,priority:4"`
-	Attempt          int    `gorm:"column:attempt;not null;default:1"`
-	ReplayGeneration int    `gorm:"column:replay_generation;not null;default:0"`
-	RowVersion       int64  `gorm:"column:row_version;not null;default:1"`
+	Status string `gorm:"column:status;type:varchar(16);not null;index:idx_due,priority:1;index:idx_lease,priority:1;index:idx_ops,priority:2;index:idx_handler,priority:2;index:idx_aggregate,priority:4"`
+	// PR-7 idx_unresolved **有意不进 GORM tag**（review D7=6A 的镜像核查结论）：它不像 idx_handler
+	// 那样两方言同形——PG 是 partial `(handler_id, first_seen_at) WHERE status IN 两态`，MySQL 是普通
+	// 复合 `(status, handler_id, first_seen_at)`。GORM tag 只能表达一份固定形态，加了必与其中一方
+	// 分叉（AutoMigrate 产物 ≠ migration SQL，违反本文件头部的双源原则）。索引只由两方言 migration
+	// DDL 承载（postgres/migration.go / mysql/migration.go）；存量 MySQL 库由 evidence 侧迁移补建（OV⑧b）。
+	Attempt          int   `gorm:"column:attempt;not null;default:1"`
+	ReplayGeneration int   `gorm:"column:replay_generation;not null;default:0"`
+	RowVersion       int64 `gorm:"column:row_version;not null;default:1"`
 
 	ClaimID        string     `gorm:"column:claim_id;type:char(36)"`
 	ClaimedAt      *time.Time `gorm:"column:claimed_at"`

@@ -66,6 +66,12 @@ CREATE INDEX IF NOT EXISTS idx_due      ON event_consumption (next_attempt_at) W
 CREATE INDEX IF NOT EXISTS idx_lease    ON event_consumption (lease_expires_at) WHERE status = 'PROCESSING';
 CREATE INDEX IF NOT EXISTS idx_ops      ON event_consumption (tenant_id, status, first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_handler  ON event_consumption (handler_id, status);
+-- PR-7 opsprobe（review D7=6A）：三个探针查询的外层过滤都是「未解决两态」。
+-- RetryAgeSeconds/PendingCounts 按 (handler_id,status IN 两态) 聚合；FrozenAggregates 外层
+-- status='DEAD_LETTER'。两态行占比极小（SUCCEEDED 被 30d 保留清走），partial 索引增量近零。
+-- 注意：本注释块不得出现 ASCII 分号——evidence 侧 SplitDDL 按分号朴素切分整段 DDL。
+CREATE INDEX IF NOT EXISTS idx_unresolved ON event_consumption (handler_id, first_seen_at)
+  WHERE status IN ('RETRY_SCHEDULED','DEAD_LETTER');
 -- D22：尾部加 first_seen_at，与 MySQL 逐字对齐（NOT EXISTS 在无 causal_seq 时比 first_seen_at）。
 CREATE INDEX IF NOT EXISTS idx_aggregate ON event_consumption (tenant_id, aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at);
 

@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   KEY idx_lease    (status, lease_expires_at),
   KEY idx_ops      (tenant_id, status, first_seen_at),
   KEY idx_handler  (handler_id, status),
+  -- PR-7 opsprobe（review D7=6A）：RetryAgeSeconds/PendingCounts/FrozenAggregates 外层过滤均为
+  -- 「未解决两态」，无索引则每 30s 探针全表扫。MySQL 无 partial index → 普通复合；两态行罕见，索引小。
+  -- 列序 (status,handler_id,first_seen_at)：status 等值打头，(handler_id,first_seen_at) 支撑
+  -- GROUP BY handler_id + MIN(first_seen_at) 的覆盖扫描。仅随 CREATE TABLE 生效（本迁移无 ALTER 机制，
+  -- review OV⑧b）：存量 MySQL 库由 evidence 侧迁移补建（command/cmd/migrate/migration/version/
+  -- 2026082300002_add_idx_unresolved.go，information_schema 存在性守卫——MySQL 索引无 IF NOT EXISTS）。
+  KEY idx_unresolved (status, handler_id, first_seen_at),
   -- D22：尾部加 first_seen_at——FindEligibleHeads 的 NOT EXISTS 在事件不带 causal_seq 时按 first_seen_at
   -- 比较（准入 ⑩），无此列则子查询逐行回表，10K 行规模下退化为 O(N²)。
   KEY idx_aggregate (tenant_id, aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at),
