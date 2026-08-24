@@ -71,14 +71,69 @@ func itoa(n int) string {
 	return string(b)
 }
 
-// TestGate_RootKernelZeroDeps 守护 J2：kernel 根包不引 gorm/driver/prometheus/gin/sarama。
-func TestGate_RootKernelZeroDeps(t *testing.T) {
-	cmd := exec.Command("go", "list", "-deps", "./sdk/pkg/reliable")
+// goListDeps 返回 `go list -deps <pkg>` 的输出（该包的传递依赖闭包，含自身）。
+// 工具链约定：go list 失败即 FailNow 而非 Skip——工具链坏了不等于「依赖干净」，
+// 静默跳过会让门禁在坏环境（缺 Go、GOFLAGS 异常）下静默变绿，形同虚设。
+func goListDeps(t *testing.T, pkg string) string {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-deps", pkg)
 	cmd.Dir = repoRoot(t) // 关键：显式指定仓库根，不靠 cwd
 	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "go list failed: %s", out)
+	require.NoError(t, err, "go list %s failed: %s", pkg, out)
+	return string(out)
+}
+
+// TestGate_RootKernelZeroDeps 守护 J2：kernel 根包不引 gorm/driver/prometheus/gin/sarama。
+func TestGate_RootKernelZeroDeps(t *testing.T) {
+	out := goListDeps(t, "./sdk/pkg/reliable")
 	for _, banned := range []string{"gorm.io", "github.com/prometheus", "github.com/gin-gonic", "github.com/IBM/sarama"} {
-		require.NotContainsf(t, string(out), banned, "J2 violation: kernel imports %s", banned)
+		require.NotContainsf(t, out, banned, "J2 violation: kernel imports %s", banned)
+	}
+}
+
+// TestGate_RootKernelBansNatsIO 守护 J2 的 nats-io 半边（评审 B11）：kernel 根包不引
+// github.com/nats-io。补齐与 scripts/reliable_deps_gate.sh:11 的 Go 侧对等——bash 门禁
+// 早已禁 nats-io，但 TestGate_RootKernelZeroDeps 的禁用表一直漏了它，导致没有 bash 的
+// CI（Windows / 纯 Go runner）不强制这条。nats-io 属传输层：kernel 只认 Store 抽象，
+// 不认任何 broker 客户端。
+func TestGate_RootKernelBansNatsIO(t *testing.T) {
+	for _, line := range strings.Split(goListDeps(t, "./sdk/pkg/reliable"), "\n") {
+		if strings.Contains(line, "github.com/nats-io") {
+			t.Fatalf("J2 violation: reliable kernel root pulls nats-io (via %s)", line)
+		}
+	}
+}
+
+// TestGate_ScopedSubPackageDeps 守护 J2 的 scoped 半边（评审 B11）：逐字镜像
+// scripts/reliable_deps_gate.sh:15/19/23 的三条 sub-package 矩阵——
+//   - gormshared 只许 gorm 本体（两种 driver 都禁，方言归 store/mysql|postgres）；
+//   - store/mysql 只许 gorm + mysql driver（禁 postgres driver）；
+//   - store/postgres 只许 gorm + postgres driver（禁 mysql driver）；
+//   - 三者共禁 prometheus / gin / sarama。
+// 之前这些矩阵只活在 bash 门禁里；CI 没有 bash 时无人强制。改脚本矩阵时同步改这里。
+func TestGate_ScopedSubPackageDeps(t *testing.T) {
+	scoped := []struct {
+		pkg    string
+		banned []string
+	}{
+		{"./sdk/pkg/reliable/store/gormshared", []string{
+			"github.com/prometheus", "github.com/gin-gonic",
+			"gorm.io/driver/mysql", "gorm.io/driver/postgres", "github.com/IBM/sarama"}},
+		{"./sdk/pkg/reliable/store/mysql", []string{
+			"github.com/prometheus", "github.com/gin-gonic",
+			"gorm.io/driver/postgres", "github.com/IBM/sarama"}},
+		{"./sdk/pkg/reliable/store/postgres", []string{
+			"github.com/prometheus", "github.com/gin-gonic",
+			"gorm.io/driver/mysql", "github.com/IBM/sarama"}},
+	}
+	for _, s := range scoped {
+		for _, line := range strings.Split(goListDeps(t, s.pkg), "\n") {
+			for _, b := range s.banned {
+				if strings.Contains(line, b) {
+					t.Fatalf("J2 violation: %s pulls %q (via %s)", s.pkg, b, line)
+				}
+			}
+		}
 	}
 }
 
