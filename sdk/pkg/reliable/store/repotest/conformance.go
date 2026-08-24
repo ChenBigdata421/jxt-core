@@ -646,6 +646,111 @@ func confHasEarlierUnsolvedSibling(t *testing.T, d *ConformanceDeps) {
 	hasAggLess, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, aggLessID)
 	require.NoError(t, err)
 	assert.False(t, hasAggLess, "aggregate-less row is never blocked (notification-type, free parallelism)")
+
+	// —— A③：三段式 earlier-than 谓词的第 2/第 3 臂（此前只有第 1 臂 causal_seq 被覆盖）——
+	// 因果序缺失（事件不带 causal_seq）时的次序锚：先 (src_partition, src_offset)，两边都无
+	// partition 才落到 first_seen_at。两臂都要求双侧 causal_seq IS NULL——seedRetryRow 恒绑
+	// 非空 causal_seq 表达不了这些行，用 seedRetryRowNoCausal。同一条 SQL 也被
+	// EligibleHeadsSQL 的 NOT EXISTS 逐字引用（replay.go「逐字同源」注释），故这里钉住的
+	// 谓词行为同时守护重放排序与人工重放 409 门禁。
+
+	// 第 2 臂：partition/offset 次序。e=(p1,o50) vs c=(p2,o1)：partition 更小 → e 更早 → true；
+	// 同 partition 时比 offset。逆序的 (p2,o1) vs (p1,o50) → partition 更大 → 不更早 → false。
+	s2e := newClaimInput(t, "sib2-early")
+	s2c := newClaimInput(t, "sib2-late")
+	s2c.Meta.AggregateID = s2e.Meta.AggregateID
+	s2c.Meta.AggregateType = s2e.Meta.AggregateType
+	s2e.Meta.CausalSeq = nil
+	s2c.Meta.CausalSeq = nil
+	seedRetryRowNoCausal(t, d, s2e, ptrI32(1), ptrI64(50), now.Add(-2*time.Minute), now.Add(-2*time.Minute))
+	seedRetryRowNoCausal(t, d, s2c, ptrI32(2), ptrI64(1), now.Add(-time.Minute), now.Add(-time.Minute))
+	arm2LateID := mustGetByEvent(t, d, s2c.Key).ID
+	arm2EarlyID := mustGetByEvent(t, d, s2e.Key).ID
+	hasArm2, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm2LateID)
+	require.NoError(t, err)
+	assert.True(t, hasArm2, "arm 2: smaller src_partition (1 vs 2) is earlier regardless of offset")
+	hasArm2Early, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm2EarlyID)
+	require.NoError(t, err)
+	assert.False(t, hasArm2Early, "arm 2: larger src_partition is never earlier")
+
+	// 第 2 臂同分区：offset 严格小于。e=(p5,o10) vs c=(p5,o99) → true；反向 false。
+	s2oe := newClaimInput(t, "sib2o-early")
+	s2oc := newClaimInput(t, "sib2o-late")
+	s2oc.Meta.AggregateID = s2oe.Meta.AggregateID
+	s2oc.Meta.AggregateType = s2oe.Meta.AggregateType
+	s2oe.Meta.CausalSeq = nil
+	s2oc.Meta.CausalSeq = nil
+	seedRetryRowNoCausal(t, d, s2oe, ptrI32(5), ptrI64(10), now.Add(-2*time.Minute), now.Add(-2*time.Minute))
+	seedRetryRowNoCausal(t, d, s2oc, ptrI32(5), ptrI64(99), now.Add(-time.Minute), now.Add(-time.Minute))
+	arm2oLateID := mustGetByEvent(t, d, s2oc.Key).ID
+	arm2oEarlyID := mustGetByEvent(t, d, s2oe.Key).ID
+	hasArm2o, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm2oLateID)
+	require.NoError(t, err)
+	assert.True(t, hasArm2o, "arm 2: same partition, smaller offset (10 < 99) is earlier")
+	hasArm2oEarly, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm2oEarlyID)
+	require.NoError(t, err)
+	assert.False(t, hasArm2oEarly, "arm 2: same partition, larger offset is never earlier")
+
+	// 第 2 臂的 null 边界：任一侧 partition 为 NULL → 第 2 臂（两侧 IS NOT NULL）不命中。
+	// 方向须小心：e=(有分区, first_seen 更晚)、c=(无分区, first_seen 更早)——
+	//   - 查 c：第 2 臂被 NULL 挡；第 3 臂虽可达（c 无分区）但 e 更晚（不 < c）→ false。
+	//     证的是「第 2 臂不是被第 3 臂顺手救活，而是真的不命中」。
+	//   - 查 e：第 2 臂同样被 NULL 挡；第 3 臂可达且 c 更早 → true——第 3 臂的守卫是
+	//     「至少一侧 NULL」而非「两侧 NULL」，这正是 partition 缺失时次序退到时间锚的设计。
+	s2ne := newClaimInput(t, "sib2n-part")
+	s2nc := newClaimInput(t, "sib2n-nopart")
+	s2nc.Meta.AggregateID = s2ne.Meta.AggregateID
+	s2nc.Meta.AggregateType = s2ne.Meta.AggregateType
+	s2ne.Meta.CausalSeq = nil
+	s2nc.Meta.CausalSeq = nil
+	seedRetryRowNoCausal(t, d, s2ne, ptrI32(1), ptrI64(1), now.Add(-1*time.Minute), now.Add(-2*time.Minute))
+	seedRetryRowNoCausal(t, d, s2nc, nil, nil, now.Add(-3*time.Minute), now.Add(-3*time.Minute))
+	arm2nNoPartID := mustGetByEvent(t, d, s2nc.Key).ID
+	arm2nPartID := mustGetByEvent(t, d, s2ne.Key).ID
+	hasArm2nNoPart, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm2nNoPartID)
+	require.NoError(t, err)
+	assert.False(t, hasArm2nNoPart, "arm 2 null boundary: candidate e HAS partition but target c does not → arm 2 needs both NOT NULL; arm 3 sees e later (not earlier) → no arm fires")
+	hasArm2nPart, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm2nPartID)
+	require.NoError(t, err)
+	assert.True(t, hasArm2nPart, "arm 3 one-side-NULL guard: target has partition, candidate does not → ordering falls back to first_seen_at (candidate earlier → blocks)")
+
+	// 第 3 臂：first_seen_at 兜底——双侧无 causal_seq 且至少一侧无 partition。e 更早
+	// first_seen_at → true；反向 false。
+	s3e := newClaimInput(t, "sib3-early")
+	s3c := newClaimInput(t, "sib3-late")
+	s3c.Meta.AggregateID = s3e.Meta.AggregateID
+	s3c.Meta.AggregateType = s3e.Meta.AggregateType
+	s3e.Meta.CausalSeq = nil
+	s3c.Meta.CausalSeq = nil
+	base := now.Truncate(time.Second) // 毫秒精度存储（DATETIME(3)/TIMESTAMP(3)）：整秒种子避免截断歧义
+	seedRetryRowNoCausal(t, d, s3e, nil, nil, base.Add(-2*time.Second), now.Add(-2*time.Minute))
+	seedRetryRowNoCausal(t, d, s3c, nil, nil, base.Add(-1*time.Second), now.Add(-time.Minute))
+	arm3LateID := mustGetByEvent(t, d, s3c.Key).ID
+	arm3EarlyID := mustGetByEvent(t, d, s3e.Key).ID
+	hasArm3, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm3LateID)
+	require.NoError(t, err)
+	assert.True(t, hasArm3, "arm 3: no causal_seq/partition on either side → earlier first_seen_at (-2s < -1s) blocks")
+	hasArm3Early, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, arm3EarlyID)
+	require.NoError(t, err)
+	assert.False(t, hasArm3Early, "arm 3: later first_seen_at never blocks (strictly-less)")
+
+	// 第 1 臂的排他性反证：causal_seq 存在的行绝不落入第 2/3 臂（三段 OR 的每臂都先守
+	// causal_seq 双侧性）——e 带 causal_seq、c 不带（或反之）→ 无臂命中 → false。
+	x1 := newClaimInput(t, "sibx-causal")
+	x2 := newClaimInput(t, "sibx-nocausal")
+	x2.Meta.AggregateID = x1.Meta.AggregateID
+	x2.Meta.AggregateType = x1.Meta.AggregateType
+	x2.Meta.CausalSeq = nil
+	seedRetryRow(t, d, x1, 1, now.Add(-2*time.Minute)) // causal_seq=1，更早
+	seedRetryRowNoCausal(t, d, x2, ptrI32(1), ptrI64(1), now.Add(-time.Minute), now.Add(-time.Minute))
+	xCausalID := mustGetByEvent(t, d, x1.Key).ID
+	xNoCausalID := mustGetByEvent(t, d, x2.Key).ID
+	hasXNoCausal, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, xNoCausalID)
+	require.NoError(t, err)
+	assert.False(t, hasXNoCausal, "mixed causality: earlier row HAS causal_seq, later does not → no arm matches (arms require both-null or both-present)")
+	hasXCausal, err := d.Store.HasEarlierUnsolvedSibling(ctx, d.DB, xCausalID)
+	require.NoError(t, err)
+	assert.False(t, hasXCausal, "mixed causality: earlier-by-everything row without causal_seq vs later WITH causal_seq → no arm matches")
 }
 
 // confLargeRawKeyPersists（cross-dialect parity）：TryClaim 带 >512B 的 raw_key 必须在两方言都落库。

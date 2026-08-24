@@ -110,6 +110,7 @@ func TestGate_RootKernelBansNatsIO(t *testing.T) {
 //   - store/mysql 只许 gorm + mysql driver（禁 postgres driver）；
 //   - store/postgres 只许 gorm + postgres driver（禁 mysql driver）；
 //   - 三者共禁 prometheus / gin / sarama。
+//
 // 之前这些矩阵只活在 bash 门禁里；CI 没有 bash 时无人强制。改脚本矩阵时同步改这里。
 func TestGate_ScopedSubPackageDeps(t *testing.T) {
 	scoped := []struct {

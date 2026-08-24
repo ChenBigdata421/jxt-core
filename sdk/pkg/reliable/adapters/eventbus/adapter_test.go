@@ -324,16 +324,20 @@ func TestEventBusDLQAdapter_NilLogSinkDoesNotPanic(t *testing.T) {
 	resolver := &fakeResolver{st: &fakeStore{}, quar: q}
 	a := eventbusdlq.NewEventBusDLQAdapter(resolver, nil, testHandlerID, defaultQTenantID, nil) // nil sink
 
-	// Exercise BOTH log sites: quarantine write (Errorf on failure) and the
-	// retryable-refusal (Warnf). Neither must panic with a nil sink.
+	// Exercise the one log site that is actually REACHED with a nil sink: the
+	// retryable-refusal (Warnf). The quarantine-write Errorf site (adapter.go,
+	// "quarantine write failed") is NOT hit here — fakeQuarantine.Record always
+	// succeeds and the adapter only calls Errorf when that write FAILS. Errorf's
+	// nil-sink safety rests on the same constructor noopSink normalization, not
+	// on this test (A①: the earlier "Exercise BOTH log sites" wording overstated).
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("nil sink must not panic on quarantine path, recovered: %v", r)
 		}
 	}()
 
-	// 1. Unparseable → quarantine path (the quarantine write succeeds, so only the
-	//    decode-side bookkeeping runs; still exercises the path with a nil sink).
+	// 1. Unparseable → quarantine path (the write succeeds in the fake, so no
+	//    Errorf fires; still proves the quarantine path runs nil-sink-safe).
 	if err := a.Send(context.Background(), eventbus.PoisonMessage{
 		Topic: "t", Partition: 1, Offset: 1, Value: []byte("not-an-envelope"),
 	}, errors.New("decode")); err != nil {

@@ -71,6 +71,9 @@ func reliableErr(msg string) error { return fmt.Errorf("%s", msg) }
 
 func ptrI64(v int64) *int64 { return &v }
 
+// ptrI32 同 ptrI64 语义（A③：seedRetryRowNoCausal 的 src_partition 是 *int32）。
+func ptrI32(v int32) *int32 { return &v }
+
 // mustGetByEvent 用 raw SQL 读 event_consumption（方言无关）。返回关键字段。
 func mustGetByEvent(t *testing.T, d *ConformanceDeps, key reliable.Key) rowSnapshot {
 	t.Helper()
@@ -148,12 +151,38 @@ func seedAnomalyAt(t *testing.T, d *ConformanceDeps, tenantID int, kind, eventID
 	).Error)
 }
 
+// seedRetryRowNoCausal 直接 INSERT 一条 causal_seq 恒 NULL 的 RETRY_SCHEDULED 行，且
+// src_partition / src_offset / first_seen_at 可控——三段式 earlier-than 谓词
+// （EarlierUnsolvedSiblingSQL / EligibleHeadsSQL 同源）的第 2 臂（partition/offset 次序）与
+// 第 3 臂（first_seen_at 兜底）只有 causal_seq 双侧为 NULL 才可达：seedRetryRow 恒绑非空
+// causal_seq，永远锁死在第 1 臂。nil 指针 = 该列写 NULL（第 3 臂要求至少一侧 partition 为
+// NULL；两侧都 NOT NULL 时第 3 臂不可达，正是第 2 臂的封闭性来源）。chk_retry_due 由恒绑
+// 的 payload / next_attempt_at / error_class 满足。放非 _test 文件——conformance.go 调用。
+//
+// ⚠ VALUES 的列序刻意与 seedRetryRow 不同（replay_mode 前移、AUTO 保留字面量）：两个写法
+// 不能共享同一个占位符串。VALUES 里也不能写裸 NULL 字面量——gorm/pgx 的绑定位置记账会把
+// 后续参数整体左移一位（实测 PG 报 `invalid input syntax for type bigint: "domain.media"`，
+// topic 的值落到 src_offset 上）；NULL 一律走类型化 nil 指针占位符（A③ 复盘）。
+func seedRetryRowNoCausal(t *testing.T, d *ConformanceDeps, in reliable.ClaimInput, srcPartition *int32, srcOffset *int64, firstSeen, due time.Time) {
+	t.Helper()
+	now := time.Now().UTC()
+	require.NoError(t, d.DB.Exec(
+		`INSERT INTO event_consumption (event_id,item_key,handler_id,tenant_id,event_type,aggregate_type,aggregate_id,causal_seq,topic,status,attempt,replay_mode,payload,next_attempt_at,error_class,src_partition,src_offset,first_seen_at,created_at,updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,'AUTO',?,?,?,?,?,?,?,?)`,
+		in.Key.EventID, in.Key.ItemKey, string(in.Key.Handler), in.TenantID, in.Meta.EventType,
+		in.Meta.AggregateType, in.Meta.AggregateID, (*int64)(nil), in.Delivery.Topic,
+		"RETRY_SCHEDULED", 1, []byte("p"), due, "RETRYABLE", srcPartition, srcOffset, firstSeen, now, now,
+	).Error)
+}
+
 // seedRowWithStatus 直接 INSERT 一条 event_consumption 为指定 status——Count conformance 需要跨
 // 状态分布的行（seedRetryRow 只能产 RETRY_SCHEDULED）。
 //
 // 列约束遵循 §2.4：DEAD_LETTER 必须有 payload + error_class（chk_dead_payload）；RETRY_SCHEDULED
-// 还需 next_attempt_at（chk_retry_due）。本 helper 只产 DEAD_LETTER / SUCCEEDED（无 chk 约束的终态）
-// 与不需要 chk 的状态；RETRY_SCHEDULED 走 seedRetryRow。放非 _test 文件——conformance.go 调用。
+// 还需 next_attempt_at（chk_retry_due）。本 helper 恒绑 payload + error_class——DEAD_LETTER 行因此
+// 满足 chk_dead_payload（PR-2 leftover A②：旧注释「只产无 chk 约束的终态」不实——DEAD_LETTER 有
+// 约束，是本 helper 的恒绑值满足了它）；SUCCEEDED/DISCARDED 无 chk。RETRY_SCHEDULED 需
+// next_attempt_at，走 seedRetryRow。放非 _test 文件——conformance.go 调用。
 func seedRowWithStatus(t *testing.T, d *ConformanceDeps, in reliable.ClaimInput, status string, firstSeen time.Time) {
 	t.Helper()
 	now := time.Now().UTC()

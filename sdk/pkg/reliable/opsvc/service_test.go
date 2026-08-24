@@ -684,7 +684,9 @@ func TestDiscard_CASConflict_MappedToConflictError(t *testing.T) {
 		t.Fatalf("expected ConflictError(row_version mismatch), got %v", err)
 	}
 	if st.capturedDiscardID != 77 || st.capturedDiscardVer != 2 || st.capturedDiscardBy != "ops" || st.capturedDiscardReason != "noise" {
-		t.Fatalf("discard args wrong: %+v", st.capturedSchedule)
+		// A④：旧文案打的是 capturedSchedule（Discard 用例里恒零值，永远印不出诊断信息）。
+		t.Fatalf("discard args wrong: id=%d ver=%d by=%q reason=%q",
+			st.capturedDiscardID, st.capturedDiscardVer, st.capturedDiscardBy, st.capturedDiscardReason)
 	}
 }
 
@@ -973,20 +975,184 @@ func TestAnomalies_RejectsMissingTenant(t *testing.T) {
 	}
 }
 
-func TestResolverError_Propagates(t *testing.T) {
+// —— A⑥：跨租户隔离的其余方法（此前只有 List + Anomalies 有断言）——
+//
+// 隔离有两层，两层都要钉：
+//  1. resolver 层：Service 只解析【请求租户】的 store——错误租户的 store 永不被触碰
+//     （assertOnlyTouched；fake resolver 按租户分发，被解析 = 被调用）。
+//  2. store 层：tenant 谓词下传（GetByID/MarkResolved 带 tenantID 形参；confTenantIsolation 在
+//     真库钉住 SQL 侧 0 行 → not-found/conflict）。本套 fake 只钉第 1 层 + 入参下传，第 2 层的
+//     not-found/conflict 语义交给 resolver 层天然保证（一库一租户，错租户 store 根本拿不到）。
+//
+// GetDetail / QuarantineDetail：详情读取若漏了租户作用域，最坏后果是跨租户载荷泄露（配合
+// includePayload/includeRaw=true 直接放出毒载荷原文）——虽然单 fake 证明不了 SQL 谓词，这里
+// 至少钉住「读的是请求租户的 store、tenantID 原样下传、另一租户零触碰」。
+func TestGetDetail_CrossTenantIsolation(t *testing.T) {
 	r := newFakeResolver()
-	r.storeErr[30] = errors.New("tenant 30 not served")
+	st1, _, _ := r.addTenant(1)
+	st2, _, _ := r.addTenant(2)
+	st1.getByIDRow = store.Row{ID: 50, TenantID: 1}
 	svc, err := NewService(r, &fakeAuditor{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 所有走 resolver.Store 的方法都应原样上抛 resolver 错误。
-	if _, err := svc.List(context.Background(), ListQuery{TenantID: 30}); err == nil {
-		t.Fatal("List must surface resolver error")
+	d, err := svc.GetDetail(context.Background(), 1, 50, false)
+	if err != nil {
+		t.Fatalf("GetDetail: %v", err)
 	}
-	if err := svc.ReplayOne(context.Background(), ReplayRequest{TenantID: 30, ID: 1}); err == nil {
-		t.Fatal("ReplayOne must surface resolver error")
+	if d.ID != 50 {
+		t.Fatalf("unexpected detail: %+v", d)
 	}
+	if st1.getByIDCalls != 1 || st2.getByIDCalls != 0 {
+		t.Fatalf("GetByID must hit only tenant-1 store: t1=%d t2=%d", st1.getByIDCalls, st2.getByIDCalls)
+	}
+	assertOnlyTouched(t, st1, st2, "GetDetail")
+}
+
+func TestQuarantineDetail_CrossTenantIsolation(t *testing.T) {
+	r := newFakeResolver()
+	_, qs1, _ := r.addTenant(11)
+	_, qs2, _ := r.addTenant(12)
+	qs1.getByIDRow = store.QuarantineRow{ID: 90, TenantID: 11}
+	svc, err := NewService(r, &fakeAuditor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.QuarantineDetail(context.Background(), 11, 90, false); err != nil {
+		t.Fatalf("QuarantineDetail: %v", err)
+	}
+	if qs1.getByIDCalls != 1 || qs2.getByIDCalls != 0 {
+		t.Fatalf("QuarantineStore.GetByID must hit only tenant-11 store: t11=%d t12=%d", qs1.getByIDCalls, qs2.getByIDCalls)
+	}
+}
+
+// TestQuarantineResolve_CrossTenantIsolation：写路径同样只解析请求租户；错租户的隔离行在真实
+// resolver（一库一租户）下等价 not-found/0 行 → store 侧 ErrConflict → *ConflictError。fake 层
+// 钉「另一租户的 store 不被触碰」；confTenantIsolation（repotest）钉真库侧的 0 行语义。
+func TestQuarantineResolve_CrossTenantIsolation(t *testing.T) {
+	r := newFakeResolver()
+	_, qs1, _ := r.addTenant(15)
+	_, qs2, _ := r.addTenant(16)
+	svc, err := NewService(r, &fakeAuditor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.QuarantineResolve(context.Background(), ResolveRequest{TenantID: 15, ID: 200, ExpectedRowVersion: 7, By: "ops"}); err != nil {
+		t.Fatalf("QuarantineResolve: %v", err)
+	}
+	if qs1.resolveCalls != 1 {
+		t.Fatalf("MarkResolved must hit tenant-15 store once, got %d", qs1.resolveCalls)
+	}
+	if qs2.resolveCalls != 0 {
+		t.Fatalf("cross-tenant leak: tenant-16 quarantine store touched by tenant-15 resolve")
+	}
+	// tenantID 形参下传（MarkResolved 的第 4 参）——store 侧谓词的锚点。
+	if qs1.capturedResolveID != 200 {
+		t.Fatalf("MarkResolved id = %d, want 200", qs1.capturedResolveID)
+	}
+}
+
+// TestResolverError_Propagates（A⑤：从 2/N 扩到全量）：每个解析租户 store / quarantine store 的
+// 公开方法都必须把 resolver 错误【原样】上抛——吞掉它会让「租户未被本进程服务」静默变成
+// 空结果 / 200 OK，调用方无从区分「没数据」与「不该看」。结构化表循环：新增走 resolver 的
+// 方法时往表里加一行即可，不用再复制粘贴 if 块（旧版只有 List/ReplayOne 两行手写断言，
+// 注释却写「所有走 resolver.Store 的方法」——2/N 的覆盖与全量声明不符，本测收口）。
+// QuarantineReplay 前置 fail-closed（缺 registry/decoder → ErrQuarantineReplayUnsupported）
+// 先于 resolver 解析，单测在 TestQuarantineReplay_RequiresRegistry 覆盖，不入表。
+func TestResolverError_Propagates(t *testing.T) {
+	const badTenant = 30
+	storeErr := errors.New("tenant not served (store)")
+	qstoreErr := errors.New("tenant not served (quarantine)")
+	mkSvc := func(r *fakeResolver) *Service {
+		t.Helper()
+		svc, err := NewService(r, &fakeAuditor{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return svc
+	}
+	ctx := context.Background()
+	// walk 字段标记方法解析哪条腿：QuarantineList/QuarantineDetail 只走 QuarantineStore()
+	// （不碰 Store()）——对它们注入 storeErr 只会撞上 fake 的另一条 not-served 错误，测不出
+	// 「注入的错误被原样上抛」这层语义，故只跑对应腿。
+	cases := []struct {
+		name   string
+		qstore bool // 主走 QuarantineStore()（其余主走 Store()）
+		call   func(svc *Service) error
+	}{
+		{name: "List", call: func(s *Service) error {
+			_, err := s.List(ctx, ListQuery{TenantID: badTenant})
+			return err
+		}},
+		{name: "GetDetail", call: func(s *Service) error {
+			_, err := s.GetDetail(ctx, badTenant, 1, false)
+			return err
+		}},
+		{name: "ReplayOne", call: func(s *Service) error {
+			return s.ReplayOne(ctx, ReplayRequest{TenantID: badTenant, ID: 1})
+		}},
+		{name: "BatchReplay", call: func(s *Service) error {
+			_, err := s.BatchReplay(ctx, BatchReplayRequest{TenantID: badTenant, Items: []BatchReplayItem{{ID: 1}}})
+			return err
+		}},
+		{name: "Discard", call: func(s *Service) error {
+			return s.Discard(ctx, DiscardRequest{TenantID: badTenant, ID: 1})
+		}},
+		{name: "Stats", call: func(s *Service) error {
+			_, err := s.Stats(ctx, ListQuery{TenantID: badTenant})
+			return err
+		}},
+		{name: "Anomalies", call: func(s *Service) error {
+			_, err := s.Anomalies(ctx, AnomalyQuery{TenantID: badTenant})
+			return err
+		}},
+		{name: "QuarantineList", qstore: true, call: func(s *Service) error {
+			_, err := s.QuarantineList(ctx, badTenant, "", 10, false)
+			return err
+		}},
+		{name: "QuarantineDetail", qstore: true, call: func(s *Service) error {
+			_, err := s.QuarantineDetail(ctx, badTenant, 1, false)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		if !tc.qstore {
+			t.Run(tc.name+"_storeErr", func(t *testing.T) {
+				r := newFakeResolver()
+				r.storeErr[badTenant] = storeErr
+				if err := tc.call(mkSvc(r)); !errors.Is(err, storeErr) {
+					t.Fatalf("%s must surface resolver Store() error verbatim, got %v", tc.name, err)
+				}
+			})
+			continue
+		}
+		t.Run(tc.name+"_qstoreErr", func(t *testing.T) {
+			r := newFakeResolver()
+			r.qstoreErr[badTenant] = qstoreErr
+			if err := tc.call(mkSvc(r)); !errors.Is(err, qstoreErr) {
+				t.Fatalf("%s must surface resolver QuarantineStore() error verbatim, got %v", tc.name, err)
+			}
+		})
+	}
+
+	// QuarantineResolve 走两条解析（先 Store() 拿 db，再 QuarantineStore()），两段错误都上抛。
+	// qstoreErr 段须先 addTenant 让 Store() 成功，否则在第一段就被 not-served 拦下。
+	t.Run("QuarantineResolve_storeErr", func(t *testing.T) {
+		r := newFakeResolver()
+		r.storeErr[badTenant] = storeErr
+		if err := mkSvc(r).QuarantineResolve(ctx, ResolveRequest{TenantID: badTenant, ID: 1}); !errors.Is(err, storeErr) {
+			t.Fatalf("QuarantineResolve must surface Store() error, got %v", err)
+		}
+	})
+	t.Run("QuarantineResolve_qstoreErr", func(t *testing.T) {
+		r := newFakeResolver()
+		r.addTenant(badTenant) // Store() 必须成功，错误才会走到 QuarantineStore() 段。
+		r.qstoreErr[badTenant] = qstoreErr
+		if err := mkSvc(r).QuarantineResolve(ctx, ResolveRequest{TenantID: badTenant, ID: 1}); !errors.Is(err, qstoreErr) {
+			t.Fatalf("QuarantineResolve must surface QuarantineStore() error, got %v", err)
+		}
+	})
 }
 
 // —— QuarantineReplay（PR-7 Task 3，C①；OV⑤=8A「毕业」流程）——
