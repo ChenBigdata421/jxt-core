@@ -39,6 +39,14 @@ import (
 // + spec §2.3/§10 修订——随 PR-7 同单元交付（见 PR2_SCOPE deviation #5，已改为 carry-over）。
 // PR-2 本方法只记 LEASE_ORPHAN；超龄孤儿在 PR-7 前 由 LEASE_ORPHAN 计数 + 人工巡检覆盖。
 
+// ObserveExpiredLeases 返回**新插入**的 anomaly 行数（uk_anomaly_once 去重后），非扫描行数
+// （PR-7 review OV④b）。原语义返回 len(rows)（扫到即计）：一个持续存在的孤儿行会被每个
+// 30s tick 反复扫到——每 tick 计 1 次，120/h，一个孤儿 6 分钟就能打爆 LEASE_ORPHAN 的
+// >10/h 告警；inserted 语义下每个孤儿只计一次（uk_anomaly_once + ON CONFLICT DO NOTHING
+// 已保证同一次占位只落一条行），告警回到「新增孤儿速率」的本义。接口签名 (int, error)
+// 不变（PR-7 决议：加宽会砸掉各消费仓库的显式 fake）；MySQL 侧 gorm 的 OnConflict
+// DoNothing 翻译成 `id = id` 的 ON DUPLICATE KEY UPDATE，冲突行 RowsAffected=0，故
+// res.RowsAffected 即插入数，两方言一致。
 func (s *GormStore) ObserveExpiredLeases(ctx context.Context, now time.Time) (int, error) {
 	var rows []EventConsumptionModel
 	// review #12：只投影构造 anomaly 用到的 4 列。PROCESSING 行的 payload 可能很大，全行 Find 会让
@@ -66,12 +74,15 @@ func (s *GormStore) ObserveExpiredLeases(ctx context.Context, now time.Time) (in
 		})
 	}
 	// ON CONFLICT DO NOTHING：依赖 consumption_anomalies 的 uk_anomaly_once 唯一索引（两方言 DDL 同步加）。
-	if err := s.claimDB.WithContext(ctx).
+	res := s.claimDB.WithContext(ctx).
 		Clauses(clause.OnConflict{DoNothing: true}).
-		Create(&anomalies).Error; err != nil {
-		return 0, err
+		Create(&anomalies)
+	if res.Error != nil {
+		return 0, res.Error
 	}
-	return len(rows), nil
+	// OV④b：返回新插入行数（uk_anomaly_once 去重后），不是 len(rows)（扫描数）——
+	// 持续存在的孤儿行每 tick 都会被扫到，按扫描数计会把 >10/h 告警用自身刷爆。
+	return int(res.RowsAffected), nil
 }
 
 // —— 异常记录（§2.3；D18#8：带 tenantID）——

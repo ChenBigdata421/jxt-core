@@ -59,7 +59,9 @@ type Store interface {
 	// —— 租约孤儿观测（§3.2；批量，D14；**D20：只观测，不改行状态**）——
 
 	// ObserveExpiredLeases 扫描 status='PROCESSING' AND lease_expires_at<NOW()，批量记
-	// consumption_anomalies(kind='LEASE_ORPHAN')，返回扫到的孤儿行数。
+	// consumption_anomalies(kind='LEASE_ORPHAN')，返回**新插入**的 anomaly 行数
+	// （uk_anomaly_once 去重后，非扫描行数——PR-7 OV④b：扫描语义下单个持续孤儿每 tick
+	// 重计 1 次，120/h，足以自噪打爆 >10/h 告警）。
 	//
 	// **D20（本轮评审）**：本方法【不】修改 event_consumption 的 status 与 ownership。
 	// 原设计「批量清 ownership 但不改 status」会直接撞死 chk_processing_owner（两方言 100% 报错）；

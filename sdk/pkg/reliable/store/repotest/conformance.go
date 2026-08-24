@@ -151,6 +151,8 @@ func confLeaseOrphan(t *testing.T, d *ConformanceDeps) {
 	forceExpireLease(t, d, in.Key)
 
 	// 1) 观测：计数 + 记 anomaly，但不改行。
+	// OV④b：n 是**新插入**的 anomaly 行数（uk_anomaly_once 去重后），非扫描数——首测该行
+	// 尚无异常记录，插入 1 == 扫到 1，两语义在本用例等值；第 2 步钉住差异。
 	n, err := d.Store.ObserveExpiredLeases(context.Background(), time.Now().UTC().Add(time.Hour))
 	require.NoError(t, err, "D20: observer must not touch row state (no CHECK violation)")
 	assert.GreaterOrEqual(t, n, 1)
@@ -162,8 +164,12 @@ func confLeaseOrphan(t *testing.T, d *ConformanceDeps) {
 	assert.Equal(t, string(oldTok), *before.ClaimID, "D20: observer leaves ownership untouched")
 
 	// 2) 幂等：重复观测不得重复写 anomaly（uk_anomaly_once + ON CONFLICT DO NOTHING）。
-	_, err = d.Store.ObserveExpiredLeases(context.Background(), time.Now().UTC().Add(time.Hour))
+	// OV④b 的 inserted 语义断言：第二次扫描仍会扫到同一孤儿行（D20 不改行状态），但
+	// uk_anomaly_once 全部冲突 → 新插入 0 条。扫描语义下这里会返回 1——正是 PR-7 改掉的
+	// 自噪路径（一个持续孤儿 120/h，>10/h 告警 6 分钟打爆）。
+	n2, err := d.Store.ObserveExpiredLeases(context.Background(), time.Now().UTC().Add(time.Hour))
 	require.NoError(t, err)
+	assert.Zero(t, n2, "OV④b: re-scan of the same un-reclaimed orphan must insert 0 (uk_anomaly_once dedup), not re-count the scanned row")
 	assert.Equal(t, int64(1), anomalyCount(t, d, "LEASE_ORPHAN", in.Key), "same claim must not re-record (alert self-noise)")
 
 	// 3) 再占位的唯一路径：TryClaim 内联 CAS。

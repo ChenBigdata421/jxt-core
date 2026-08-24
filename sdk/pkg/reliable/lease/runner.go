@@ -45,7 +45,9 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 }
 
-// Tick 执行一轮观测，返回扫到的孤儿行数。服务侧用自己的 scheduler 可直接调。
+// Tick 执行一轮观测，返回**新插入**的 anomaly 行数（uk_anomaly_once 去重后，非扫描行数
+// ——PR-7 OV④b：扫描语义下单个持续孤儿每 tick 重计，120/h，足以自噪打爆 >10/h 告警）。
+// 服务侧用自己的 scheduler 可直接调。
 //
 // **D20：不循环**。原稿循环至返回 0（因为回收会清掉行，下一批不同）；现在观测器不改行，
 // 同一批孤儿行会被每次 SELECT 反复返回 → 循环永远拿不到 0，会死死转满 maxIter 次。

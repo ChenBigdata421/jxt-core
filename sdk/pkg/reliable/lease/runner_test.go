@@ -19,6 +19,7 @@ import (
 var _ store.Store = (*fakeStore)(nil)
 
 // fakeStore 只实现 Runner 用到的方法（其余 no-op）；记录 ObserveExpiredLeases 调用。
+// observed 模拟 store 实现的 OV④b inserted 语义（新插入的 anomaly 行数，非扫描数）。
 type fakeStore struct {
 	observed int
 	err      error
@@ -96,6 +97,8 @@ func TestRunnerTickObservesOrphans(t *testing.T) {
 	assert.Equal(t, 3, n)
 	// D20：每 tick 只扫一批，不循环（观测器不改行，循环会死转）。
 	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.calls), "D20: exactly one scan per tick")
+	// OV④b：Tick 原样透传 store 返回的 inserted 计数（runner 不改语义）。
+	assert.Equal(t, fs.observed, n, "OV④b: Tick must pass through the store's inserted-rows count unchanged")
 }
 
 func TestRunnerTickErrorDoesNotPanic(t *testing.T) {
