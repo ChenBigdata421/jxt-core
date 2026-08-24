@@ -154,7 +154,12 @@ type QuarantineModel struct {
 	ResolvedBy     string     `gorm:"column:resolved_by;type:varchar(100)"`
 	CreatedAt      time.Time  `gorm:"column:created_at;not null;index:idx_raw_status,priority:3"`
 	// UpdatedAt 承载 QuarantineReplay 的 OV⑤④ watchdog 谓词（REPLAYING 超时重claim）。
-	// 可空：Record 不写（新行无「上次迁移」概念），CAS 迁移时由 opsvc 显式置 now。
+	// review M-1（纠正原注释）：Record 【会】写 updated_at——GORM 对名为 UpdatedAt 的字段
+	// 自动施加 autoUpdateTime 追踪（gorm v1.24.2 schema/field.go:290 + callbacks/create.go，
+	// Create 时零值填 curTime），故新隔离行落库即带创建时间。CAS 迁移（opsvc 三个 qr* /
+	// Task 14 sweep）则显式置 now（map[string]any Updates 绕过 model 字段追踪，必须显式）。
+	// 对 watchdog 是保守正确：QUARANTINED 行的 updated_at=创建时间不影响谓词（谓词只对
+	// REPLAYING 行评估），列可空仅为兼容「存量行无此列值」+ 与 DDL（DATETIME(3) 无 NOT NULL）对齐。
 	// Task 14 的 sweep（REPLAYING AND updated_at < now-10min → QUARANTINED）同谓词。
 	UpdatedAt *time.Time `gorm:"column:updated_at"`
 }

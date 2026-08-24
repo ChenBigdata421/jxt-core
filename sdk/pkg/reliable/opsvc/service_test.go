@@ -39,7 +39,10 @@ type fakeStore struct {
 	countCalls         int
 	listAnomaliesCalls int
 
-	// QuarantineReplay（PR-7 Task 3）行为控制与捕获。
+	// QuarantineReplay（PR-7 Task 3）行为控制与捕获。M-2：除 payload+safety 外同样捕获
+	// class/maxAttempts/cause——毕业偏离的承重参数（ClassRetryable + DefaultMaxAttempts +
+	// errQuarantineGraduated）必须被钉住：未来有人把 class 改成 ClassPoison（行直落死信，
+	// 绕过 scheduler 正常驱动）或收紧 maxAttempts，测试必须红。
 	tryClaimCalls             int
 	markFailedCalls           int
 	tryClaimDecision          reliable.Decision
@@ -49,6 +52,9 @@ type fakeStore struct {
 	capturedClaimInput        reliable.ClaimInput
 	capturedMarkFailedPayload []byte
 	capturedMarkFailedSafety  reliable.ReplaySafety
+	capturedMarkFailedClass   reliable.ErrorClass
+	capturedMarkFailedMaxAtt  int
+	capturedMarkFailedCause   error
 
 	// 捕获的入参。
 	capturedListFilter    store.ListFilter
@@ -92,6 +98,9 @@ func (f *fakeStore) MarkFailed(ctx context.Context, db *gorm.DB, key reliable.Ke
 	f.markFailedCalls++
 	f.capturedMarkFailedPayload = payload
 	f.capturedMarkFailedSafety = safety
+	f.capturedMarkFailedClass = class
+	f.capturedMarkFailedMaxAtt = maxAttempts
+	f.capturedMarkFailedCause = cause
 	return f.markFailedErr
 }
 
@@ -1071,16 +1080,16 @@ func (f *fakeQrState) back(ctx context.Context, db *gorm.DB, id int64, tenantID 
 	return nil
 }
 
-// resolve 模拟 casToResolved。
-func (f *fakeQrState) resolve(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by, detail string) error {
-	f.log = append(f.log, qrTransition{kind: "resolve", id: id, tenantID: tenantID, rowVer: replayRowVer + 1, causeOrDtl: detail, by: by})
+// resolve 模拟 casToResolved。review I-3：不再有 detail 参数——生产实现不写 error_message
+// （原始 quarantine cause 保留），fake 同步：errMsg 不被 resolve 触碰。
+func (f *fakeQrState) resolve(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by string) error {
+	f.log = append(f.log, qrTransition{kind: "resolve", id: id, tenantID: tenantID, rowVer: replayRowVer + 1, by: by})
 	r, ok := f.rows[[2]int64{id, int64(tenantID)}]
 	if !ok || r.status != quarantineStatusReplaying || r.rowVersion != replayRowVer+1 {
 		return nil // 并发迁移：幂等 nil。
 	}
 	r.status = quarantineStatusResolved
 	r.rowVersion++
-	r.errMsg = detail
 	r.updatedAt = time.Now().UTC()
 	return nil
 }
@@ -1268,6 +1277,18 @@ func TestQuarantineReplay_HappyPath(t *testing.T) {
 	if h.store.capturedMarkFailedSafety != reliable.ReplayIdempotent {
 		t.Fatalf("MarkFailed safety = %v, want ReplayIdempotent (from registry)", h.store.capturedMarkFailedSafety)
 	}
+	// M-2：钉住毕业偏离的承重参数——class 必须 ClassRetryable（scheduler 正常驱动的入口；
+	// 改成 ClassPoison 会让行直落死信、绕过 §6.2 重试矩阵）+ maxAttempts 必须
+	// DefaultMaxAttempts（与消费侧 LIVE 路径同一防线）+ cause 必须是毕业标记 sentinel。
+	if h.store.capturedMarkFailedClass != reliable.ClassRetryable {
+		t.Fatalf("MarkFailed class = %v, want ClassRetryable (manual re-drive, not a business failure)", h.store.capturedMarkFailedClass)
+	}
+	if h.store.capturedMarkFailedMaxAtt != reliable.DefaultMaxAttempts {
+		t.Fatalf("MarkFailed maxAttempts = %d, want DefaultMaxAttempts (%d)", h.store.capturedMarkFailedMaxAtt, reliable.DefaultMaxAttempts)
+	}
+	if !errors.Is(h.store.capturedMarkFailedCause, errQuarantineGraduated) {
+		t.Fatalf("MarkFailed cause = %v, want errQuarantineGraduated", h.store.capturedMarkFailedCause)
+	}
 	// 隔离行 → RESOLVED。
 	row, ok := h.qstate.row(300, 40)
 	if !ok || row.status != "RESOLVED" {
@@ -1299,9 +1320,12 @@ func TestQuarantineReplay_AlreadySettled(t *testing.T) {
 	if row.status != "RESOLVED" || row.replayAttempts != 0 {
 		t.Fatalf("want RESOLVED/0 attempts, got %+v", row)
 	}
-	last := h.qstate.log[len(h.qstate.log)-1]
-	if !strings.Contains(last.causeOrDtl, "already settled") {
-		t.Fatalf("resolve detail must mention 'already settled', got %q", last.causeOrDtl)
+	// review I-3：RESOLVED 迁移不再持久化区分性 detail（生产 casToResolved 不写
+	// error_message，原始 quarantine cause 保留）。fake 的 resolve 同步不触碰 errMsg——
+	// 种子行未经 back 迁移、errMsg 保持初始空值；「毕业 vs 早已结算」无 DB 侧标记。
+	// 真实库上的因果保留断言由 quarantine_replay_system_test.go 承载。
+	if strings.Contains(row.errMsg, "already settled") {
+		t.Fatalf("RESOLVED must NOT persist graduation/settlement detail into error_message (I-3), got %q", row.errMsg)
 	}
 }
 
@@ -1486,7 +1510,8 @@ func TestQuarantineReplay_TenantMismatch(t *testing.T) {
 }
 
 // TestQuarantineReplay_MarkFailedError：MarkFailed 出错 → 错误上抛 + 隔离行回 QUARANTINED
-// （可重试毕业；event_consumption 行留 PROCESSING 由 §3.2 lease 回收接管——不为它造新机制）。
+// （可重试毕业；event_consumption 行留 PROCESSING 的残留回收见 service.go I-1 注释——
+// §3.2 不接管 payload-NULL 的 TryClaim-only 行，回收靠操作者重试 QuarantineReplay）。
 func TestQuarantineReplay_MarkFailedError(t *testing.T) {
 	h := newQrHarness(t)
 	h.store.tryClaimDecision = reliable.Claimed

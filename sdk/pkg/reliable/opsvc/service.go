@@ -95,9 +95,11 @@ type Service struct {
 	// txRunner 同理——仅同包测试覆写，避免为断言 CAS 语义拉真实 DB driver 进单元测试；
 	// 生产默认值就是本文件的 gorm 实现（NewService 里绑定）。真实 SQL 语义由 system-tagged
 	// 测试（repotest 真库）钉住。
-	qrClaim   func(ctx context.Context, db *gorm.DB, id int64, tenantID int, expectedVersion int64, watchdogCutoff time.Time) error
-	qrBack    func(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, cause error) error
-	qrResolve func(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by, detail string) error
+	qrClaim func(ctx context.Context, db *gorm.DB, id int64, tenantID int, expectedVersion int64, watchdogCutoff time.Time) error
+	qrBack  func(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, cause error) error
+	// qrResolve 不带 detail 参数（review I-3）：RESOLVED 迁移不写 error_message——原始
+	// quarantine cause 必须在隔离行上保留（隔离行 = incident 记录）。见 casToResolved 头注释。
+	qrResolve func(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by string) error
 	// txRunner 把一段闭包包进单个 DB 事务。默认是 db.Transaction（brief 规定：ReplayOne 的
 	// sibling-check + ScheduleReplay 跑在同一 tx 以缩小 check-then-act TOCTOU 窗口）。仅在同包测试里
 	// 覆写——避免为「两调用拿到同一 tx」这条断言拉一个真实 DB driver 进测试。生产调用方不设此字段。
@@ -495,7 +497,10 @@ const (
 //     REPLAYING→RESOLVED（resolved_by=r.By）。业务执行、attempt 计数、aggregate gate、
 //     head 排序全部由既有 replay scheduler 承接（对本方法是黑盒）。attempt 上限由
 //     MarkFailed 的 maxAttempts 参数强制（§6.1），与消费侧 LIVE 路径同一条防线。
-//     - AlreadySettled → 消息早已落地（幂等成功）：CAS REPLAYING→RESOLVED，detail 注明。
+//     - AlreadySettled → 消息早已落地（幂等成功）：CAS REPLAYING→RESOLVED。与 Claimed 分支
+//     写完全相同的迁移（review I-3 后 CAS 不再持久化区分性 detail——见 casToResolved 头注释）；
+//     「毕业 vs 早已结算」的区分由 event_consumption 侧承载（Claimed 分支会留下 MarkFailed 的
+//     RETRY_SCHEDULED/DEAD_LETTER 行，AlreadySettled 不动消费行）。
 //     - AlreadyProcessing → 在途消费者持有租约：CAS REPLAYING→QUARANTINED（row_version+1、
 //     replay_attempts+1、error_message="live consumer holds the lease; retry after it settles"），
 //     返回 *ConflictError{live claim active}（→ HTTP 409）。等在途方结算后再试。
@@ -579,24 +584,35 @@ func (s *Service) QuarantineReplay(ctx context.Context, r QuarantineReplayReques
 	case err == nil && dec == reliable.Claimed:
 		// 毕业收尾：MarkFailed 把 envelope 字节持久化为 payload 并按 §6.1 矩阵落
 		// RETRY_SCHEDULED（safety != ReplayUnsafe）或 DEAD_LETTER——FindEligibleHeads 从此
-		// 可扫到（chk_retry_due 的 payload/next_attempt_at/error_class 三件套只有 MarkFailed
-		// 会写全）。类用 RETRYABLE：这是一次人工触发的重投，非业务失败——RETRYABLE + 非
-		// ReplayUnsafe 正是「让 scheduler 正常驱动」的入口；unsafe handler 则直接落死信，
-		// 交给 §6.2 的人工双人路径，绝不静默重放有进程外副作用的 handler。
+		// 可扫到（chk_retry_due 的 payload/next_attempt_at/error_class 三件套，在 token 持有
+		// 路径内只有 MarkFailed 会写全——review M-5；无 token 的 RecordTerminal 也写全，
+		// 但本路径已持 TryClaim token，走 MarkFailed）。类用 RETRYABLE：这是一次人工触发
+		// 的重投，非业务失败——RETRYABLE + 非 ReplayUnsafe 正是「让 scheduler 正常驱动」
+		// 的入口；unsafe handler 则直接落死信，交给 §6.2 的人工双人路径，
+		// 绝不静默重放有进程外副作用的 handler。
 		mfErr := st.MarkFailed(ctx, db, claimKey, tok, reliable.ClassRetryable,
 			info.ReplaySafety, reliable.DefaultMaxAttempts,
 			errQuarantineGraduated, row.RawValue)
 		if mfErr != nil {
-			// MarkFailed 失败：行留在 PROCESSING（TryClaim 已占位）——lease 过期后由既有
-			// §3.2 回收/重投路径接管，不为它造新机制。隔离行回 QUARANTINED（可重试毕业）。
+			// MarkFailed 失败：行留在 PROCESSING（TryClaim 已占位，payload 仍 NULL）。review I-1：
+			// 这条残留【不会】被 §3.2 自动回收接管——recoverCandidateSQL 只选 payload IS NOT NULL
+			// 的行（gormshared/recovery.go），而 TryClaim-only 行的 payload 恒 NULL（payload 只由
+			// MarkFailed/RecordTerminal 写）；broker 重投也不可能：隔离落库时 offset 已被 ACK
+			// （adapters/eventbus/adapter.go quarantine write-before-ACK，Record 成功 → nil → ACK）。
+			// 真实回收路径 = 操作者重试：下一次 QuarantineReplay 的 TryClaim 命中 claim.go 的
+			// 租约过期内联回收分支（PROCESSING + lease_expires_at < now → CAS 续占 → Claimed），
+			// 毕业重新走完。⚠ 上限交互（OV⑤③）：QuarantineReplayMaxAttempts 耗尽（5 次失败周期）
+			// 后隔离行被本端点永久拒收（conflictReasonMaxReplayAtt），此时 PROCESSING 残留对
+			// 本端点不可恢复——只能走 QuarantineResolve + 外部重排队（re-emit）处置。不为它造新机制。
 			return errors.Join(mfErr, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, mfErr))
 		}
 		// 隔离行 → RESOLVED（毕业完成）。并发迁移（0 行）由 seam 幂等返回 nil——毕业的
-		// 事实已由 MarkFailed 的产物保证（TryClaim 的 uk 幂等兜底防双毕业）。
-		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By, "graduated into replay path")
+		// 事实已由 MarkFailed 的产物保证（TryClaim 的 uk 幂等兜底防双毕业）。不写
+		// error_message（review I-3）：原始 quarantine cause 保留在行上。
+		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By)
 	case err == nil && dec == reliable.AlreadySettled:
-		// 幂等成功：消息早已落地。隔离行 → RESOLVED（detail 注明），不计数。
-		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By, "already settled by earlier processing")
+		// 幂等成功：消息早已落地。隔离行 → RESOLVED，不计数、同样不写 error_message（I-3）。
+		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By)
 	case err == nil && dec == reliable.AlreadyProcessing:
 		// 在途消费者持有租约：回 QUARANTINED + 409。live 消费者自己的 TryClaim/Mark* 才是
 		// 该行的处置者（M5/M3 同一仲裁点），这里绝不能覆盖。
@@ -670,17 +686,22 @@ func (s *Service) casBackToQuarantined(ctx context.Context, db *gorm.DB, id int6
 
 // casToResolved 是 qrResolve 的生产实现：REPLAYING→RESOLVED（毕业 / AlreadySettled 幂等共用）。
 // 0 行同样幂等 nil——另一路径（QuarantineResolve / watchdog）已把行移走，目的达成。
-func (s *Service) casToResolved(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by, detail string) error {
+//
+// review I-3：不再写 error_message——毕业/幂等结算不得覆盖 DLQ 落隔离时记下的原始 quarantine
+// cause（隔离行是证据系统的 incident 记录；兄弟路径 gormshared.MarkResolved（quarantine.go:99-102）
+// 同纪律：只写 status/resolved_at/resolved_by/row_version）。原先用 "graduated into replay path"
+// / "already settled…" 文案 clobber 掉原始 cause，事后取证无从回答「这条毒消息当初为什么进来」。
+// 毕业的审计轨迹由 event_consumption 侧承载（MarkFailed 产物 + resolved_by=操作者）。
+func (s *Service) casToResolved(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, by string) error {
 	now := time.Now().UTC()
 	res := db.WithContext(ctx).Model(&gormshared.QuarantineModel{}).
 		Where("id = ? AND tenant_id = ? AND status = ? AND row_version = ?",
 			id, tenantID, quarantineStatusReplaying, replayRowVer+1).
 		Updates(map[string]any{
 			"status": quarantineStatusResolved, "resolved_by": by,
-			"error_message": reliable.SanitizeForStorage(detail),
-			"resolved_at":   now,
-			"updated_at":    now,
-			"row_version":   gorm.Expr("row_version + 1"),
+			"resolved_at": now,
+			"updated_at":  now,
+			"row_version": gorm.Expr("row_version + 1"),
 		})
 	if res.Error != nil {
 		return res.Error
