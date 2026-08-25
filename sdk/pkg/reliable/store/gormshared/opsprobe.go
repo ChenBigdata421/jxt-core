@@ -12,6 +12,8 @@ import (
 // §10 ①（v2.10 age-alert 的数据源）：age 在 head-block/attempt 耗尽之前暴露单行停滞。
 // 状态字面量不参数化（D22：两方言稳定命中索引）。
 // 可移植性：年龄计算放 Go 侧（MIN(first_seen_at) 折算），不做方言侧 EXTRACT(EPOCH)。
+// ⚠ 作用域（本包三探针同规）：查询无 tenant 谓词——正确性依赖「一库一租户」（resolver 保证
+// per-tenant db；opsvc 从不枚举租户）。共享库调用方会得到跨租户聚合，勿在多租户共享 DSN 上用。
 //
 // RetryAgeSecondsSQL 是包级导出常量（PR-7 Task 21，沿 EligibleHeadsSQL 的 D22 先例）：
 // repotest 的 EXPLAIN 门禁直接引用同一字符串，零复制、零漂移——若把 SQL 复制一份进测试，
@@ -54,7 +56,7 @@ type FrozenAggregate struct {
 // 与 EligibleHeadsSQL/EarlierUnsolvedSiblingSQL 的锁步耦合约定相同：任何一方改 earlier-than
 // 谓词，三方必须同步（R4-H：禁止服务侧手抄）。
 // aggregate-less 守卫（review OV②）：与 EligibleHeadsSQL 外层/replay.go:39 同源——无聚合的
-// 通知类行不参与冻结判定（两行 aggregate_id 同为 '' 时 ''='' 恒真，会让任意两条 aggregate-less
+// 通知类行不参与冻结判定（两行 aggregate_id 同为 ” 时 ”=” 恒真，会让任意两条 aggregate-less
 // 行互判冻结，永久误报）。
 const FrozenAggregatesSQL = `
 SELECT e.tenant_id, e.aggregate_type, e.aggregate_id, e.id AS dead_letter_id, e.handler_id AS dead_letter_handler_id

@@ -461,7 +461,15 @@ func (m *MockRepository) MarkDeadLetterNotified(ctx context.Context, id string) 
 
 // FindDeadLettered PR-7 C② ops 死信列表（mock）：全部 dead_lettered（含已通知），
 // 按 DeadLetteredAt DESC、ID DESC 排序后分页；tenantID<=0 为全租户。
+// limit<=0 → 100（终评 #3：与 gorm 实现的钳制语义对齐——旧 mock 对 limit<=0 返回空，
+// 与生产 SQL 行为分叉，ops REST 零值结构体会拿到假空页）。
 func (m *MockRepository) FindDeadLettered(ctx context.Context, limit, offset, tenantID int) ([]*outbox.OutboxEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var matched []*outbox.OutboxEvent

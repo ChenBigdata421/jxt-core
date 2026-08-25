@@ -175,6 +175,7 @@ func (m *QuarantineModel) ToRow() store.QuarantineRow {
 		ErrorMessage: m.ErrorMessage, Status: m.Status, RowVersion: m.RowVersion,
 		ReplayAttempts: m.ReplayAttempts,
 		ResolvedAt:     m.ResolvedAt, ResolvedBy: m.ResolvedBy, CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
 	}
 }
 

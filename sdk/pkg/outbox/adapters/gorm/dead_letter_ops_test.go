@@ -143,4 +143,19 @@ func TestFindDeadLettered_LimitOffsetPaging(t *testing.T) {
 	page2, err := repo.FindDeadLettered(ctx, 2, 2, 0)
 	require.NoError(t, err)
 	require.Equal(t, []string{"oldest"}, idsOf(page2))
+
+	// 终评 #3：limit<=0 必须钳制为默认 100，不得透传给 gorm——负 limit 会让 gorm 丢弃
+	// LIMIT 子句（全表加载），0 则恒空页。offset 越界返回空、负 offset 视为 0。
+	clamped, err := repo.FindDeadLettered(ctx, 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, clamped, 3, "limit=0 must clamp to default 100 (not LIMIT 0 empty page)")
+	negClamped, err := repo.FindDeadLettered(ctx, -1, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, negClamped, 3, "limit<0 must clamp to default 100 (not unbounded full-table load)")
+	beyond, err := repo.FindDeadLettered(ctx, 2, 10, 0)
+	require.NoError(t, err)
+	require.Empty(t, beyond, "offset beyond last page returns empty, not error")
+	negOff, err := repo.FindDeadLettered(ctx, 2, -5, 0)
+	require.NoError(t, err)
+	require.Equal(t, []string{"newest", "mid"}, idsOf(negOff), "negative offset clamps to 0")
 }

@@ -37,13 +37,17 @@ WHERE status = 'PROCESSING' AND lease_expires_at < ? AND payload IS NOT NULL`
 // recoverRowSQL 逐行 CAS 回收。WHERE 保留 lease_expires_at < cutoff 复验（review OV③）：
 // SELECT 与 UPDATE 之间 broker 重投可触发 tryClaimOnce 的内联续占（claim.go：租约刷新但
 // status 仍 PROCESSING）——不带此守卫会砸掉在途消费者的活租约，其 MarkSucceeded 将 ErrConflict。
+// error_class/error_code 用 COALESCE（终评 minors）：经 ClaimForReplay 重放过的 PROCESSING 行
+// 仍带上一轮 MarkFailed 的失败元数据——无条件覆盖会让崩溃循环消费的行最终带着
+// LEASE_EXPIRED_RECOVERED 占位符烧完 attempt 上限，§10 fingerprint 聚合指向症状而非真实缺陷。
+// 首轮回收（NULL 元数据）才写占位值；chk_retry_due 只要求 error_class 非空，COALESCE 满足。
 // 被 recovery_unit_test.go 做字符串级钉住（竞态真交错无法在无钩子下外部构造，WHERE 子句
 // 即防线——见 recovery_system_test.go 的 P4 determinism 注记）。
 const recoverRowSQL = `
 UPDATE event_consumption
 SET status = 'RETRY_SCHEDULED', next_attempt_at = ?, claim_id = NULL, claimed_at = NULL,
     lease_expires_at = NULL, row_version = row_version + 1, updated_at = ?,
-    error_class = 'RETRYABLE', error_code = 'LEASE_EXPIRED_RECOVERED'
+    error_class = COALESCE(error_class, 'RETRYABLE'), error_code = COALESCE(error_code, 'LEASE_EXPIRED_RECOVERED')
 WHERE id = ? AND status = 'PROCESSING' AND lease_expires_at < ?`
 
 // RecoverExpiredProcessing 自动化 §3.2（PR-7 ③，v1.1.68 D20 延迟项）：
@@ -84,6 +88,11 @@ func RecoverExpiredProcessing(ctx context.Context, db *gorm.DB, now time.Time, s
 
 // DeleteSettledBefore 保留策略清理（§10）：SUCCEEDED 按 succeededBefore、DISCARDED 按
 // discardedBefore。DEAD_LETTER 永不自动清理；RETRY_SCHEDULED/PROCESSING 不在清理范围。
+// 索引（终评 #4）：MySQL idx_retention(status,updated_at) / PG 两条 partial
+// idx_retention_*（updated_at WHERE status=...）——无索引则每次清理全表扫；单条无界
+// DELETE 的批量化（MVCC 膨胀/复制延迟）留待服务侧 sweep 按需分批，本内核函数语义保持简单。
+// ⚠ 幂等台账语义：本删除会移除已终结消费行——被删事件若被 broker 重投，TryClaim 视为
+// 首见并重新执行（标准 at-least-once 姿态）；依赖消费行做幂等去重的业务须在保留窗外。
 func DeleteSettledBefore(ctx context.Context, db *gorm.DB, succeededBefore, discardedBefore time.Time) (int64, error) {
 	res := db.WithContext(ctx).Exec(`
 DELETE FROM event_consumption

@@ -167,7 +167,8 @@ type OutboxRepository interface {
 	// 按 dead_lettered_at DESC, id DESC 排序，LIMIT/OFFSET 分页。
 	// 与 FindUnnotifiedDeadLettered 的分野：ops 视图不过滤 dlq_notified_at——已通知的
 	// 死信仍要展示（运维需要看到历史死信，而不仅是待补发的）。
-	// ctx: 上下文；limit/offset: 分页；tenantID: 租户 ID（<=0 表示所有租户的 ops 视图）
+	// ctx: 上下文；limit/offset: 分页（limit<=0 钳制为默认 100——实现不得对负 limit 丢弃
+	// LIMIT 子句造成全表加载；offset<0 视为 0）；tenantID: 租户 ID（<=0 表示所有租户的 ops 视图）
 	FindDeadLettered(ctx context.Context, limit, offset, tenantID int) ([]*OutboxEvent, error)
 
 	// CountDeadLettered 统计死信总数（PR-7 C②/§10），租户语义与 FindDeadLettered 一致

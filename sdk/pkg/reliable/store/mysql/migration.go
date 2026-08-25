@@ -58,8 +58,15 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   -- 列序 (status,handler_id,first_seen_at)：status 等值打头，(handler_id,first_seen_at) 支撑
   -- GROUP BY handler_id + MIN(first_seen_at) 的覆盖扫描。仅随 CREATE TABLE 生效（本迁移无 ALTER 机制，
   -- review OV⑧b）：存量 MySQL 库由 evidence 侧迁移补建（command/cmd/migrate/migration/version/
-  -- 2026082300002_add_idx_unresolved.go，information_schema 存在性守卫——MySQL 索引无 IF NOT EXISTS）。
+  -- 2026082300002_add_idx_unresolved.go，information_schema 存在性守卫——MySQL 索引无 IF NOT EXISTS。
+  -- ⚠ 该 evidence 侧文件为 PR-7 服务侧待落地交付物，内核合入时尚未创建）。
   KEY idx_unresolved (status, handler_id, first_seen_at),
+  -- PR-7 §10 保留清理（review 终评 #4）：DeleteSettledBefore 的 DELETE 谓词是
+  -- (status='SUCCEEDED' AND updated_at<?) OR (status='DISCARDED' AND updated_at<?)——无含
+  -- updated_at 的索引则每次保留清理全表扫。列序 status 打头：OR 两态在该复合上解析为两个
+  -- 干净的 range 区间。仅随 CREATE TABLE 生效（OV⑧b 同缺口）；存量库由 evidence 侧迁移与
+  -- 2026082300002 同文件补建（同为待落地交付物）。
+  KEY idx_retention (status, updated_at),
   -- D22：尾部加 first_seen_at——FindEligibleHeads 的 NOT EXISTS 在事件不带 causal_seq 时按 first_seen_at
   -- 比较（准入 ⑩），无此列则子查询逐行回表，10K 行规模下退化为 O(N²)。
   KEY idx_aggregate (tenant_id, aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at),
@@ -111,11 +118,16 @@ CREATE TABLE IF NOT EXISTS raw_message_quarantine (
   -- 两列都仅随 CREATE TABLE 生效——本迁移无 ALTER 机制（与 idx_unresolved 同一 OV⑧b 缺口类）：
   -- 存量 MySQL 库（evidence-command 租户库）由 evidence 侧迁移【同时补两列】
   -- command/cmd/migrate/migration/version/2026082300003_add_quarantine_replay_attempts.go
-  -- （information_schema.COLUMNS 存在性守卫——MySQL 5.7/8.0 无 ADD COLUMN IF NOT EXISTS，
-  -- 且本仓库不钉 MySQL 版本下限，不能依赖 8.0.29+ 才有的语法）。
+  -- （⚠ 同为 PR-7 服务侧待落地交付物，内核合入时尚未创建）
+  -- （information_schema.COLUMNS 存在性守卫——MySQL 任何版本（5.7/8.0/8.4）都不支持
+  -- ADD COLUMN IF NOT EXISTS（那是 MariaDB 语法；MySQL 8.0.29 加的是 INSTANT 加列性能特性，
+  -- 非条件 DDL），版本升级也解除不了这条守卫）。
   -- ⚠ M-3 证据指针：只补 replay_attempts 不补 updated_at 的库，QuarantineReplay 首次点击
   -- 即在 casToReplaying 的 UPDATE（写 updated_at 列）上报 Error 1054 unknown column——
-  -- D1 失败类。evidence 侧迁移作者须照抄两列，不得只加计数列。
+  -- D1 失败类。⚠ blast radius 大于首击点（review 复核）：QuarantineModel 的
+  -- Record（隔离写入路径，adapters write-before-ACK）同样 INSERT 新列——未迁移库上
+  -- 【首次毒消息隔离落库】即报 1054，错误上抛 → 分区阻塞（strategy-A fail-closed），
+  -- 早于任何 QuarantineReplay 点击。evidence 侧迁移作者须照抄两列，不得只加计数列。
   -- file-storage 的租户库是 PostgreSQL only，内核侧 ADD COLUMN IF NOT EXISTS 已自愈（见
   -- postgres/migration.go 文末两条 ALTER），无需 evidence 式迁移。
   replay_attempts INT NOT NULL DEFAULT 0,

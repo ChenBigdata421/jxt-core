@@ -97,7 +97,9 @@ func TestRunnerTickObservesOrphans(t *testing.T) {
 	assert.Equal(t, 3, n)
 	// D20：每 tick 只扫一批，不循环（观测器不改行，循环会死转）。
 	assert.Equal(t, int32(1), atomic.LoadInt32(&fs.calls), "D20: exactly one scan per tick")
-	// OV④b：Tick 原样透传 store 返回的 inserted 计数（runner 不改语义）。
+	// OV④b：Tick 原样透传 store 返回的 inserted 计数（runner 不改语义）。注意 n==3 已在上面
+	// 断言过；本行以 fs.observed 为锚，若未来 fakeStore 的 observed 与硬编码 3 分叉（例如
+	// 改为构造 inserted≠scanned 的语义对照），断言仍钉住「透传」而非「碰巧等于 3」。
 	assert.Equal(t, fs.observed, n, "OV④b: Tick must pass through the store's inserted-rows count unchanged")
 }
 

@@ -2,13 +2,14 @@
 // store.QuarantineStore 的底层读写收口成面向运维 API（PR-7 的 gin handler）的方法语义，
 // 让「方法语义跨服务不漂移」这条不变量在内核侧保证（J1），而 handler / auth / 序列化留给各服务（J3）。
 //
-// 依赖卫生（J2，brief Q2=A）：opsvc 只 import store / reliable / gorm + stdlib——
-// 不 import gin / prometheus / sarama / adapters-eventbus。tenant→Store+*gorm.DB+QuarantineStore
+// 依赖卫生（J2，brief Q2=A）：opsvc 只 import store / reliable / replay / store/gormshared / gorm + stdlib——
+// 不 import gin / prometheus / sarama / eventbus。tenant→Store+*gorm.DB+QuarantineStore
 // 的解析复用 store.TenantStoreResolver（host 在 store 包正是为了让 opsvc 不被 sarama 污染）。
 //
 // 范围（§10）：本包覆盖 event_consumption 的列表 / 详情 / 人工重放 / 丢弃 / 统计 / 异常视图，
-// 以及 raw_message_quarantine 的列表 / 详情 / 处置。§10 之外的端点由各自归属包承载：
-//   - POST /api/v1/quarantine/:id/replay 需要服务侧 HandlerRegistry（重放策略是服务特定的）→ PR-7，不在本包。
+// 以及 raw_message_quarantine 的列表 / 详情 / 处置，外加隔离区重放（QuarantineReplay，PR-7 Task 3——
+// 服务侧经 WithRegistry 注入 HandlerRegistry、WithEnvelopeDecoder 注入 eventbus 解码器；
+// 重放仲裁在内核 TryClaim，重放策略经由注册表校验，本包不直接执行 handler）。§10 之外的端点由各自归属包承载：
 //   - /outbox/dead-lettered 是 outbox 包自己的 ops 视图（不同表 / 不同生命周期）→ outbox 包。
 package opsvc
 
@@ -182,9 +183,14 @@ type QuarantineDetail struct {
 	ErrorMessage   string
 	Status         string
 	RowVersion     int64
+	// ReplayAttempts / UpdatedAt（终评 minors）：非门控运维字段——操作者须能在点击 replay 前
+	// 看到「已用 4/5 次」与 REPLAYING 停留时长（watchdog 谓词锚 updated_at），否则首个反馈
+	// 就是烧完预算后的 opaque 409。
+	ReplayAttempts int
 	ResolvedAt     *time.Time
 	ResolvedBy     string
 	CreatedAt      time.Time
+	UpdatedAt      *time.Time
 
 	// 门控字段（includeRaw=false 时恒 nil）。
 	RawValue []byte

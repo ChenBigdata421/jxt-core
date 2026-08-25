@@ -41,21 +41,26 @@ type PrivilegedAccessEvent struct {
 	RowID    int64
 }
 
-// ConflictError 是 §6.2.1 manual-replay 门禁 / CAS 版本不符 / D12 双人确认冲突的统一标记错误。
-// Handler 用 errors.As(*ConflictError) 把它映射到 HTTP 409（brief：Populate Reason 区分三种来源）。
+// ConflictError 是 §6.2.1 manual-replay 门禁 / CAS 版本不符 / D12 双人确认 / live-claim 占用 /
+// 隔离重放上限（QuarantineReplay）冲突的统一标记错误。
+// Handler 用 errors.As(*ConflictError) 把它映射到 HTTP 409（brief：Populate Reason 区分五种来源：
+// conflictReasonSibling / D12 / row_version / live claim active / max replay attempts）。
 type ConflictError struct {
 	Reason string
 }
 
 func (e *ConflictError) Error() string { return fmt.Sprintf("opsvc: conflict: %s", e.Reason) }
 
-// 三种 Reason 常量（brief 规定）。
+// 三种 Reason 常量（brief 规定；后两条为 PR-7 隔离重放新增）。
 const (
 	conflictReasonSibling      = "§6.2.1 earlier-unsolved sibling"
 	conflictReasonD12          = "requester==approver (D12)"
 	conflictReasonRowVersion   = "row_version mismatch"
 	conflictReasonLiveClaim    = "live claim active"
 	conflictReasonMaxReplayAtt = "max replay attempts"
+	// conflictReasonSettled（终评 #1）：AlreadySettled 命中但消费行分诊非 SUCCEEDED
+	// （DEAD_LETTER/DISCARDED/RETRY_SCHEDULED）——拒绝在本端点伪造毕业，处置走消费侧。
+	conflictReasonSettled = "consumption row settled but not SUCCEEDED"
 )
 
 // ErrMissingTenant 是任何 DTO（或 bare tenantID 参数）的 TenantID==0 时返回的标记错误。
@@ -107,6 +112,10 @@ type Service struct {
 	// sibling-check + ScheduleReplay 跑在同一 tx 以缩小 check-then-act TOCTOU 窗口）。仅在同包测试里
 	// 覆写——避免为「两调用拿到同一 tx」这条断言拉一个真实 DB driver 进测试。生产调用方不设此字段。
 	txRunner func(db *gorm.DB, fn func(tx *gorm.DB) error) error
+	// consStatus 按 (tenant,event_id,handler,item_key) 读消费行 status（终评 #1：AlreadySettled
+	// 分支的分诊读）。seam 化与 qrClaim 同因：store.Store 无该读接口、单测 harness 是 sentinel
+	// *gorm.DB。生产默认 = byKeyStatus（uk_event_consumption 等值查询，review #12 只投影 status 一列）。
+	consStatus func(ctx context.Context, db *gorm.DB, tenantID int, key reliable.Key) (string, error)
 }
 
 // ServiceOption 是 NewService 的可选注入项（PR-7 Task 3，C①）。additive：现有 2 参调用不变。
@@ -127,7 +136,8 @@ func WithRegistry(reg replay.HandlerRegistry) ServiceOption {
 }
 
 // WithEnvelopeDecoder 注入 envelope 解码器。服务侧实现包住 eventbus.FromBytes（evidence 的
-// 双胞胎在 shared/infrastructure/reliable/ops_service.go）——opsvc 自身保持 eventbus-free
+// 双胞胎规划在 shared/infrastructure/reliable/ops_service.go——PR-7 服务侧待落地，内核合入时
+// 尚未创建）——opsvc 自身保持 eventbus-free
 // （J2：opsvc 只 import store/reliable/gorm(+replay)，拉进 eventbus 会把 sarama 带入 ops 层）。
 // 解出的 tenantID 与 r.TenantID 不一致时 QuarantineReplay 拒绝（防跨租户投递：envelope 自称
 // 租户 A 而行存于租户 B 的隔离表，以行所在租户为准 + 显式报错，不静默改写）。
@@ -155,6 +165,7 @@ func NewService(r store.TenantStoreResolver, a AccessAuditor, opts ...ServiceOpt
 	s.qrClaim = s.casToReplaying
 	s.qrBack = s.casBackToQuarantined
 	s.qrResolve = s.casToResolved
+	s.consStatus = byKeyStatus
 	for _, o := range opts {
 		if o != nil {
 			o(s)
@@ -166,6 +177,19 @@ func NewService(r store.TenantStoreResolver, a AccessAuditor, opts ...ServiceOpt
 // defaultTxRunner 是 txRunner 的生产默认值：直接委托 gorm.DB.Transaction。
 func defaultTxRunner(db *gorm.DB, fn func(tx *gorm.DB) error) error {
 	return db.Transaction(fn)
+}
+
+// byKeyStatus 是 consStatus 的生产实现：按 uk_event_consumption 三键读消费行 status
+// （终评 #1 AlreadySettled 分诊）。行不存在返回 ""（判非 SUCCEEDED，走 409 分支——
+// 理论不可达：TryClaim 刚因该行存在才返回 AlreadySettled；若并发删除（DeleteSettledBefore
+// 保留清理），409 让操作者重读行再决策，比伪造 RESOLVED 安全）。
+func byKeyStatus(ctx context.Context, db *gorm.DB, tenantID int, key reliable.Key) (string, error) {
+	var status string
+	err := db.WithContext(ctx).
+		Raw(`SELECT status FROM event_consumption WHERE tenant_id = ? AND event_id = ? AND handler_id = ? AND item_key = ?`,
+			tenantID, key.EventID, string(key.Handler), key.ItemKey).
+		Scan(&status).Error
+	return status, err
 }
 
 // requireTenant 是每个公开方法的第一道守卫：TenantID<=0 → ErrMissingTenant（handler → 400）。
@@ -494,7 +518,7 @@ const (
 //     Delivery 的 Topic/Partition/Offset/RawKey/Headers/PayloadHash 用行内存储的 broker 原始值
 //     重建（RawValue 是完整 envelope 字节，另作 MarkFailed 的 payload 持久化）。
 //  5. TryClaim 三分支：
-//     - Claimed → MarkFailed(pay­load=RawValue, class=RETRYABLE, safety=registry 的 ReplaySafety)
+//     - Claimed → MarkFailed(payload=RawValue, class=RETRYABLE, safety=registry 的 ReplaySafety)
 //     把行转成 RETRY_SCHEDULED/DEAD_LETTER——这是唯一能同时满足 chk_retry_due（payload +
 //     next_attempt_at + error_class）且让 FindEligibleHeads 可扫到的内核路径；随后 CAS
 //     REPLAYING→RESOLVED（resolved_by=r.By）。业务执行、attempt 计数、aggregate gate、
@@ -559,9 +583,15 @@ func (s *Service) QuarantineReplay(ctx context.Context, r QuarantineReplayReques
 	}
 
 	// —— 步骤 3：解码。失败 → CAS 回 QUARANTINED、replay_attempts+1、上抛。 ——
+	// 返回给调用方的是【静态分类错误】而非 decErr 原文（终评 minors，安全）：服务侧 decoder
+	// 包住 eventbus.FromBytes → jsoniter，其 Iterator.ReportError 会把原始输入 ±50 字节的
+	// 上下文窗嵌进错误文本——隔离行多半本就是解码失败的毒消息（PII/攻击者可控字节），
+	// 原文上抛 = 无审计地把毒载荷片段释放给 ops 调用方。详细 cause 经 qrBack 写入
+	// error_message（SanitizeForStorage 后），不经返回值外泄。
 	key, meta, envTenant, decErr := s.envelopeDecoder(row.RawValue)
 	if decErr != nil {
-		return errors.Join(decErr, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, decErr))
+		decCls := errors.New("opsvc: quarantine replay: envelope decode failed (cause recorded in quarantine error_message)")
+		return errors.Join(decCls, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, decErr))
 	}
 	if envTenant != r.TenantID {
 		tenErr := fmt.Errorf("opsvc: quarantine replay: envelope tenant %d != row tenant %d (cross-tenant envelope refused)", envTenant, r.TenantID)
@@ -615,7 +645,28 @@ func (s *Service) QuarantineReplay(ctx context.Context, r QuarantineReplayReques
 		// error_message（review I-3）：原始 quarantine cause 保留在行上。
 		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By)
 	case err == nil && dec == reliable.AlreadySettled:
-		// 幂等成功：消息早已落地。隔离行 → RESOLVED，不计数、同样不写 error_message（I-3）。
+		// AlreadySettled 覆盖【全部】非 PROCESSING 状态（claim.go default 分支）：SUCCEEDED 是
+		// 真幂等成功，但 DEAD_LETTER / DISCARDED / RETRY_SCHEDULED 不是（review 终评 #1：
+		// 消费行已死信/待重放时把隔离行 CAS 成 RESOLVED + 绿色成功 = 事故记录伪造——reachable
+		// interleave：毕业 #1 的 MarkFailed 落地但 qrResolve 输掉并发 CAS → 行回 QUARANTINED →
+		// 消费侧随后合法死信 → 操作者再点 replay → 假成功）。必须回读消费行分诊：
+		//   SUCCEEDED → 真·幂等成功，隔离行 RESOLVED（不计数、不写 error_message，I-3）；
+		//   其它（DEAD_LETTER/DISCARDED/RETRY_SCHEDULED）→ 回 QUARANTINED + 409，
+		//   cause 指明消费行当前状态，操作者走消费侧 §6.2/§10 处置，不在隔离端点伪造毕业。
+		// consStatus 走 seam（qrClaim 同理）：store.Store 无按 (event_id,handler,item_key)
+		// 读状态的接口方法（GetByID 要数值 id，ListFilter 无 EventID 维度），且单测 harness
+		// 用 sentinel *gorm.DB——直查 SQL 会 panic。生产默认 = 本文件 byKeyStatus。
+		consStatus, serr := s.consStatus(ctx, db, r.TenantID, claimKey)
+		if serr != nil {
+			return errors.Join(serr, s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, serr))
+		}
+		if consStatus != string(reliable.StatusSucceeded) {
+			notSucc := fmt.Errorf("opsvc: quarantine replay: consumption row is %s (not SUCCEEDED); dispose via consumption-side §6.2/§10 ops", consStatus)
+			if backErr := s.qrBack(ctx, db, r.ID, r.TenantID, row.RowVersion, notSucc); backErr != nil {
+				return errors.Join(&ConflictError{Reason: conflictReasonSettled}, backErr)
+			}
+			return &ConflictError{Reason: conflictReasonSettled}
+		}
 		return s.qrResolve(ctx, db, r.ID, r.TenantID, row.RowVersion, r.By)
 	case err == nil && dec == reliable.AlreadyProcessing:
 		// 在途消费者持有租约：回 QUARANTINED + 409。live 消费者自己的 TryClaim/Mark* 才是
@@ -666,8 +717,12 @@ func (s *Service) casToReplaying(ctx context.Context, db *gorm.DB, id int64, ten
 // casBackToQuarantined 是 qrBack 的生产实现：REPLAYING→QUARANTINED，row_version+1
 // （replayRowVer 是 →REPLAYING 之前的版本，+1 即 REPLAYING 态的版本，再 +1 落回）、
 // replay_attempts+1（OV⑤③ 的计数——控制器裁定：每次 REPLAYING→QUARANTINED 失败迁移都计，
-// 成功毕业不重置，RESOLVED 是终态）、error_message = sanitize 后的 cause（§10 脱敏地板——
-// cause 可能携带 DSN/凭证/PII）。
+// 成功毕业不重置，RESOLVED 是终态）。
+// error_message（终评 #2，对齐 I-3 纪律）：**追加**而非覆盖——原始隔离 cause（DLQ 落库时
+// 记下的事故成因）必须保留；覆盖会让烧完 5 次重放的毒消息只剩「live consumer holds the
+// lease」，事后取证无从回答「当初为什么进隔离区」。追加形态："<原始 cause> | replay[3]:
+// <sanitize 后的本轮 cause>"，SQL 侧 LEFT(...,2000) 截断（error_message 是 TEXT；2000 字符
+// 足够保留原始 cause 在头部 + 最近几轮重放成因，旧轮次被截尾是预期——计数器才是完整台账）。
 // 0 行（并发迁移：另一操作者 / watchdog sweep 先动了）幂等返回 nil——行已不在我们手里，
 // 「离开 REPLAYING」的目的可能已被并发方达成；真 DB 错误照常上抛（滞留 REPLAYING 由
 // OV⑤④ watchdog 自愈，调用方以 errors.Join 双抛感知）。
@@ -676,8 +731,12 @@ func (s *Service) casBackToQuarantined(ctx context.Context, db *gorm.DB, id int6
 		Where("id = ? AND tenant_id = ? AND status = ? AND row_version = ?",
 			id, tenantID, quarantineStatusReplaying, replayRowVer+1).
 		Updates(map[string]any{
-			"status":          quarantineStatusQuarantined,
-			"error_message":   reliable.SanitizeForStorage(fmt.Sprintf("%v", cause)),
+			"status": quarantineStatusQuarantined,
+			// 终评 #2：追加保原始 cause（见函数头）。replay_attempts 在同一 UPDATE 里 +1，
+			// 标签里的序号取 +1 后的值与计数器一致（本轮即第 N 次失败）。
+			"error_message": gorm.Expr(
+				"LEFT(CONCAT_WS(' | ', error_message, CONCAT('replay[', replay_attempts + 1, ']: ', ?)), 2000)",
+				reliable.SanitizeForStorage(fmt.Sprintf("%v", cause))),
 			"replay_attempts": gorm.Expr("replay_attempts + 1"),
 			"updated_at":      time.Now().UTC(),
 			"row_version":     gorm.Expr("row_version + 1"),
@@ -756,6 +815,8 @@ func projectQuarantineDetail(r store.QuarantineRow) QuarantineDetail {
 		ID: r.ID, TenantID: r.TenantID, HandlerID: r.HandlerID, Topic: r.Topic,
 		SrcPartition: r.SrcPartition, SrcOffset: r.SrcOffset, RawPayloadHash: r.RawPayloadHash,
 		ErrorMessage: r.ErrorMessage, Status: r.Status, RowVersion: r.RowVersion,
-		ResolvedAt: r.ResolvedAt, ResolvedBy: r.ResolvedBy, CreatedAt: r.CreatedAt,
+		ReplayAttempts: r.ReplayAttempts,
+		ResolvedAt:     r.ResolvedAt, ResolvedBy: r.ResolvedBy, CreatedAt: r.CreatedAt,
+		UpdatedAt: r.UpdatedAt,
 	}
 }

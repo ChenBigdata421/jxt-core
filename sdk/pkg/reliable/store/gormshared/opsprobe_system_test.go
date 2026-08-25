@@ -88,8 +88,8 @@ func TestOpsProbe_RetryAge(t *testing.T) {
 //   - A：DEAD_LETTER @ (Media,m1) 10:00；B：RETRY_SCHEDULED 同聚合 10:05（B 排序在後）——
 //     A 是 earlier-dead ⇒ 冻结命中恰为 [{m1, A.id, A.handler}]。
 //   - C：RETRY_SCHEDULED @ (Media,m2) 09:00——无死信兄弟 ⇒ 不命中。
-//   - X/Y（review OV②）：aggregate-less 死信 + 更晚的无聚合 RETRY 兄弟（两行 aggregate_id=''）——
-//     ''='' 恒真会让任意两条无聚合行互判冻结（永久误报），守卫必须排除，不得命中。
+//   - X/Y（review OV②）：aggregate-less 死信 + 更晚的无聚合 RETRY 兄弟（两行 aggregate_id=”）——
+//     ”=” 恒真会让任意两条无聚合行互判冻结（永久误报），守卫必须排除，不得命中。
 func TestOpsProbe_FrozenAggregates(t *testing.T) {
 	for _, dialect := range opsDialects {
 		dialect := dialect

@@ -21,8 +21,10 @@ func TestRecoverRowSQL_LeaseRecheckGuard(t *testing.T) {
 		"OV③: recovery UPDATE must re-check lease_expires_at < cutoff (concurrent inline re-claim between SELECT and UPDATE must MISS)")
 	assert.Contains(t, recoverRowSQL, "AND status = 'PROCESSING'",
 		"recovery UPDATE must re-check status (row may have been settled concurrently)")
-	assert.Contains(t, recoverRowSQL, "error_class = 'RETRYABLE'",
-		"chk_retry_due: RETRY_SCHEDULED requires error_class NOT NULL")
+	// COALESCE 形态（终评 minors）：首轮回收写占位值，重放过的行保留上一轮真实失败元数据
+	// （error_class 非空即满足 chk_retry_due）。
+	assert.Contains(t, recoverRowSQL, "error_class = COALESCE(error_class, 'RETRYABLE')",
+		"chk_retry_due: RETRY_SCHEDULED requires error_class NOT NULL (COALESCE preserves prior forensics)")
 	assert.Contains(t, recoverRowSQL, "next_attempt_at = ?",
 		"chk_retry_due: RETRY_SCHEDULED requires next_attempt_at NOT NULL")
 	// 回收必须清 ownership（§2.4：RETRY_SCHEDULED 必清 claim_id/claimed_at/lease_expires_at），

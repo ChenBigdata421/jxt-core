@@ -72,6 +72,11 @@ CREATE INDEX IF NOT EXISTS idx_handler  ON event_consumption (handler_id, status
 -- 注意：本注释块不得出现 ASCII 分号——evidence 侧 SplitDDL 按分号朴素切分整段 DDL。
 CREATE INDEX IF NOT EXISTS idx_unresolved ON event_consumption (handler_id, first_seen_at)
   WHERE status IN ('RETRY_SCHEDULED','DEAD_LETTER');
+-- PR-7 §10 保留清理（review 终评 #4）：DeleteSettledBefore 的 DELETE 谓词按 status+updated_at
+-- 过滤——partial 双索引（每态一个，updated_at 单列）精确匹配两臂 OR，SUCCEEDED/DISCARDED 行被
+-- 清走后索引条目随之消失，索引恒小。IF NOT EXISTS 自愈存量库。注意本注释块不得出现 ASCII 分号。
+CREATE INDEX IF NOT EXISTS idx_retention_succeeded ON event_consumption (updated_at) WHERE status = 'SUCCEEDED';
+CREATE INDEX IF NOT EXISTS idx_retention_discarded ON event_consumption (updated_at) WHERE status = 'DISCARDED';
 -- D22：尾部加 first_seen_at，与 MySQL 逐字对齐（NOT EXISTS 在无 causal_seq 时比 first_seen_at）。
 CREATE INDEX IF NOT EXISTS idx_aggregate ON event_consumption (tenant_id, aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at);
 

@@ -1242,8 +1242,14 @@ func (f *fakeQrState) back(ctx context.Context, db *gorm.DB, id int64, tenantID 
 	}
 	r.status = quarantineStatusQuarantined
 	r.rowVersion++
+	// 终评 #2：镜像生产 casBackToQuarantined 的【追加】语义（非覆盖）——保留原始隔离 cause。
+	appendMsg := fmt.Sprintf("replay[%d]: %s", r.replayAttempts+1, reliable.SanitizeForStorage(fmt.Sprintf("%v", cause)))
+	if r.errMsg == "" {
+		r.errMsg = appendMsg
+	} else {
+		r.errMsg = r.errMsg + " | " + appendMsg
+	}
 	r.replayAttempts++
-	r.errMsg = reliable.SanitizeForStorage(fmt.Sprintf("%v", cause))
 	r.updatedAt = time.Now().UTC()
 	return nil
 }
@@ -1354,6 +1360,11 @@ func newQrHarness(t *testing.T) *qrHarness {
 	svc.qrClaim = qst.claim
 	svc.qrBack = qst.back
 	svc.qrResolve = qst.resolve
+	// consStatus seam（终评 #1）：默认消费行已 SUCCEEDED——AlreadySettled 幂等用例的
+	// 前提。分诊拒绝用例覆写为 DEAD_LETTER 等。
+	svc.consStatus = func(ctx context.Context, db *gorm.DB, tenantID int, key reliable.Key) (string, error) {
+		return "SUCCEEDED", nil
+	}
 	return &qrHarness{svc: svc, res: r, store: st, qstate: qst, reg: reg, dec: dec, handler: "media.v1"}
 }
 
@@ -1494,6 +1505,58 @@ func TestQuarantineReplay_AlreadySettled(t *testing.T) {
 	// 真实库上的因果保留断言由 quarantine_replay_system_test.go 承载。
 	if strings.Contains(row.errMsg, "already settled") {
 		t.Fatalf("RESOLVED must NOT persist graduation/settlement detail into error_message (I-3), got %q", row.errMsg)
+	}
+}
+
+// TestQuarantineReplay_AlreadySettledDeadLetterRefused（终评 #1）：AlreadySettled 命中但
+// 消费行分诊为 DEAD_LETTER（非 SUCCEEDED）→ 行回 QUARANTINED + ConflictError，绝不 RESOLVED。
+// 这是防「事故记录伪造」的承重断言：消费行已死信时本端点不得返回绿色成功。
+func TestQuarantineReplay_AlreadySettledDeadLetterRefused(t *testing.T) {
+	h := newQrHarness(t)
+	h.store.tryClaimDecision = reliable.AlreadySettled
+	h.svc.consStatus = func(ctx context.Context, db *gorm.DB, tenantID int, key reliable.Key) (string, error) {
+		return "DEAD_LETTER", nil
+	}
+
+	err := h.svc.QuarantineReplay(context.Background(), qrReq())
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.Reason != conflictReasonSettled {
+		t.Fatalf("expected ConflictError(%s), got %v", conflictReasonSettled, err)
+	}
+	row, _ := h.qstate.row(300, 40)
+	if row.status != "QUARANTINED" {
+		t.Fatalf("row must return to QUARANTINED (not forged RESOLVED), got %+v", row)
+	}
+	if row.replayAttempts != 1 {
+		t.Fatalf("refused settlement must count as failed attempt, got %d", row.replayAttempts)
+	}
+	if !strings.Contains(row.errMsg, "DEAD_LETTER") {
+		t.Fatalf("error_message must name the consumption-row state, got %q", row.errMsg)
+	}
+	if h.store.markFailedCalls != 0 {
+		t.Fatal("MarkFailed must not run on refused settlement")
+	}
+}
+
+// TestQuarantineReplay_BackAppendsNotOverwritesCause（终评 #2，I-3 对齐）：失败回迁必须
+// 【追加】replay 成因而非覆盖——原始隔离 cause 必须仍在 error_message 头部。
+func TestQuarantineReplay_BackAppendsNotOverwritesCause(t *testing.T) {
+	h := newQrHarness(t)
+	h.store.tryClaimDecision = reliable.AlreadyProcessing // 任一走 back 的失败路径
+	// 种子行带原始隔离 cause（模拟 DLQ 落库时的成因记录）。
+	if r, ok := h.qstate.rows[[2]int64{300, 40}]; ok {
+		r.errMsg = "original isolation cause: poison decode failure"
+	}
+
+	if err := h.svc.QuarantineReplay(context.Background(), qrReq()); err == nil {
+		t.Fatal("AlreadyProcessing must 409")
+	}
+	row, _ := h.qstate.row(300, 40)
+	if !strings.HasPrefix(row.errMsg, "original isolation cause") {
+		t.Fatalf("original quarantine cause must be PRESERVED at head of error_message (I-3), got %q", row.errMsg)
+	}
+	if !strings.Contains(row.errMsg, "replay[1]: live consumer holds the lease") {
+		t.Fatalf("appended replay cause must carry attempt number, got %q", row.errMsg)
 	}
 }
 
@@ -1638,16 +1701,29 @@ func TestQuarantineReplay_Watchdog(t *testing.T) {
 	}
 }
 
-// TestQuarantineReplay_DecodeError：decoder 报错 → CAS 回 QUARANTINED、计数+1、上抛原错误
-// （controller ambiguity #2：非 ConflictError）。
+// TestQuarantineReplay_DecodeError：decoder 报错 → CAS 回 QUARANTINED、计数+1、上抛
+// 【静态分类错误】（终评 minors：decoder 原文可能嵌毒载荷字节窗——jsoniter 上下文——
+// 不得外泄给调用方；详细 cause 只进 error_message）。非 ConflictError。raw decErr 不在
+// 返回值里（安全断言），但必须被记录进 error_message（fake 的 back 已捕获 cause）。
 func TestQuarantineReplay_DecodeError(t *testing.T) {
 	h := newQrHarness(t)
 	decErr := errors.New("envelope: bad crc")
 	h.dec.err = decErr
 
 	err := h.svc.QuarantineReplay(context.Background(), qrReq())
-	if !errors.Is(err, decErr) {
-		t.Fatalf("decode error must propagate (not ConflictError), got %v", err)
+	if err == nil {
+		t.Fatal("decode failure must surface an error")
+	}
+	var ce *ConflictError
+	if errors.As(err, &ce) {
+		t.Fatalf("decode failure is not a conflict, got %v", err)
+	}
+	// 原始 decoder 错误【不得】出现在返回值里（PII/毒字节窗防泄），只进 error_message。
+	if errors.Is(err, decErr) || strings.Contains(err.Error(), "bad crc") {
+		t.Fatalf("raw decoder error must NOT propagate to caller (leak), got %v", err)
+	}
+	if !strings.Contains(err.Error(), "decode failed") {
+		t.Fatalf("returned error must classify the failure, got %v", err)
 	}
 	if h.store.tryClaimCalls != 0 {
 		t.Fatal("decode failure must not reach TryClaim")
@@ -1655,6 +1731,9 @@ func TestQuarantineReplay_DecodeError(t *testing.T) {
 	row, _ := h.qstate.row(300, 40)
 	if row.status != "QUARANTINED" || row.replayAttempts != 1 {
 		t.Fatalf("row must be back QUARANTINED attempts=1, got %+v", row)
+	}
+	if !strings.Contains(row.errMsg, "bad crc") {
+		t.Fatalf("detailed cause must be recorded in error_message, got %q", row.errMsg)
 	}
 }
 

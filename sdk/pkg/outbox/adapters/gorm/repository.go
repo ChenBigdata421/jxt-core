@@ -535,7 +535,16 @@ func (r *GormOutboxRepository) MarkDeadLetterNotified(ctx context.Context, id st
 // FindDeadLettered 运维死信列表（PR-7 C②/§10）：全部 dead_lettered 行（含已 dlq_notified 的——
 // 与 C1 的 FindUnnotifiedDeadLettered 分野），ORDER BY dead_lettered_at DESC, id DESC，LIMIT/OFFSET。
 // tenantID<=0（含 0 与负数）= 全租户 ops 视图；排序次键 id DESC 保证同一时间戳下分页稳定。
+// limit<=0 → 100（review 终评 #3：gorm 对负 limit 会整句丢弃 LIMIT 子句（clause/limit.go 只在
+// *limit>=0 时生成）→ 全表死信含 payload 加载；0 则 LIMIT 0 恒空页。与 gormshared.FrozenAggregates /
+// QuarantineStore.List 的钳制约定对齐，MockRepository 同语义）。offset<0 → 0。
 func (r *GormOutboxRepository) FindDeadLettered(ctx context.Context, limit, offset, tenantID int) ([]*outbox.OutboxEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	var models []*OutboxEventModel
 	query := r.db.WithContext(ctx).
 		Where("status = ?", outbox.EventStatusDeadLettered).
