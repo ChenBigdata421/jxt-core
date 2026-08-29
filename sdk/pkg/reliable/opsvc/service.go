@@ -726,7 +726,21 @@ func (s *Service) casToReplaying(ctx context.Context, db *gorm.DB, id int64, ten
 // 0 行（并发迁移：另一操作者 / watchdog sweep 先动了）幂等返回 nil——行已不在我们手里，
 // 「离开 REPLAYING」的目的可能已被并发方达成；真 DB 错误照常上抛（滞留 REPLAYING 由
 // OV⑤④ watchdog 自愈，调用方以 errors.Join 双抛感知）。
+// v1.7.8 修复注：本函数的 error_message 表达式在 PG 上曾因裸参数进 variadic-any 的
+// CONCAT 而整条 UPDATE 失败（42P18）→ 行滞留 REPLAYING、replay_attempts 不增长、
+// 5 次上限在 PG 全废——见函数体内的方言 cast 分支。
 func (s *Service) casBackToQuarantined(ctx context.Context, db *gorm.DB, id int64, tenantID int, replayRowVer int64, cause error) error {
+	// v1.7.8（PG 42P18）：CONCAT/CONCAT_WS 在 PG 是 variadic any，裸参数占位符无法被
+	// planner 定型 → SQLSTATE 42P18 "could not determine data type of parameter"。
+	// MySQL 隐式定型不受影响，但表达式必须显式 cast 才能双方言可移植。GORM 无法在单个
+	// Expr 内分流方言，这里按 Dialector.Name() 取两份表达式串（先例：repotest/setup.go
+	// dropSQLFor 的方言分支）：PG 用 CAST(? AS text)（text 是 PG 本位类型），MySQL 用
+	// CAST(? AS CHAR)（MySQL 不认 text 目标类型）。参数本体与语义两方言完全一致，已用
+	// 真 Go 绑定路径在 mysql:8.0 + postgres:16 逐字验证（追加串与计数器行为相同）。
+	appendCauseExpr := "LEFT(CONCAT_WS(' | ', error_message, CONCAT('replay[', replay_attempts + 1, ']: ', CAST(? AS CHAR))), 2000)"
+	if db.Dialector.Name() == "postgres" {
+		appendCauseExpr = "LEFT(CONCAT_WS(' | ', error_message, CONCAT('replay[', replay_attempts + 1, ']: ', CAST(? AS text))), 2000)"
+	}
 	res := db.WithContext(ctx).Model(&gormshared.QuarantineModel{}).
 		Where("id = ? AND tenant_id = ? AND status = ? AND row_version = ?",
 			id, tenantID, quarantineStatusReplaying, replayRowVer+1).
@@ -735,7 +749,7 @@ func (s *Service) casBackToQuarantined(ctx context.Context, db *gorm.DB, id int6
 			// 终评 #2：追加保原始 cause（见函数头）。replay_attempts 在同一 UPDATE 里 +1，
 			// 标签里的序号取 +1 后的值与计数器一致（本轮即第 N 次失败）。
 			"error_message": gorm.Expr(
-				"LEFT(CONCAT_WS(' | ', error_message, CONCAT('replay[', replay_attempts + 1, ']: ', ?)), 2000)",
+				appendCauseExpr,
 				reliable.SanitizeForStorage(fmt.Sprintf("%v", cause))),
 			"replay_attempts": gorm.Expr("replay_attempts + 1"),
 			"updated_at":      time.Now().UTC(),
