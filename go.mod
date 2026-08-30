@@ -65,6 +65,7 @@ require (
 require (
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/jackc/pgconn v1.14.3
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
 	gorm.io/driver/postgres v1.4.5
@@ -117,7 +118,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgtype v1.12.0 // indirect
 	github.com/jackc/pgx/v4 v4.17.2 // indirect
-	github.com/jackc/pgx/v5 v5.9.2 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect

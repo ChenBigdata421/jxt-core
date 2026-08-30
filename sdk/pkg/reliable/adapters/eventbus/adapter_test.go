@@ -394,3 +394,46 @@ func TestFromPoisonMessage_PreservesFieldsAndPayloadHash(t *testing.T) {
 		t.Fatalf("ordered duplicate headers not preserved: %+v", dm.Headers)
 	}
 }
+
+// TestFromRawMeta_PreservesFieldsAndHash passthrough 直测（v1.7.9，PR-7 Phase C review
+// 发现）：FromRawMeta 是 LIVE 路径的 RawMeta→DeliveryMeta 投影（file-storage 的
+// OnDelivery 直接调用它构造 Handle 的 delivery 元数据）。B10 去重删除了 file-storage
+// 的本地直测后，本函数在 kernel 零直测（PR-7 Task 16a review Important：C1/C6 有序
+// 重复 header 往返只剩 FromPoisonMessage 一侧的间接覆盖——两函数共用 toHeaderPairs，
+// 但 FromRawMeta 自身的字段投影无锚）。与 FromPoisonMessage 的关键差异：PayloadHash
+// 不是计算，是【透传】（RawMeta 由 pipeline 预计算）——断言它原样穿过且不被重算。
+func TestFromRawMeta_PreservesFieldsAndHash(t *testing.T) {
+	ts := time.UnixMilli(1700000000002)
+	value := []byte("live-bytes")
+	sum := sha256.Sum256(value)
+	rawHash := hex.EncodeToString(sum[:]) // pipeline 预计算的 sha256(RawValue)
+
+	r := eventbus.RawMeta{
+		RawValue: value, RawKey: []byte("rk2"),
+		Headers: []eventbus.MessageHeader{
+			{Key: "trace", Value: []byte("a")},
+			{Key: "trace", Value: []byte("b")}, // C1/C6：有序 + 允许重复 key，投影不得合并/重排
+		},
+		Topic: "file-storage.file.events", Partition: 3, Offset: 99,
+		Timestamp: ts, PayloadHash: rawHash,
+	}
+	dm := eventbusdlq.FromRawMeta(r)
+
+	if dm.Topic != r.Topic || dm.Partition != 3 || dm.Offset != 99 {
+		t.Fatalf("scalar fields not preserved: %+v", dm)
+	}
+	if string(dm.RawKey) != "rk2" {
+		t.Fatalf("RawKey not preserved: %q", dm.RawKey)
+	}
+	if dm.BrokerTimestamp != ts {
+		t.Fatalf("BrokerTimestamp (K2: RawMeta.Timestamp) not preserved: %v", dm.BrokerTimestamp)
+	}
+	if dm.PayloadHash != rawHash {
+		t.Fatalf("PayloadHash must be passed through verbatim (precomputed by the pipeline), want %q got %q", rawHash, dm.PayloadHash)
+	}
+	if len(dm.Headers) != 2 || dm.Headers[0].Key != "trace" || string(dm.Headers[0].Value) != "a" || string(dm.Headers[1].Value) != "b" {
+		t.Fatalf("ordered duplicate headers not preserved: %+v", dm.Headers)
+	}
+	// HeaderPair 类型契约（key.go:70 镜像 MessageHeader，不依赖 eventbus 包）。
+	var _ []reliable.HeaderPair = dm.Headers
+}
