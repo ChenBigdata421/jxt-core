@@ -114,3 +114,19 @@ jobs:
       - name: reliable DB conformance (testcontainers MySQL + PostgreSQL)
         run: |
           go test -timeout 15m ./sdk/pkg/reliable/store/repotest/...
+
+      # -tags system suites (v1.7.8 review F1): real-DB dialect gates for the raw SQL the
+      # conformance suite does NOT cover — opsvc QuarantineReplay's three CAS statements
+      # (quarantine_replay_system_test.go) and gormshared recovery/opsprobe SQL. This is the
+      # exact escape channel of the v1.7.8 42P18 bug: v1.7.7's cause-append back-CAS shipped
+      # with a bare parameter that fails EVERY run on PostgreSQL, yet CI stayed green because
+      # no system-tagged test ever ran in CI (the PG leg was only re-run locally). Both steps
+      # use the same testcontainers/DSN-escape-hatch machinery as the conformance step above
+      # (no env DSN set → testcontainers auto-provisions mysql:8 + postgres:16).
+      # -p 1: repotest.Setup has no cross-package serialization; parallel packages sharing
+      # DSN-less testcontainers don't collide today, but single-package steps keep the
+      # documented invariant (README v1.7.7: multi-package system runs need -p 1).
+      - name: reliable system SQL gates (testcontainers MySQL + PostgreSQL)
+        run: |
+          go test -tags system -p 1 -timeout 15m ./sdk/pkg/reliable/opsvc/
+          go test -tags system -p 1 -timeout 15m ./sdk/pkg/reliable/store/gormshared/

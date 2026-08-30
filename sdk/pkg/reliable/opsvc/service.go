@@ -722,7 +722,9 @@ func (s *Service) casToReplaying(ctx context.Context, db *gorm.DB, id int64, ten
 // 记下的事故成因）必须保留；覆盖会让烧完 5 次重放的毒消息只剩「live consumer holds the
 // lease」，事后取证无从回答「当初为什么进隔离区」。追加形态："<原始 cause> | replay[3]:
 // <sanitize 后的本轮 cause>"，SQL 侧 LEFT(...,2000) 截断（error_message 是 TEXT；2000 字符
-// 足够保留原始 cause 在头部 + 最近几轮重放成因，旧轮次被截尾是预期——计数器才是完整台账）。
+// 足够保留原始 cause 在头部 + 最近几轮重放成因，超窗时被截掉的是【尾部追加的最新轮次】
+// （LEFT 保头部；原始 cause 恒存活）——计数器才是完整台账）。极端场景：原始 cause 本身
+// 接近 2000 字符时，本轮失败成因可能整段不入库（只在 API 响应的 joined error 里可见）。
 // 0 行（并发迁移：另一操作者 / watchdog sweep 先动了）幂等返回 nil——行已不在我们手里，
 // 「离开 REPLAYING」的目的可能已被并发方达成；真 DB 错误照常上抛（滞留 REPLAYING 由
 // OV⑤④ watchdog 自愈，调用方以 errors.Join 双抛感知）。
@@ -748,6 +750,12 @@ func (s *Service) casBackToQuarantined(ctx context.Context, db *gorm.DB, id int6
 			"status": quarantineStatusQuarantined,
 			// 终评 #2：追加保原始 cause（见函数头）。replay_attempts 在同一 UPDATE 里 +1，
 			// 标签里的序号取 +1 后的值与计数器一致（本轮即第 N 次失败）。
+			// ⚠ 顺序依赖（review F3）：gorm v1.24.2 对 map 赋值按列名字典序排 SET（clause/set.go
+			// 排序），error_message < replay_attempts ⇒ 本表达式先求值、读到【旧】replay_attempts，
+			// +1 后恰为新计数器。MySQL 的 UPDATE SET 从左到右求值（后列读到前列新值），PG 全语句
+			// 读旧值——当前字典序下两方言恰好一致；若重命名列或调整赋值使 error_message 排到
+			// replay_attempts 之后，MySQL 腿的 replay[N] 将读到新值、与 PG 分叉（多 1）。系统测试
+			// ClaimBackCycle 断言 replay[1] 前缀即为此钉。
 			"error_message": gorm.Expr(
 				appendCauseExpr,
 				reliable.SanitizeForStorage(fmt.Sprintf("%v", cause))),

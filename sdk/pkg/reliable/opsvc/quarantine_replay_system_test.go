@@ -38,6 +38,7 @@ package opsvc_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,9 +219,15 @@ func TestQuarantineReplay_System_ClaimBackCycle(t *testing.T) {
 			require.Equal(t, "QUARANTINED", after.Status)
 			require.Equal(t, int64(3), after.RowVersion, "claim(+1) then back(+1)")
 			require.Equal(t, 1, after.ReplayAttempts, "each failed cycle counts (OV⑤③)")
-			// back 写 sanitize 后的 cause（此处无敏感模式，原样保留）。
+			// back 追加（终评 #2）sanitize 后的 cause（此处无敏感模式，原样保留）。
+			// 断言钉「追加」而非「覆盖」：头部必须是原始隔离 cause，追加段必须带本轮序号标签
+			// replay[1]（与计数器一致；序号正确性还钉住了 MySQL SET 字典序求值依赖，见
+			// casBackToQuarantined 的 F3 注释）。弱断言 Contains("bad crc") 两态皆绿，不可用。
 			require.NotNil(t, after.ErrorMessage)
-			require.Contains(t, *after.ErrorMessage, "bad crc", "back-CAS must record the sanitized cause")
+			require.True(t, strings.HasPrefix(*after.ErrorMessage, origCause),
+				"back-CAS must APPEND: original quarantine cause must survive at the head; got %q", *after.ErrorMessage)
+			require.Contains(t, *after.ErrorMessage, "replay[1]: ",
+				"back-CAS must append the numbered cause of THIS failed cycle")
 			// updated_at 由 CAS 显式置 now（UTC）——watchdog 谓词列必须被写入。不与 Record
 			// 的 autoUpdateTime 值做单调比较：GORM autoUpdateTime 用连接的 NowFunc（默认
 			// time.Now()，随会话时区），CAS 写 time.Now().UTC()，而列是 TIMESTAMP(3) without
