@@ -60,11 +60,18 @@ func TestKafkaFaultIsolation(t *testing.T) {
 	var aggregate3Received int64
 	var panicCount int64
 	var panicTriggered atomic.Bool
+	readyGate := NewReadyGate()
 
 	ctx := context.Background()
 
 	// 订阅 Envelope，aggregate-1 的消息触发 panic
 	err := bus.SubscribeEnvelope(ctx, topic, func(ctx context.Context, envelope *eventbus.Envelope) error {
+		// 就绪屏障：probe 被目击即放行（不进业务计数）
+		if envelope.AggregateID == ReadyProbeAggregateID {
+			readyGate.Trip()
+			return nil
+		}
+
 		// aggregate-1 的第一条消息触发 panic（只触发一次）
 		if envelope.AggregateID == "aggregate-1" && envelope.EventVersion == 1 {
 			if panicTriggered.CompareAndSwap(false, true) {
@@ -92,7 +99,10 @@ func TestKafkaFaultIsolation(t *testing.T) {
 	})
 	helper.AssertNoError(err, "SubscribeEnvelope should not return error")
 
-	time.Sleep(100 * time.Millisecond)
+	// 就绪屏障：probe 被目击 ⇒ consumer group fetch 已定位，替代固定 sleep
+	// （CI 受限资源上 assignment 可能超 100ms，固定窗口会漏读早期消息——run #19/#23/#28）
+	helper.AssertTrue(helper.AwaitConsumerReady(ctx, bus, topic, readyGate, 15*time.Second),
+		"Consumer should become ready (probe witnessed) before publishing")
 
 	// 发送多个聚合的消息（交错发送，测试隔离性）
 	aggregates := []string{"aggregate-1", "aggregate-2", "aggregate-3"}
@@ -191,6 +201,7 @@ func TestKafkaFaultIsolationRaw(t *testing.T) {
 	var totalReceived int64
 	var panicCount int64
 	var panicTriggered atomic.Bool
+	rawReadyGate := NewReadyGate()
 
 	ctx := context.Background()
 
@@ -202,6 +213,12 @@ func TestKafkaFaultIsolationRaw(t *testing.T) {
 
 		if err := jxtjson.Unmarshal(data, &payload); err != nil {
 			return fmt.Errorf("failed to decode payload: %w", err)
+		}
+
+		// 就绪屏障：raw 路径按解码后的 Aggregate 哨兵识别 probe（不进业务计数）
+		if payload.Aggregate == ReadyProbeAggregateID {
+			rawReadyGate.Trip()
+			return nil
 		}
 
 		// 只在第一次处理 aggregate-1 version 2 时触发 panic（跳过 version 1）
@@ -219,7 +236,9 @@ func TestKafkaFaultIsolationRaw(t *testing.T) {
 		return nil
 	}), "Subscribe should not return error")
 
-	time.Sleep(100 * time.Millisecond)
+	// 就绪屏障（raw 路径）：probe 以原始 JSON 发布，handler 解码后按哨兵放行
+	helper.AssertTrue(helper.AwaitRawConsumerReady(ctx, bus, topic, rawReadyGate, 15*time.Second),
+		"Raw consumer should become ready (probe witnessed) before publishing")
 
 	aggregates := []string{"aggregate-1", "aggregate-2", "aggregate-3"}
 	versionsPerAggregate := 5
@@ -294,11 +313,18 @@ func TestKafkaConcurrentFaultRecovery(t *testing.T) {
 	var panicCount int64
 	var mu sync.Mutex
 	panicAggregates := make(map[string]bool)
+	readyGate := NewReadyGate()
 
 	ctx := context.Background()
 
 	// 订阅 Envelope，多个聚合的第一条消息都触发 panic
 	err := bus.SubscribeEnvelope(ctx, topic, func(ctx context.Context, envelope *eventbus.Envelope) error {
+		// 就绪屏障：probe 被目击即放行（不进业务计数）
+		if envelope.AggregateID == ReadyProbeAggregateID {
+			readyGate.Trip()
+			return nil
+		}
+
 		atomic.AddInt64(&totalReceived, 1)
 
 		// 每个聚合的第一条消息触发 panic
@@ -319,7 +345,9 @@ func TestKafkaConcurrentFaultRecovery(t *testing.T) {
 	})
 	helper.AssertNoError(err, "SubscribeEnvelope should not return error")
 
-	time.Sleep(100 * time.Millisecond)
+	// 就绪屏障（run #28 flake 根修）：替代固定 sleep
+	helper.AssertTrue(helper.AwaitConsumerReady(ctx, bus, topic, readyGate, 15*time.Second),
+		"Consumer should become ready (probe witnessed) before publishing")
 
 	// 发送多个聚合的消息（并发发送）
 	aggregateCount := 5
@@ -351,11 +379,12 @@ func TestKafkaConcurrentFaultRecovery(t *testing.T) {
 
 	wg.Wait()
 
-	// 等待所有消息处理完成（允许重投递）
-	time.Sleep(5 * time.Second)
+	// 等待所有消息处理完成（轮询而非固定 sleep：慢环境需要更久，固定 5s 会欠投递）
+	success := helper.WaitForMessages(&totalReceived, int64(totalMessages), 30*time.Second)
 
 	// 验证结果（允许 >= 预期，因为重投递可能导致重复）
 	actualReceived := atomic.LoadInt64(&totalReceived)
+	helper.AssertTrue(success, "Should receive at least all messages (at-least-once semantics)")
 	helper.AssertGreaterThanOrEqual(actualReceived, int64(totalMessages), "Should receive at least all messages (at-least-once semantics)")
 	helper.AssertGreaterThan(atomic.LoadInt64(&panicCount), 0, "Should panic at least once per aggregate")
 
@@ -414,7 +443,14 @@ func TestKafkaFaultIsolationWithHighLoad(t *testing.T) {
 	ctx := context.Background()
 
 	// 订阅 Envelope，aggregate-fault 的消息触发 panic
+	highLoadGate := NewReadyGate()
 	err := bus.SubscribeEnvelope(ctx, topic, func(ctx context.Context, envelope *eventbus.Envelope) error {
+		// 就绪屏障：probe 被目击即放行（不进业务计数）
+		if envelope.AggregateID == ReadyProbeAggregateID {
+			highLoadGate.Trip()
+			return nil
+		}
+
 		atomic.AddInt64(&totalReceived, 1)
 
 		// aggregate-fault 的第一条消息触发 panic
@@ -434,7 +470,9 @@ func TestKafkaFaultIsolationWithHighLoad(t *testing.T) {
 	})
 	helper.AssertNoError(err, "SubscribeEnvelope should not return error")
 
-	time.Sleep(100 * time.Millisecond)
+	// 就绪屏障（run #19 flake 根修）：替代固定 sleep
+	helper.AssertTrue(helper.AwaitConsumerReady(ctx, bus, topic, highLoadGate, 15*time.Second),
+		"Consumer should become ready (probe witnessed) before publishing")
 
 	// 发送大量消息（1 个故障聚合 + 99 个正常聚合）
 	normalAggregateCount := 99
@@ -483,11 +521,12 @@ func TestKafkaFaultIsolationWithHighLoad(t *testing.T) {
 
 	wg.Wait()
 
-	// 等待所有消息处理完成（允许重投递）
-	time.Sleep(5 * time.Second)
+	// 等待所有消息处理完成（轮询而非固定 sleep：慢环境需要更久，固定 5s 会欠投递）
+	success := helper.WaitForMessages(&totalReceived, int64(totalMessages), 60*time.Second)
 
 	// 验证结果（允许 >= 预期，因为重投递可能导致重复）
 	actualReceived := atomic.LoadInt64(&totalReceived)
+	helper.AssertTrue(success, "Should receive at least all messages (at-least-once semantics)")
 	helper.AssertGreaterThanOrEqual(actualReceived, int64(totalMessages), "Should receive at least all messages (at-least-once semantics)")
 	helper.AssertGreaterThan(atomic.LoadInt64(&panicCount), 0, "Should panic at least once")
 
