@@ -51,8 +51,17 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   UNIQUE KEY uk_event_consumption (event_id, handler_id, item_key),
   KEY idx_due      (status, next_attempt_at),
   KEY idx_lease    (status, lease_expires_at),
-  KEY idx_ops      (tenant_id, status, first_seen_at),
-  KEY idx_handler  (handler_id, status),
+  -- 附录 Z（jxt-benchmark/docs/analysis/HTTP多租户并发上传-死锁风暴与分区阻塞
+  -- 根因分析_20260823 - v1.md，Z.4/Z.6，2026-09-01 内核侧落地）：
+  --   1. idx_handler (handler_id, status) 不建——原 KEY 行整行移除。零专属消费者
+  --      （探针全部 status 打头走 idx_unresolved；opsvc List/Stats 走 idx_ops；
+  --      handler 定位由 uk_event_consumption 覆盖），且是 2026-08-23 死锁风暴 dump
+  --      里 T2 手持 29 把锁的检索路径；状态迁移的二级索引维护 7 → 6（约 -14%）。
+  --   2. idx_ops 去前导 tenant_id（3 列 → 2 列）——一库一租户下基数为 1（opsprobe
+  --      明确「正确性依赖一库一租户」），前导常量列纯属写放大浪费；opsvc 的 tenant
+  --      等值退化为常量过滤，(status, first_seen_at) 保住 status 等值 + 时间区间的
+  --      干净 range。
+  KEY idx_ops      (status, first_seen_at),
   -- PR-7 opsprobe（review D7=6A）：RetryAgeSeconds/PendingCounts/FrozenAggregates 外层过滤均为
   -- 「未解决两态」，无索引则每 30s 探针全表扫。MySQL 无 partial index → 普通复合；两态行罕见，索引小。
   -- 列序 (status,handler_id,first_seen_at)：status 等值打头，(handler_id,first_seen_at) 支撑
@@ -69,7 +78,9 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   KEY idx_retention (status, updated_at),
   -- D22：尾部加 first_seen_at——FindEligibleHeads 的 NOT EXISTS 在事件不带 causal_seq 时按 first_seen_at
   -- 比较（准入 ⑩），无此列则子查询逐行回表，10K 行规模下退化为 O(N²)。
-  KEY idx_aggregate (tenant_id, aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at),
+  -- 附录 Z Tier 3：去前导 tenant_id（8 列 → 7 列）——一库一租户下基数为 1，前导常量列
+  -- 纯属写放大浪费；新列序与 FindEligibleHeads NOT EXISTS 谓词逐列对齐。
+  KEY idx_aggregate (aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at),
   CONSTRAINT chk_consumption_status CHECK (status IN ('PROCESSING','SUCCEEDED','RETRY_SCHEDULED','DEAD_LETTER','DISCARDED')),
   CONSTRAINT chk_consumption_attempt CHECK (attempt >= 1),
   CONSTRAINT chk_processing_owner CHECK (status <> 'PROCESSING' OR (claim_id IS NOT NULL AND claimed_at IS NOT NULL AND lease_expires_at IS NOT NULL)),

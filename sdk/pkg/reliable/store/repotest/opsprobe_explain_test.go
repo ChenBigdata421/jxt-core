@@ -37,11 +37,13 @@ import (
 //     蕴含查询谓词，索引更小更优；断言「索引扫描且索引的 partial 谓词蕴含查询」（idx_due 或
 //     idx_unresolved 任一），不断言具体哪个。
 //   - postgres/PendingCounts  ：Bitmap Index Scan on idx_unresolved —— 严格断言。
-//   - postgres/FrozenAggregates：外层 e 经 BitmapAnd(idx_unresolved ∩ idx_handler) 命中
-//     idx_unresolved —— 严格断言外层。⚠ 已知缺口（NEEDS_CONTEXT 上报，勿静默扩断言）：EXISTS
-//     被 unnest 成 hash semi-join，build 侧 c 是 Seq Scan（status IN 三态是 idx_unresolved
-//     两态 partial 谓词的结构性超集——PROCESSING 行不在该索引里，任何 partial 索引都无法蕴含）。
-//     同规模 seqscan=off 时优化器能给全索引计划（idx_handler bitmap，+27% 代价、等值墙钟）；
+//   - postgres/FrozenAggregates：外层 e 命中 idx_unresolved —— 严格断言外层。⚠ 已知缺口
+//     （NEEDS_CONTEXT 上报，勿静默扩断言）：EXISTS 被 unnest 成 hash semi-join，build 侧 c 是
+//     Seq Scan（status IN 三态是 idx_unresolved 两态 partial 谓词的结构性超集——PROCESSING 行
+//     不在该索引里，任何 partial 索引都无法蕴含）。附录 Z 前（idx_handler 还在时）外层实测是
+//     BitmapAnd(idx_unresolved ∩ idx_handler)；idx_handler 移除后外层由 idx_unresolved 单腿
+//     承载（原同规模 seqscan=off 对照：idx_handler bitmap +27% 代价、等值墙钟——单腿化不改变
+//     「外层命中 idx_unresolved」这一断言，2026-09-01 复核）；
 //     Task 2 的 DeleteSettledBefore 落地后 SUCCEEDED 占比下降，代价天平可能翻转。本门禁先只
 //     钉外层（探针自身的扫描），内层 Seq Scan 由 Task 21 report 上报裁决，不放宽也不假装。
 
@@ -148,7 +150,7 @@ func TestExplainOpsProbe(t *testing.T) {
 			requireUnresolved: true}, // 双方言实测均 idx_unresolved
 		// FrozenAggregates 唯一绑定参数是 LIMIT（status 字面量同 D22 口径）。
 		{name: "FrozenAggregates", sql: gormshared.FrozenAggregatesSQL, args: []any{100},
-			requireUnresolved: true, requireIdxAggregate: true}, // pg 外层 BitmapAnd 含 idx_unresolved；mysql 见校准记录
+			requireUnresolved: true, requireIdxAggregate: true}, // pg 外层 idx_unresolved 单腿承载（附录 Z 后无 BitmapAnd）；mysql 见校准记录
 	}
 	for _, dialect := range []Dialect{DialectMySQL, DialectPostgres} {
 		dialect := dialect
@@ -328,7 +330,13 @@ func assertPostgresOpsPlan(t *testing.T, db *gorm.DB, p opsProbe) {
 	assert.Empty(t, outerSeqScans,
 		"D7=6A: %s 探针自身扫描不得 Seq Scan（partial 索引谓词已被 status 字面量蕴含，D22 同源）", p.name)
 	if p.requireUnresolved && p.name == "FrozenAggregates" {
-		assert.True(t, hitUnresolved, "D7=6A: FrozenAggregates 外层必须命中 idx_unresolved（实测 BitmapAnd 成员）")
+		// 附录 Z（2026-09-01）校准：idx_handler 移除后外层不再有 BitmapAnd 双腿——实测计划
+		// 选 idx_ops（status 打头，等值 + first_seen_at 有序）；idx_unresolved（partial 两态）
+		// 与 idx_due（partial RETRY）同为蕴含查询谓词的合法承载。镜像 mysql 侧 FrozenAggregates
+		// 的口径（校准格）：断言「status 打头的索引承载外层」，不断言具体胜出者。
+		outerIndexed := hitUnresolved || hitIdx["idx_due"] || hitIdx["idx_ops"]
+		assert.True(t, outerIndexed,
+			"D7=6A: FrozenAggregates 外层必须由 status 打头的索引承载（idx_unresolved/idx_due/idx_ops 任一，附录 Z 后无 BitmapAnd）")
 	}
 	if p.requireUnresolved && p.name != "FrozenAggregates" {
 		// RetryAgeSeconds 校准格：idx_due（partial，谓词蕴含查询）与 idx_unresolved 等价成立；

@@ -485,6 +485,40 @@ func RunErrorPropagationConformance(t *testing.T, d *ConformanceDeps) {
 		assert.True(t, errors.Is(err, context.Canceled),
 			"Discard must propagate the real ctx error, not mask it as ErrConflict")
 	})
+
+	// —— 评审 R5：MarkFailed 前置 SELECT 的伪装盲区（review #4 遗漏的最后一块）——
+	//
+	// mark.go 的 MarkFailed 在 UPDATE 前带一个读 m.Attempt 的 First() SELECT。原稿对它的
+	// err 一律 return ErrConflict——1213/1205/连接抖动/ctx 超时这类瞬态 DB 错误被伪装成
+	// fencing 哨兵，下游 Classify(ErrConflict)=Unrecoverable → RecordTerminal 撞 PROCESSING
+	// → 分区冻结（2026-08-23 事故链）。同函数下半的 UPDATE 与 RecordTerminal 均已区分
+	// res.Error / ErrRecordNotFound，唯此处漏网。上面三个子测用预取消 ctx 驱动直 UPDATE 路径；
+	// MarkFailed 的 SELECT 先于 UPDATE 执行，同法可隔离其 SELECT 分支。
+	t.Run("MarkFailed_SelectCtxError_Propagates", func(t *testing.T) {
+		in := newClaimInput(t, "ctx-err-markfail-select")
+		tok, _, err := d.Store.TryClaim(context.Background(), in, lease5)
+		require.NoError(t, err)
+		err = d.Store.MarkFailed(cancelledCtx(), d.DB, in.Key, tok,
+			reliable.ClassRetryable, reliable.ReplayIdempotent, 5, reliableErr("transient"), []byte("p"))
+		assert.True(t, errors.Is(err, context.Canceled),
+			"MarkFailed SELECT must propagate the real ctx error, not mask it as ErrConflict (R5)")
+		// 行必须仍是 PROCESSING（带着有效租约）——SELECT 失败不得污染行状态。
+		r := mustGetByEvent(t, d, in.Key)
+		assert.Equal(t, string(reliable.StatusProcessing), r.Status,
+			"MarkFailed SELECT failure must leave the row in PROCESSING untouched")
+	})
+
+	// fencing 语义保留：行存在但 status/claim_id 不匹配（First 配 WHERE 谓词 → ErrRecordNotFound）
+	// 仍必须映射 ErrConflict——这是该哨兵的全部合法语义，修复不得收窄。
+	t.Run("MarkFailed_StaleToken_StillErrConflict", func(t *testing.T) {
+		in := newClaimInput(t, "markfail-stale-token")
+		_, _, err := d.Store.TryClaim(context.Background(), in, lease5)
+		require.NoError(t, err)
+		err = d.Store.MarkFailed(context.Background(), d.DB, in.Key, "bogus-token",
+			reliable.ClassRetryable, reliable.ReplayIdempotent, 5, reliableErr("x"), []byte("p"))
+		assert.ErrorIs(t, err, reliable.ErrConflict,
+			"stale token on MarkFailed SELECT must still map to ErrConflict (fencing intact)")
+	})
 }
 
 // —— PR-2 upper-packages：§10 ops API + §6.2.1 manual-replay gate conformance ——

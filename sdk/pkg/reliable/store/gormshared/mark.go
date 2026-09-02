@@ -15,20 +15,24 @@ func (s *GormStore) MarkSucceeded(ctx context.Context, db *gorm.DB, key reliable
 	now := nowUTC()
 	// 必须用 map[string]any 传 nil：struct-based Updates 会静默跳过 nil 字段，破坏 chk_* CHECK 不变量。
 	// review #4：先查 res.Error 再看 RowsAffected——否则 DB 错误/ctx 取消（RowsAffected=0）被伪装成 ErrConflict。
-	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
-		Where("event_id = ? AND handler_id = ? AND item_key = ? AND status = ? AND claim_id = ?",
-			key.EventID, string(key.Handler), key.ItemKey, reliable.StatusProcessing, string(tok)).
-		Updates(map[string]any{
-			"status": reliable.StatusSucceeded, "claim_id": nil, "claimed_at": nil,
-			"lease_expires_at": nil, "last_attempt_at": nil,
-			"error_class": nil, "error_message": "", "next_attempt_at": nil, "payload": nil,
-			// C3（本轮评审）：也必须清 error_code / error_fingerprint。§2.4 不变量表没列这两列，
-			// 但「成功了却留着上次失败的指纹」会污染 §10 按 error_fingerprint 的聚合定位。
-			"error_code": "", "error_fingerprint": "",
-			"updated_at": now, "row_version": gorm.Expr("row_version + 1"),
-		})
-	if res.Error != nil {
+	// retryTransient（D1/P0）：CAS WHERE 带全 token，重试安全（0 行→ErrConflict 不属于瞬态，不会被重试）。
+	var res *gorm.DB
+	if err := s.retryTransient(ctx, func() error {
+		res = db.WithContext(ctx).Model(&EventConsumptionModel{}).
+			Where("event_id = ? AND handler_id = ? AND item_key = ? AND status = ? AND claim_id = ?",
+				key.EventID, string(key.Handler), key.ItemKey, reliable.StatusProcessing, string(tok)).
+			Updates(map[string]any{
+				"status": reliable.StatusSucceeded, "claim_id": nil, "claimed_at": nil,
+				"lease_expires_at": nil, "last_attempt_at": nil,
+				"error_class": nil, "error_message": "", "next_attempt_at": nil, "payload": nil,
+				// C3（本轮评审）：也必须清 error_code / error_fingerprint。§2.4 不变量表没列这两列，
+				// 但「成功了却留着上次失败的指纹」会污染 §10 按 error_fingerprint 的聚合定位。
+				"error_code": "", "error_fingerprint": "",
+				"updated_at": now, "row_version": gorm.Expr("row_version + 1"),
+			})
 		return res.Error
+	}); err != nil {
+		return err
 	}
 	if res.RowsAffected == 0 {
 		return reliable.ErrConflict
@@ -51,11 +55,21 @@ func (s *GormStore) MarkFailed(ctx context.Context, db *gorm.DB, key reliable.Ke
 	}
 
 	var m EventConsumptionModel
-	if err := db.WithContext(ctx).
-		Where("event_id = ? AND handler_id = ? AND item_key = ? AND status = ? AND claim_id = ?",
-			key.EventID, string(key.Handler), key.ItemKey, reliable.StatusProcessing, string(tok)).
-		First(&m).Error; err != nil {
-		return reliable.ErrConflict
+	// retryTransient（D1/P0）：只读 SELECT 天然幂等；1213 等瞬态错误就地吸收。
+	if err := s.retryTransient(ctx, func() error {
+		return db.WithContext(ctx).
+			Where("event_id = ? AND handler_id = ? AND item_key = ? AND status = ? AND claim_id = ?",
+				key.EventID, string(key.Handler), key.ItemKey, reliable.StatusProcessing, string(tok)).
+			First(&m).Error
+	}); err != nil {
+		// review #4（补漏，评审 R5）：仅"行不存在/已不归我"（First 配 WHERE 谓词 → ErrRecordNotFound）
+		// 才是 conflict；DB 错误（1213/1205/连接抖动/ctx 超时）原样上抛——伪装成 ErrConflict 会被
+		// Classify 兜底判 UNRECOVERABLE → RecordTerminal 撞 PROCESSING → 分区冻结。
+		// 同函数下方 UPDATE 与 RecordTerminal 均已是此模式，此处对齐。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return reliable.ErrConflict
+		}
+		return err
 	}
 
 	now := nowUTC()
@@ -83,11 +97,15 @@ func (s *GormStore) MarkFailed(ctx context.Context, db *gorm.DB, key reliable.Ke
 	// 若 attempt 在 SELECT 与 UPDATE 之间被并发改动，则 0 行受影响 → 返回 ErrConflict（fail-fast，不污染状态），
 	// 而非用过期的 deadLetter/退避覆盖行。
 	// review #4：先查 res.Error（同 MarkSucceeded），DB 错误不得伪装成 CAS conflict。
-	res := db.WithContext(ctx).Model(&EventConsumptionModel{}).
-		Where("id = ? AND status = ? AND claim_id = ? AND attempt = ?", m.ID, reliable.StatusProcessing, string(tok), m.Attempt).
-		Updates(updates)
-	if res.Error != nil {
+	// retryTransient（D1/P0）：CAS WHERE 带 id+token+attempt，重试安全。
+	var res *gorm.DB
+	if err := s.retryTransient(ctx, func() error {
+		res = db.WithContext(ctx).Model(&EventConsumptionModel{}).
+			Where("id = ? AND status = ? AND claim_id = ? AND attempt = ?", m.ID, reliable.StatusProcessing, string(tok), m.Attempt).
+			Updates(updates)
 		return res.Error
+	}); err != nil {
+		return err
 	}
 	if res.RowsAffected == 0 {
 		return reliable.ErrConflict

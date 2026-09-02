@@ -64,8 +64,20 @@ CREATE TABLE IF NOT EXISTS event_consumption (
 -- 两者必须成对修：字面量查询 + partial 索引，否则 EXPLAIN 门禁无法是确定性的。
 CREATE INDEX IF NOT EXISTS idx_due      ON event_consumption (next_attempt_at) WHERE status = 'RETRY_SCHEDULED';
 CREATE INDEX IF NOT EXISTS idx_lease    ON event_consumption (lease_expires_at) WHERE status = 'PROCESSING';
-CREATE INDEX IF NOT EXISTS idx_ops      ON event_consumption (tenant_id, status, first_seen_at);
-CREATE INDEX IF NOT EXISTS idx_handler  ON event_consumption (handler_id, status);
+-- 附录 Z（jxt-benchmark/docs/analysis/HTTP多租户并发上传-死锁风暴与分区阻塞
+-- 根因分析_20260823 - v1.md，Z.4/Z.6，2026-09-01 内核侧落地，与 MySQL DDL 同步）：
+--   1. idx_handler (handler_id, status) 不建——原语句整句移除。零专属消费者
+--      （探针全部走 partial idx_unresolved 两态过滤；opsvc List/Stats 走 idx_ops；
+--      handler 定位由 uk_event_consumption 覆盖）。它曾是 FrozenAggregates 外层
+--      BitmapAnd 的辅助腿——砍后外层退化为纯 idx_unresolved bitmap（+27% 代价、
+--      等值墙钟，opsprobe 校准记录已留痕）。PG 的 FULL 索引仅 4 个，相对收益比
+--      MySQL 更高（Z.1）。
+--   2. idx_ops 去前导 tenant_id（3 列 → 2 列）——一库一租户下基数为 1（opsprobe
+--      明确「正确性依赖一库一租户」），前导常量列纯属写放大浪费；opsvc 的 tenant
+--      等值退化为常量过滤，(status, first_seen_at) 保住 status 等值 + 时间区间的
+--      干净 range。
+-- 注意本注释块不得出现 ASCII 分号——evidence 侧 SplitDDL 按分号朴素切分整段 DDL。
+CREATE INDEX IF NOT EXISTS idx_ops      ON event_consumption (status, first_seen_at);
 -- PR-7 opsprobe（review D7=6A）：三个探针查询的外层过滤都是「未解决两态」。
 -- RetryAgeSeconds/PendingCounts 按 (handler_id,status IN 两态) 聚合；FrozenAggregates 外层
 -- status='DEAD_LETTER'。两态行占比极小（SUCCEEDED 被 30d 保留清走），partial 索引增量近零。
@@ -78,7 +90,9 @@ CREATE INDEX IF NOT EXISTS idx_unresolved ON event_consumption (handler_id, firs
 CREATE INDEX IF NOT EXISTS idx_retention_succeeded ON event_consumption (updated_at) WHERE status = 'SUCCEEDED';
 CREATE INDEX IF NOT EXISTS idx_retention_discarded ON event_consumption (updated_at) WHERE status = 'DISCARDED';
 -- D22：尾部加 first_seen_at，与 MySQL 逐字对齐（NOT EXISTS 在无 causal_seq 时比 first_seen_at）。
-CREATE INDEX IF NOT EXISTS idx_aggregate ON event_consumption (tenant_id, aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at);
+-- 附录 Z Tier 3：去前导 tenant_id（8 列 → 7 列）——一库一租户下基数为 1，前导常量列纯属
+-- 写放大浪费；新列序与 FindEligibleHeads NOT EXISTS 谓词逐列对齐。
+CREATE INDEX IF NOT EXISTS idx_aggregate ON event_consumption (aggregate_type, aggregate_id, status, causal_seq, src_partition, src_offset, first_seen_at);
 
 CREATE TABLE IF NOT EXISTS consumption_anomalies (
   -- review #11：列入 uk_anomaly_once 的列须 NOT NULL DEFAULT ''（NULL 在唯一索引里互不相等，与 claim_id 同处理）。

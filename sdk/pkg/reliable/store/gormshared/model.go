@@ -14,23 +14,24 @@ import (
 type EventConsumptionModel struct {
 	ID int64 `gorm:"primaryKey;autoIncrement"`
 
-	// B5（本轮评审）：uk_event_consumption 列序必须是 (event_id, handler_id, item_key)，与两方言 DDL 逐字一致；
-	// idx_aggregate 首列必须是 tenant_id。原稿把 item_key 排在 handler_id 前、且 tenant_id 完全漏标 idx_aggregate，
-	// 与 outbox model.go:15 的告诫（「列序一致，否则 AutoMigrate 与 SQL 产物分叉」）相悖。
+	// B5（本轮评审）：uk_event_consumption 列序必须是 (event_id, handler_id, item_key)，与两方言 DDL 逐字一致。
+	// 附录 Z（2026-09-01 内核侧落地，Z.4/Z.6）：idx_handler 不再存在（tag 已删）；idx_ops 与
+	// idx_aggregate 去掉前导 tenant_id（一库一租户下基数为 1，前导常量列纯属写放大浪费），本 tag
+	// 与两方言 migration DDL 同步（双源原则：AutoMigrate 产物须与 SQL 产物同形）。
 	EventID       string `gorm:"column:event_id;type:varchar(64);not null;uniqueIndex:uk_event_consumption,priority:1"`
 	ItemKey       string `gorm:"column:item_key;type:varchar(100);not null;default:'';uniqueIndex:uk_event_consumption,priority:3"`
-	HandlerID     string `gorm:"column:handler_id;type:varchar(100);not null;uniqueIndex:uk_event_consumption,priority:2;index:idx_handler,priority:1"`
-	TenantID      int    `gorm:"column:tenant_id;not null;index:idx_ops,priority:1;index:idx_aggregate,priority:1"`
+	HandlerID     string `gorm:"column:handler_id;type:varchar(100);not null;uniqueIndex:uk_event_consumption,priority:2"`
+	TenantID      int    `gorm:"column:tenant_id;not null"`
 	EventType     string `gorm:"column:event_type;type:varchar(64)"`
-	AggregateType string `gorm:"column:aggregate_type;type:varchar(64);index:idx_aggregate,priority:2"`
-	AggregateID   string `gorm:"column:aggregate_id;type:varchar(100);index:idx_aggregate,priority:3"`
-	CausalSeq     *int64 `gorm:"column:causal_seq;index:idx_aggregate,priority:5"`
+	AggregateType string `gorm:"column:aggregate_type;type:varchar(64);index:idx_aggregate,priority:1"`
+	AggregateID   string `gorm:"column:aggregate_id;type:varchar(100);index:idx_aggregate,priority:2"`
+	CausalSeq     *int64 `gorm:"column:causal_seq;index:idx_aggregate,priority:4"`
 	Topic         string `gorm:"column:topic;type:varchar(100);not null"`
 
-	Status string `gorm:"column:status;type:varchar(16);not null;index:idx_due,priority:1;index:idx_lease,priority:1;index:idx_ops,priority:2;index:idx_handler,priority:2;index:idx_aggregate,priority:4"`
-	// PR-7 idx_unresolved **有意不进 GORM tag**（review D7=6A 的镜像核查结论）：它不像 idx_handler
-	// 那样两方言同形——PG 是 partial `(handler_id, first_seen_at) WHERE status IN 两态`，MySQL 是普通
-	// 复合 `(status, handler_id, first_seen_at)`。GORM tag 只能表达一份固定形态，加了必与其中一方
+	Status string `gorm:"column:status;type:varchar(16);not null;index:idx_due,priority:1;index:idx_lease,priority:1;index:idx_ops,priority:1;index:idx_aggregate,priority:3"`
+	// PR-7 idx_unresolved **有意不进 GORM tag**（review D7=6A 的镜像核查结论）：它两方言不同形
+	// ——PG 是 partial `(handler_id, first_seen_at) WHERE status IN 两态`，MySQL 是普通复合
+	// `(status, handler_id, first_seen_at)`。GORM tag 只能表达一份固定形态，加了必与其中一方
 	// 分叉（AutoMigrate 产物 ≠ migration SQL，违反本文件头部的双源原则）。索引只由两方言 migration
 	// DDL 承载（postgres/migration.go / mysql/migration.go）；存量 MySQL 库由 evidence 侧迁移补建（OV⑧b）。
 	Attempt          int   `gorm:"column:attempt;not null;default:1"`
