@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -230,6 +232,22 @@ func (k *kafkaEventBus) getUnifiedConsumerGroup() (sarama.ConsumerGroup, error) 
 
 // NewKafkaEventBus 创建企业级Kafka事件总线
 // 使用内部配置结构，实现配置解耦
+// wireSaramaLogger 把 sarama 包级 Logger（默认 io.Discard）桥接到 stderr。
+// 会话终结 / 分区分发失败 / 连接错误等关键路径仅经 sarama.Logger 输出，不接线则全写 /dev/null
+// （2026-09-18 轮10冻结案：dispatcher trigger 断供 39 分钟零日志，四条终结路径不可见）。
+// 微秒时间戳与 gorm 错误行同源可交叉比对；EVENTBUS_SARAMA_LOG=0 可显式关闭。
+var wireSaramaLoggerOnce sync.Once
+
+func wireSaramaLogger() {
+	wireSaramaLoggerOnce.Do(func() {
+		if os.Getenv("EVENTBUS_SARAMA_LOG") == "0" {
+			return
+		}
+		sarama.Logger = log.New(os.Stderr, "[sarama] ", log.LstdFlags|log.Lmicroseconds)
+		logger.Info("sarama package logger wired to stderr (was io.Discard)")
+	})
+}
+
 func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("kafka config cannot be nil")
@@ -254,6 +272,7 @@ func NewKafkaEventBus(cfg *KafkaConfig) (EventBus, error) {
 	}
 
 	// 创建Sarama配置
+	wireSaramaLogger()
 	saramaConfig := sarama.NewConfig()
 
 	// 优化1：AsyncProducer配置（Confluent官方推荐）
@@ -2183,6 +2202,7 @@ func (k *kafkaEventBus) reinitializeConnection() error {
 	}
 
 	// 创建Sarama配置
+	wireSaramaLogger()
 	saramaConfig := sarama.NewConfig()
 	// 已废弃：使用新的直接配置方式
 	// if err := configureSarama(saramaConfig, k.config); err != nil {
@@ -2291,6 +2311,17 @@ func (k *kafkaEventBus) restoreSubscriptions(ctx context.Context) error {
 	k.logger.Info("All subscriptions restored successfully",
 		zap.Int("count", len(subs)))
 	return nil
+}
+
+// SetLogger 注入真实 logger(构造默认 zap.NewNop())。
+// 背景(2026-09-19 第八案核查):stall WARN / poison alerter 均走 k.logger,
+// 默认 Nop 使告警结构性哑火(p.log 非 nil 恰好绕过 warnStall 的 nil 静默检查)。
+// 须在消费者/订阅启动前调用;nil 忽略;幂等。
+func (k *kafkaEventBus) SetLogger(zapLogger *zap.Logger) {
+	if zapLogger == nil {
+		return
+	}
+	k.logger = zapLogger
 }
 
 // SetReconnectConfig 设置重连配置

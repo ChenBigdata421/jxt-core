@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/ChenBigdata421/jxt-core/sdk/config"
 	"github.com/ChenBigdata421/jxt-core/sdk/pkg/logger"
 )
@@ -334,6 +336,23 @@ func GetGlobal() EventBus {
 	}
 
 	return globalEventBus
+}
+
+// SetBusLogger 给全局(Kafka)EventBus 注入真实 zap logger。
+// 背景(2026-09-19 第八案核查):kafkaEventBus 构造默认 logger=zap.NewNop(),
+// partition pipeline 的 stall WARN(p.log=k.logger)非 nil 恰好绕过 warnStall 的
+// nil 静默检查——告警因此结构性哑火。须在消费者/订阅启动前调用;非 Kafka 实现
+// (如 NATS)安全 no-op;nil logger 忽略。幂等。
+func SetBusLogger(zapLogger *zap.Logger) {
+	if zapLogger == nil {
+		return
+	}
+	globalMutex.RLock()
+	bus := globalEventBus
+	globalMutex.RUnlock()
+	if kb, ok := bus.(*kafkaEventBus); ok {
+		kb.SetLogger(zapLogger)
+	}
 }
 
 // CloseGlobal 关闭全局事件总线
