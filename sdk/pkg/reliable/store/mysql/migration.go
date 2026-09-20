@@ -49,33 +49,43 @@ CREATE TABLE IF NOT EXISTS event_consumption (
   updated_at     DATETIME(3) NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uk_event_consumption (event_id, handler_id, item_key),
-  KEY idx_due      (status, next_attempt_at),
   KEY idx_lease    (status, lease_expires_at),
+  -- §16.12 索引合并（2026-09-15）：将 5 个 status 前导索引合并为 3 个，减少写放大。
+  -- MySQL 无 partial index，PROCESSING 行会进入所有 status 前导索引，而 idx_due/idx_unresolved/
+  -- idx_retention 的消费者从不查询 PROCESSING 行——纯死重写放大（PG 侧用 partial index 规避）。
+  --
+  -- Tier 1 合并：idx_ops + idx_retention → idx_ops (status, first_seen_at, updated_at)
+  --   DeleteSettledBefore (status='SUCCEEDED' AND updated_at<?)：updated_at 是第 3 列，
+  --   无法 range 但索引覆盖（index-only scan on SUCCEEDED range）。List/Count 同级。
+  --
+  -- Tier 2 合并：idx_due + idx_unresolved → idx_replay (status, next_attempt_at, handler_id, first_seen_at)
+  --   FindEligibleHeads (status='RETRY_SCHEDULED' AND next_attempt_at<=? ORDER BY next_attempt_at)：
+  --   前两列完美 range + 无 filesort，与原 idx_due 等价。
+  --   RetryAgeSeconds/PendingCounts (GROUP BY handler_id)：覆盖扫描，丢失松散索引扫描
+  --   （handler_id 降至第 3 列），退化为覆盖扫描 + 临时表聚合。30s 探针，绝对开销毫秒级。
+  --
+  -- 合并后：INSERT 写 4 个索引项（3 status 前导 + idx_aggregate），
+  -- UPDATE status→SUCCEEDED 触及 6 次（3 棵树 × 删+插），约 -40% 写放大。
+  --
+  -- 仅随 CREATE TABLE 生效（本迁移无 ALTER 机制，review OV⑧b）。
+  --
   -- 附录 Z（jxt-benchmark/docs/analysis/HTTP多租户并发上传-死锁风暴与分区阻塞
   -- 根因分析_20260823 - v1.md，Z.4/Z.6，2026-09-01 内核侧落地）：
   --   1. idx_handler (handler_id, status) 不建——原 KEY 行整行移除。零专属消费者
-  --      （探针全部 status 打头走 idx_unresolved；opsvc List/Stats 走 idx_ops；
+  --      （探针全部 status 打头走 idx_replay；opsvc List/Stats 走 idx_ops；
   --      handler 定位由 uk_event_consumption 覆盖），且是 2026-08-23 死锁风暴 dump
-  --      里 T2 手持 29 把锁的检索路径；状态迁移的二级索引维护 7 → 6（约 -14%）。
-  --   2. idx_ops 去前导 tenant_id（3 列 → 2 列）——一库一租户下基数为 1（opsprobe
-  --      明确「正确性依赖一库一租户」），前导常量列纯属写放大浪费；opsvc 的 tenant
-  --      等值退化为常量过滤，(status, first_seen_at) 保住 status 等值 + 时间区间的
-  --      干净 range。
-  KEY idx_ops      (status, first_seen_at),
+  --      里 T2 手持 29 把锁的检索路径；状态迁移的二级索引维护 7 → 6 → 5 → 3（约 -57%）。
+  --   2. idx_ops 去前导 tenant_id（3 列 → 2 列 → 3 列含 updated_at）——一库一租户下基数为 1
+  --      （opsprobe 明确「正确性依赖一库一租户」），前导常量列纯属写放大浪费；opsvc 的 tenant
+  --      等值退化为常量过滤，(status, first_seen_at, updated_at) 保住 status 等值 + 时间区间的
+  --      干净 range + DeleteSettledBefore 的 index-only scan。
+  KEY idx_ops      (status, first_seen_at, updated_at),
   -- PR-7 opsprobe（review D7=6A）：RetryAgeSeconds/PendingCounts/FrozenAggregates 外层过滤均为
   -- 「未解决两态」，无索引则每 30s 探针全表扫。MySQL 无 partial index → 普通复合；两态行罕见，索引小。
-  -- 列序 (status,handler_id,first_seen_at)：status 等值打头，(handler_id,first_seen_at) 支撑
-  -- GROUP BY handler_id + MIN(first_seen_at) 的覆盖扫描。仅随 CREATE TABLE 生效（本迁移无 ALTER 机制，
-  -- review OV⑧b）：存量 MySQL 库由 evidence 侧迁移补建（command/cmd/migrate/migration/version/
-  -- 2026082300002_add_idx_unresolved.go，information_schema 存在性守卫——MySQL 索引无 IF NOT EXISTS。
-  -- ⚠ 该 evidence 侧文件为 PR-7 服务侧待落地交付物，内核合入时尚未创建）。
-  KEY idx_unresolved (status, handler_id, first_seen_at),
-  -- PR-7 §10 保留清理（review 终评 #4）：DeleteSettledBefore 的 DELETE 谓词是
-  -- (status='SUCCEEDED' AND updated_at<?) OR (status='DISCARDED' AND updated_at<?)——无含
-  -- updated_at 的索引则每次保留清理全表扫。列序 status 打头：OR 两态在该复合上解析为两个
-  -- 干净的 range 区间。仅随 CREATE TABLE 生效（OV⑧b 同缺口）；存量库由 evidence 侧迁移与
-  -- 2026082300002 同文件补建（同为待落地交付物）。
-  KEY idx_retention (status, updated_at),
+  -- §16.12 合并 idx_due + idx_unresolved → idx_replay：
+  -- (status, next_attempt_at, handler_id, first_seen_at) 同时服务 FindEligibleHeads
+  -- （status + next_attempt_at range + ORDER BY）和 opsprobe（status eq + handler_id 覆盖扫描）。
+  KEY idx_replay   (status, next_attempt_at, handler_id, first_seen_at),
   -- D22：尾部加 first_seen_at——FindEligibleHeads 的 NOT EXISTS 在事件不带 causal_seq 时按 first_seen_at
   -- 比较（准入 ⑩），无此列则子查询逐行回表，10K 行规模下退化为 O(N²)。
   -- 附录 Z Tier 3：去前导 tenant_id（8 列 → 7 列）——一库一租户下基数为 1，前导常量列

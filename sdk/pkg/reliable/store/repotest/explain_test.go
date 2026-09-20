@@ -77,7 +77,8 @@ func seedExplainRows(t *testing.T, db *gorm.DB) {
 	}
 }
 
-// assertMySQLUsesIndex：EXPLAIN FORMAT=JSON 断言 access_type != ALL 且用了 idx_due。
+// assertMySQLUsesIndex：EXPLAIN FORMAT=JSON 断言 access_type != ALL 且用了 idx_replay。
+// §16.12 索引合并后 idx_due → idx_replay (status, next_attempt_at, handler_id, first_seen_at)。
 func assertMySQLUsesIndex(t *testing.T, db *gorm.DB, now time.Time) {
 	t.Helper()
 	var plan string
@@ -85,7 +86,7 @@ func assertMySQLUsesIndex(t *testing.T, db *gorm.DB, now time.Time) {
 	var parsed map[string]any
 	require.NoError(t, json.Unmarshal([]byte(plan), &parsed), "EXPLAIN JSON must parse")
 	assert.NotContains(t, plan, `"access_type": "ALL"`, "D22: eligible-head query must not full-scan event_consumption")
-	assert.Contains(t, plan, "idx_due", "D22: outer query must use idx_due")
+	assert.Contains(t, plan, "idx_replay", "D22: outer query must use idx_replay (§16.12 合并后 idx_due → idx_replay)")
 	assert.Contains(t, plan, "idx_aggregate", "D22: NOT EXISTS subquery must use idx_aggregate")
 }
 

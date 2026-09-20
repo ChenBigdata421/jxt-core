@@ -20,19 +20,24 @@ import (
 //
 // SQL 直接引用 gormshared 导出常量（RetryAgeSecondsSQL / PendingCountsSQL / FrozenAggregatesSQL，
 // 沿 EligibleHeadsSQL 的 D22 先例）：零复制、零漂移——门禁测的必须是线上探针每 30s 真跑的查询。
-// 计划里出现 idx_unresolved 同时证明索引在目录中存在（Task 1 评审遗留：此前无任何断言钉住
-// 索引存在性——双方言各至少一个探针严格断言 idx_unresolved，缺口即闭合）。
+// 计划里出现 idx_replay（MySQL）/ idx_unresolved（PG）同时证明索引在目录中存在（Task 1 评审遗留：此前无任何断言钉住
+// 索引存在性——双方言各至少一个探针严格断言，缺口即闭合）。
 //
 // ——断言校准记录（2026-08-24，10万行实测计划，PR-7 Task 21 report 有完整 EXPLAIN 证据）——
 // brief 原文「三查询都必须命中 idx_unresolved」隐含假设优化器总会选它；实测 6 格中 3 格优化器
 // 选中了等价或更优的索引，属代价模型的正当选择而非退化，逐一校准如下：
-//   - mysql/RetryAgeSeconds  ：ref + using_index（覆盖扫描）on idx_unresolved —— 严格断言。
-//   - mysql/PendingCounts    ：range on idx_unresolved —— 严格断言。
-//   - mysql/FrozenAggregates ：外层 e 选 idx_due（同为 status 打头，ref，非 ALL）——D22 字面量
+//   - mysql/RetryAgeSeconds  ：ref + using_index（覆盖扫描）on idx_replay —— 严格断言。
+//   - mysql/PendingCounts    ：range on idx_replay —— 严格断言。
+//   - mysql/FrozenAggregates ：外层 e 选 idx_replay（同为 status 打头，ref，非 ALL）——D22 字面量
 //     纪律的证据等价（status 常量前缀）；EXISTS 内层 c 走 idx_aggregate（ref，semi-join
 //     first_match），与 TestExplainEligibleHeads 对 NOT EXISTS 的断言同级。
-//     终评修正：ref/range access 断言对 idx_unresolved 与 idx_due **镜像生效**——外层走哪个
+//     终评修正：ref/range access 断言对 idx_replay **镜像生效**——外层走哪个
 //     索引都不得退化成 access_type:"index"（全索引扫）或 ALL。
+//
+// —— 2026-09-15 §16.12 索引合并校准 ——
+// idx_due + idx_unresolved 合并为 idx_replay (status, next_attempt_at, handler_id, first_seen_at)。
+// RetryAgeSeconds/PendingCounts 的 GROUP BY handler_id 从松散索引扫描退化为覆盖扫描 + 临时表
+// 聚合（handler_id 降至第 3 列）；绝对开销毫秒级（30s 探针，未解决两态 ~2% 行）。
 //   - postgres/RetryAgeSeconds：Index Scan on idx_due——partial 谓词 status='RETRY_SCHEDULED'
 //     蕴含查询谓词，索引更小更优；断言「索引扫描且索引的 partial 谓词蕴含查询」（idx_due 或
 //     idx_unresolved 任一），不断言具体哪个。
@@ -244,27 +249,21 @@ func assertMySQLOpsPlan(t *testing.T, db *gorm.DB, p opsProbe) {
 	walk(parsed)
 	assert.Empty(t, allScans, "D7=6A: %s must not full-scan event_consumption (30s 探针 × 全表扫 = 灾难)", p.name)
 	if p.requireUnresolved && p.name != "FrozenAggregates" {
-		// 严格格（实测稳定）：mysql RetryAge=ref、PendingCounts=range 都在 idx_unresolved 上。
-		assert.True(t, hitIdx["idx_unresolved"],
-			"D7=6A: %s must use idx_unresolved (出现即同时证明索引在目录中存在——Task 1 评审遗留缺口)", p.name)
+		// §16.12 合并后：idx_unresolved → idx_replay。严格格（实测稳定）：mysql RetryAge=ref、
+		// PendingCounts=range 都在 idx_replay 上（status 打头，覆盖扫描含 handler_id + first_seen_at）。
+		assert.True(t, hitIdx["idx_replay"],
+			"D7=6A: %s must use idx_replay (出现即同时证明索引在目录中存在——Task 1 评审遗留缺口)", p.name)
 	}
-	if hitIdx["idx_unresolved"] {
-		assert.Contains(t, []string{"ref", "range"}, accessByIdx["idx_unresolved"],
-			"D7=6A: %s 若命中 idx_unresolved 则 access 必须是 ref/range，实得 %q", p.name, accessByIdx["idx_unresolved"])
-	}
-	// 终评修正（access 断言洞）：上面只盯 idx_unresolved，而 FrozenAggregates 外层实测走
-	// idx_due（校准格）——若在 idx_due 上退化成 access_type:"index"（全索引扫），旧断言会放行。
-	// 镜像补上：任一 status 打头的索引（idx_unresolved / idx_due）承载扫描，access 必须 ref/range。
-	if hitIdx["idx_due"] {
-		assert.Contains(t, []string{"ref", "range"}, accessByIdx["idx_due"],
-			"D7=6A: %s 若命中 idx_due 则 access 必须是 ref/range（全索引扫同属退化），实得 %q", p.name, accessByIdx["idx_due"])
+	if hitIdx["idx_replay"] {
+		assert.Contains(t, []string{"ref", "range"}, accessByIdx["idx_replay"],
+			"D7=6A: %s 若命中 idx_replay 则 access 必须是 ref/range，实得 %q", p.name, accessByIdx["idx_replay"])
 	}
 	if p.requireUnresolved && p.name == "FrozenAggregates" {
-		// 校准格（见文件头）：外层 e 实测选 idx_due（status 常量打头，同为 D22 字面量纪律的
-		// 证据）；不断言 idx_unresolved 具体胜出，但**必须**有 status 打头的索引承载外层。
-		outerIndexed := hitIdx["idx_unresolved"] || hitIdx["idx_due"]
+		// 校准格（见文件头）：外层 e 实测选 idx_replay（status 常量打头，同为 D22 字面量纪律的
+		// 证据）；不断言具体胜出，但**必须**有 status 打头的索引承载外层。
+		outerIndexed := hitIdx["idx_replay"] || hitIdx["idx_ops"]
 		assert.True(t, outerIndexed,
-			"D7=6A: FrozenAggregates 外层必须由 status 打头的索引承载（idx_unresolved/idx_due 任一）")
+			"D7=6A: FrozenAggregates 外层必须由 status 打头的索引承载（idx_replay/idx_ops 任一）")
 	}
 	if p.requireIdxAggregate {
 		assert.True(t, hitIdx["idx_aggregate"],

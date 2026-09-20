@@ -88,7 +88,8 @@ func RecoverExpiredProcessing(ctx context.Context, db *gorm.DB, now time.Time, s
 
 // DeleteSettledBefore 保留策略清理（§10）：SUCCEEDED 按 succeededBefore、DISCARDED 按
 // discardedBefore。DEAD_LETTER 永不自动清理；RETRY_SCHEDULED/PROCESSING 不在清理范围。
-// 索引（终评 #4）：MySQL idx_retention(status,updated_at) / PG 两条 partial
+// 索引（终评 #4 + §16.12）：MySQL idx_ops(status,first_seen_at,updated_at)（Tier 1 合并，
+// updated_at 是第 3 列，index-only scan on SUCCEEDED/DISCARDED range）/ PG 两条 partial
 // idx_retention_*（updated_at WHERE status=...）——无索引则每次清理全表扫；单条无界
 // DELETE 的批量化（MVCC 膨胀/复制延迟）留待服务侧 sweep 按需分批，本内核函数语义保持简单。
 // ⚠ 幂等台账语义：本删除会移除已终结消费行——被删事件若被 broker 重投，TryClaim 视为
