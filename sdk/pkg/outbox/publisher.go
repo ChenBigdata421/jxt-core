@@ -10,7 +10,7 @@ import (
 // ackMarkFlushTimeout is the per-flush/per-event timeout for marking outbox events
 // as Published (MarkBatchAsPublished / MarkAsPublished). Used in ack_marker_batcher
 // flush() and publisher handleACKResult's per-event fallback.
-const ackMarkFlushTimeout = 5 * time.Second
+const ackMarkFlushTimeout = 10 * time.Second
 
 // Default ACK-batching constants (single source of truth for the defaults that
 // appear both in DefaultPublisherConfig and in newAckMarkerBatcher's clamp).
